@@ -51,7 +51,7 @@ describe('latestVersionOf', () => {
 describe('openDatabase', () => {
   it('creates the latest schema on a fresh install', async () => {
     const db = await openDatabase({ name: 'fresh', logger: silentLogger });
-    expect([...db.objectStoreNames]).toEqual(['assets']);
+    expect([...db.objectStoreNames]).toEqual(['assets', 'captures']);
     db.close();
   });
 

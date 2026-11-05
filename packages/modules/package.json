@@ -1,0 +1,29 @@
+{
+  "name": "@redline/modules",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./descriptors": "./src/descriptors.ts",
+    "./collectors": "./src/collectors.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@redline/capture": "workspace:*",
+    "@redline/core": "workspace:*",
+    "@redline/dom": "workspace:*",
+    "@redline/geometry": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@redline/profiles": "workspace:*",
+    "@redline/render": "workspace:*",
+    "@vitest/browser-playwright": "4.1.12",
+    "playwright": "1.63.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
+}

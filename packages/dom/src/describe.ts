@@ -23,15 +23,19 @@ export const describeElement = (element: Element): string => {
 const MAX_CHILD_TAGS = 8;
 
 /**
- * Structure fingerprint used to group repeated siblings (cards, list items):
- * tag, authored classes, and the tags of the first children.
+ * Fingerprint of "the same component" used to group repeated siblings (cards, list items).
+ * Authored identity (tag, test id, classes) decides when present, so instances with
+ * conditional content (a badge on one card) still group; bare elements fall back to the
+ * tags of their first children.
  */
 export const structuralSignature = (dom: DomQuery, element: Element): string => {
   const classes = semanticClasses(element).sort().join('.');
+  const testId = element.getAttribute('data-testid') ?? '';
+  if (classes !== '' || testId !== '') return `${element.localName}[${testId}].${classes}`;
   const childTags = dom
     .childrenOf(element)
     .slice(0, MAX_CHILD_TAGS)
     .map((child) => child.localName)
     .join(',');
-  return `${element.localName}.${classes}>${childTags}`;
+  return `${element.localName}>${childTags}`;
 };

@@ -1,16 +1,32 @@
+import { FragmentCatalog, SerialRateLimiter } from '@redline/core';
+import { fragmentDescriptors } from '@redline/modules/descriptors';
 import { EventPublisher, RpcServer, events, protocol, type Unsubscribe } from '@redline/rpc';
 import { browser, type Browser } from 'wxt/browser';
 import { BadgeNotice } from '../adapters/capture/badge-notice';
 import { scriptingInjector } from '../adapters/capture/scripting-injector';
 import { RpcTabCaptureClient } from '../adapters/capture/tab-capture-client';
+import { VisibleTabCapturer } from '../adapters/capture/visible-tab-capturer';
+import { DatabaseConnection, openDatabase } from '../adapters/idb/database';
+import { IdbAssetStore } from '../adapters/idb/idb-asset-store';
+import { IdbCaptureRepository } from '../adapters/idb/idb-capture-repository';
+import { offscreenImageDeriver } from '../adapters/images/offscreen-image-deriver';
 import { RuntimeEventSink } from '../adapters/messaging/runtime-events';
 import { RuntimeServerTransport } from '../adapters/messaging/runtime-server-transport';
 import { ConsoleLogger } from '../adapters/system/console-logger';
 import { systemClock } from '../adapters/system/system-clock';
 import { uuidIdGenerator } from '../adapters/system/uuid-id-generator';
+import { CommitStep, DeriveImage, TakeSnapshot } from '../application/capture/capture-assets';
 import { createCaptureHandlers } from '../application/capture/capture-handlers';
 import { StartCapture } from '../application/capture/start-capture';
 import { createSystemHandlers } from '../application/system/system-handlers';
+
+/** `tabs.captureVisibleTab` allows two calls per second; keep a margin. */
+const CAPTURE_INTERVAL_MS = 550;
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 /** Manifest command and context menu item that start capture on the current page. */
 export const START_CAPTURE = 'start-capture';
@@ -24,6 +40,8 @@ export const createBackgroundContainer = () => {
   const version = browser.runtime.getManifest().version;
   const publisher = new EventPublisher(events, new RuntimeEventSink(logger.child('events')));
   const notice = new BadgeNotice(logger.child('notice'));
+  const database = new DatabaseConnection(() => openDatabase({ logger: logger.child('db') }));
+  const assets = new IdbAssetStore(database, uuidIdGenerator, systemClock);
 
   const startCapture = new StartCapture({
     injector: scriptingInjector,
@@ -41,7 +59,22 @@ export const createBackgroundContainer = () => {
         events: publisher,
         logger: logger.child('system'),
       }),
-      ...createCaptureHandlers(startCapture),
+      ...createCaptureHandlers({
+        startCapture,
+        takeSnapshot: new TakeSnapshot(
+          new VisibleTabCapturer(new SerialRateLimiter(CAPTURE_INTERVAL_MS, systemClock, sleep)),
+          assets,
+        ),
+        deriveImage: new DeriveImage(offscreenImageDeriver, assets),
+        commitStep: new CommitStep({
+          catalog: new FragmentCatalog(fragmentDescriptors),
+          repository: new IdbCaptureRepository(database),
+          events: publisher,
+          ids: uuidIdGenerator,
+          clock: systemClock,
+          logger: logger.child('steps'),
+        }),
+      }),
     },
     logger.child('rpc'),
   );

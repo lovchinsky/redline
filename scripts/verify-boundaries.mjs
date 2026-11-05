@@ -50,6 +50,24 @@ const probes = [
     expectRule: 'no-restricted-imports',
   },
   {
+    name: 'a context module must not import another module',
+    file: 'packages/modules/src/anchors/__boundary_probe__.ts',
+    code: "import { layoutCollector } from '../layout/collector';\nexport const probe = layoutCollector;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'the capture engine must not depend on context modules',
+    file: 'packages/capture/src/__boundary_probe__.ts',
+    code: "import { regionCollector } from '../../modules/src/region/collector';\nexport const probe = regionCollector;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'control: the module catalog may list modules',
+    file: 'packages/modules/src/__boundary_probe__.ts',
+    code: "import { layoutCollector } from './layout/collector';\nexport const probe = layoutCollector;\n",
+    expectRule: null,
+  },
+  {
     name: 'control: adapters may depend on core',
     file: 'apps/extension/src/adapters/__boundary_probe__.ts',
     code: "import { ok } from '@redline/core';\nexport const probe = ok(1);\n",

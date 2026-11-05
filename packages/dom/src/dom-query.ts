@@ -12,7 +12,7 @@ export interface DomQuery {
   isVisible(element: Element): boolean;
   /** Flat-tree parent: the slot for slotted elements, the host for shadow root children. */
   parentOf(element: Element): Element | null;
-  /** Flat-tree children: shadow content for open hosts, assigned elements for slots. */
+  /** Flat-tree children (shadow content for open hosts, assigned elements for slots), never ignored ones. */
   childrenOf(element: Element): readonly Element[];
   /** Whether the element's own text (not its children's) is rendered at any of the points. */
   hasOwnTextAt(element: Element, points: readonly Point[]): boolean;
@@ -63,9 +63,11 @@ export class DocumentDomQuery implements DomQuery {
   }
 
   childrenOf(element: Element): readonly Element[] {
-    if (element instanceof HTMLSlotElement) return element.assignedElements({ flatten: true });
-    const source = element.shadowRoot ?? element;
-    return Array.from(source.children);
+    const children =
+      element instanceof HTMLSlotElement
+        ? element.assignedElements({ flatten: true })
+        : Array.from((element.shadowRoot ?? element).children);
+    return children.filter((child) => !this.isIgnored(child));
   }
 
   hasOwnTextAt(element: Element, points: readonly Point[]): boolean {

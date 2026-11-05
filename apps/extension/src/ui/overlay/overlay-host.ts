@@ -42,6 +42,11 @@ export class OverlayHost {
     this.canvas.dataset['drawing'] = String(enabled);
   }
 
+  /** Hides the whole overlay, e.g. so a screenshot shows the page without it. */
+  setVisible(visible: boolean): void {
+    this.host.style.setProperty('visibility', visible ? 'visible' : 'hidden', 'important');
+  }
+
   /** Keeps keyboard and pointer events from the overlay away from page handlers. */
   isolateEvents(types: readonly string[]): () => void {
     const stop = (event: Event) => {

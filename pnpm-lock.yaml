@@ -44,6 +44,9 @@ importers:
 
   apps/extension:
     dependencies:
+      '@redline/capture':
+        specifier: workspace:*
+        version: link:../../packages/capture
       '@redline/contract':
         specifier: workspace:*
         version: link:../../packages/contract
@@ -56,6 +59,12 @@ importers:
       '@redline/geometry':
         specifier: workspace:*
         version: link:../../packages/geometry
+      '@redline/modules':
+        specifier: workspace:*
+        version: link:../../packages/modules
+      '@redline/profiles':
+        specifier: workspace:*
+        version: link:../../packages/profiles
       '@redline/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
@@ -90,6 +99,28 @@ importers:
       wxt:
         specifier: 0.21.4
         version: 0.21.4(eslint@10.13.0(jiti@2.7.0))(rolldown@1.2.16)(typescript@5.9.3)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0))
+
+  packages/capture:
+    dependencies:
+      '@redline/core':
+        specifier: workspace:*
+        version: link:../core
+      '@redline/dom':
+        specifier: workspace:*
+        version: link:../dom
+      '@redline/geometry':
+        specifier: workspace:*
+        version: link:../geometry
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.12
+        version: 4.1.12(@types/node@22.20.5)(@vitest/browser-playwright@4.1.12)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0))
 
   packages/contract:
     dependencies:
@@ -144,6 +175,72 @@ importers:
       vitest:
         specifier: 4.1.12
         version: 4.1.12(@types/node@22.20.5)(@vitest/browser-playwright@4.1.12)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0))
+
+  packages/modules:
+    dependencies:
+      '@redline/capture':
+        specifier: workspace:*
+        version: link:../capture
+      '@redline/core':
+        specifier: workspace:*
+        version: link:../core
+      '@redline/dom':
+        specifier: workspace:*
+        version: link:../dom
+      '@redline/geometry':
+        specifier: workspace:*
+        version: link:../geometry
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@redline/profiles':
+        specifier: workspace:*
+        version: link:../profiles
+      '@redline/render':
+        specifier: workspace:*
+        version: link:../render
+      '@vitest/browser-playwright':
+        specifier: 4.1.12
+        version: 4.1.12(playwright@1.63.0)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0))(vitest@4.1.12)
+      playwright:
+        specifier: 1.63.0
+        version: 1.63.0
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.12
+        version: 4.1.12(@types/node@22.20.5)(@vitest/browser-playwright@4.1.12)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0))
+
+  packages/profiles:
+    dependencies:
+      '@redline/capture':
+        specifier: workspace:*
+        version: link:../capture
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/render:
+    dependencies:
+      '@redline/contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@redline/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.12
+        version: 4.1.12(@types/node@22.20.5)(@vitest/browser-playwright@4.1.12)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0))
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   packages/rpc:
     dependencies:

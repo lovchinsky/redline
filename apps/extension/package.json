@@ -12,10 +12,13 @@
     "test:e2e": "wxt build && wxt build --mode e2e && playwright test"
   },
   "dependencies": {
+    "@redline/capture": "workspace:*",
     "@redline/contract": "workspace:*",
     "@redline/core": "workspace:*",
     "@redline/dom": "workspace:*",
     "@redline/geometry": "workspace:*",
+    "@redline/modules": "workspace:*",
+    "@redline/profiles": "workspace:*",
     "@redline/rpc": "workspace:*",
     "idb": "8.0.4",
     "preact": "10.29.8",

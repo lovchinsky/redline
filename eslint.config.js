@@ -15,7 +15,9 @@ const elements = [
   { type: 'contract', pattern: 'packages/contract' },
   { type: 'geometry', pattern: 'packages/geometry' },
   { type: 'dom', pattern: 'packages/dom' },
-  { type: 'context-module', pattern: 'packages/modules/*', capture: ['moduleName'] },
+  { type: 'context-module', pattern: 'packages/modules/src/*', capture: ['moduleName'] },
+  { type: 'module-catalog', pattern: 'packages/modules/src' },
+  { type: 'capture', pattern: 'packages/capture' },
   { type: 'processor', pattern: 'packages/processors' },
   { type: 'render', pattern: 'packages/render' },
   { type: 'profiles', pattern: 'packages/profiles' },
@@ -41,7 +43,7 @@ const dependencyPolicies = [
     // A context module may use its own files, but never another module.
     from: { element: { type: 'context-module' } },
     allow: [
-      to(['core', 'geometry', 'dom']),
+      to(['core', 'geometry', 'dom', 'capture']),
       {
         to: {
           element: {
@@ -52,24 +54,39 @@ const dependencyPolicies = [
       },
     ],
   },
+  // The catalogs only list modules; modules never import each other.
+  {
+    from: { element: { type: 'module-catalog' } },
+    allow: to(['context-module', 'core', 'capture']),
+  },
+  { from: { element: { type: 'capture' } }, allow: to(['capture', 'core', 'dom', 'geometry']) },
   { from: { element: { type: 'processor' } }, allow: to(['processor', 'core']) },
-  { from: { element: { type: 'render' } }, allow: to(['render', 'core']) },
-  { from: { element: { type: 'profiles' } }, allow: to(['profiles', 'core']) },
+  { from: { element: { type: 'render' } }, allow: to(['render', 'core', 'contract']) },
+  { from: { element: { type: 'profiles' } }, allow: to(['profiles', 'capture']) },
   { from: { element: { type: 'page-runtime' } }, allow: to(['page-runtime', 'contract']) },
   { from: { element: { type: 'rpc' } }, allow: to(['rpc', 'core']) },
   // Ports are the application's contracts with the platform: adapters implement them.
-  { from: { element: { type: 'ext-ports' } }, allow: to(['ext-ports', 'core', 'rpc']) },
+  { from: { element: { type: 'ext-ports' } }, allow: to(['ext-ports', 'core', 'rpc', 'capture']) },
   {
     from: { element: { type: 'ext-application' } },
-    allow: to(['ext-application', 'ext-ports', 'core', 'rpc', 'contract']),
+    allow: to(['ext-application', 'ext-ports', 'core', 'rpc', 'contract', 'capture']),
   },
   {
     from: { element: { type: 'ext-adapter' } },
-    allow: to(['ext-adapter', 'ext-ports', 'core', 'rpc', 'contract']),
+    allow: to([
+      'ext-adapter',
+      'ext-ports',
+      'core',
+      'rpc',
+      'contract',
+      'capture',
+      'geometry',
+      'dom',
+    ]),
   },
   {
     from: { element: { type: 'ext-ui' } },
-    allow: to(['ext-ui', 'core', 'rpc', 'geometry', 'dom']),
+    allow: to(['ext-ui', 'ext-ports', 'core', 'rpc', 'geometry', 'dom', 'capture']),
   },
   {
     from: { element: { type: 'ext-composition' } },
@@ -105,7 +122,8 @@ export default defineConfig(
   },
   {
     files: ['packages/**/*.{ts,tsx}', 'apps/extension/src/**/*.{ts,tsx}'],
-    ignores: ['**/*.test.ts', '**/*.test.tsx'],
+    // Tests and tool configuration are not part of the architecture.
+    ignores: ['**/*.test.ts', '**/*.test.tsx', '**/vitest.config.ts'],
     plugins: { boundaries },
     settings: {
       'boundaries/elements': elements,

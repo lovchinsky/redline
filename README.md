@@ -7,19 +7,23 @@
 
 ## Структура
 
-| Шлях                             | Роль                                                                          |
-| -------------------------------- | ----------------------------------------------------------------------------- |
-| `packages/core`                  | Result, AppError, ids, схеми, порти. Без браузерних API                       |
-| `packages/contract`              | Контракт з отримувачем: `bundle.v1`, `receiver-api.v1`                        |
-| `packages/rpc`                   | Типізований RPC і події між контекстами розширення, протокол застосунку       |
-| `packages/geometry`              | Полігони, спрощення й згладжування ліній, вибірка точок, покриття             |
-| `packages/dom`                   | Запити до DOM з урахуванням shadow DOM, `EnclosureResolver`: що саме обведено |
-| `apps/extension/src/ports`       | Контракти, які сценарії вимагають від платформи; реалізуються адаптерами      |
-| `apps/extension/src/adapters`    | Єдине місце, де живуть `wxt/browser`, IndexedDB, console                      |
-| `apps/extension/src/application` | Обробники сценаріїв; залежать лише від портів                                 |
-| `apps/extension/src/composition` | Composition roots: збирають систему з адаптерів                               |
-| `apps/extension/src/ui`          | Preact UI; отримує сервіси від composition root                               |
-| `apps/extension/src/entrypoints` | Точки входу WXT: лише запускають composition root                             |
+| Шлях                             | Роль                                                                                          |
+| -------------------------------- | --------------------------------------------------------------------------------------------- |
+| `packages/core`                  | Result, AppError, ids, схеми, порти. Без браузерних API                                       |
+| `packages/contract`              | Контракт з отримувачем: `bundle.v1`, `receiver-api.v1`                                        |
+| `packages/rpc`                   | Типізований RPC і події між контекстами розширення, протокол застосунку                       |
+| `packages/geometry`              | Полігони, спрощення й згладжування ліній, вибірка точок, покриття                             |
+| `packages/dom`                   | Запити до DOM з урахуванням shadow DOM, `EnclosureResolver`: що саме обведено                 |
+| `packages/capture`               | Рушій збору контексту: контракт колектора, профілі → план, ізоляція і таймаути                |
+| `packages/modules`               | Модулі контексту: `descriptors` (схема + presenter, будь-де) і `collectors` (лише в сторінці) |
+| `packages/profiles`              | Який контекст збирати для кожного типу правки                                                 |
+| `packages/render`                | `context.md`, детальні файли і пакет за контрактом `bundle.v1`                                |
+| `apps/extension/src/ports`       | Контракти, які сценарії вимагають від платформи; реалізуються адаптерами                      |
+| `apps/extension/src/adapters`    | Єдине місце, де живуть `wxt/browser`, IndexedDB, console                                      |
+| `apps/extension/src/application` | Обробники сценаріїв; залежать лише від портів                                                 |
+| `apps/extension/src/composition` | Composition roots: збирають систему з адаптерів                                               |
+| `apps/extension/src/ui`          | Preact UI; отримує сервіси від composition root                                               |
+| `apps/extension/src/entrypoints` | Точки входу WXT: лише запускають composition root                                             |
 
 Межі між шарами перевіряють ESLint (`eslint-plugin-boundaries`) і dependency-cruiser.
 `pnpm lint:boundaries:selftest` доводить, що правила справді спрацьовують на порушеннях.
@@ -44,4 +48,6 @@ pnpm test:e2e     # збірка + Playwright з завантаженим роз
 
 - Нова залежність між шарами — спершу правило в `eslint.config.js`, потім код.
 - Міграції IndexedDB лише додаються (`apps/extension/src/adapters/idb/schema.ts`).
+- Новий тип контексту — це нова папка в `packages/modules/src` (типи, descriptor, collector) і рядок
+  у `descriptors.ts`, `collectors.ts` та потрібних профілях. Golden-тести показують, як зміниться `context.md`.
 - Нове RPC-повідомлення описується в `packages/rpc/src/protocol.ts`; обробник обов'язковий на рівні типів.

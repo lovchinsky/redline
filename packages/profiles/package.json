@@ -1,0 +1,19 @@
+{
+  "name": "@redline/profiles",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@redline/capture": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

@@ -1,5 +1,5 @@
 import { REQUEST_TYPE } from '@redline/rpc';
-import type { Page } from '@playwright/test';
+import type { Page, Worker } from '@playwright/test';
 import { SITE_ORIGIN, expect, test } from './fixtures';
 import { OverlayProbe } from './overlay-probe';
 
@@ -48,18 +48,66 @@ const drawLassoAround = async (
 
 const pageUrl = `${SITE_ORIGIN}/pricing.html`;
 
-test('circling cards resolves them, and a described step is committed', async ({
+/** Every stored step, read straight from the service worker's database. */
+const storedCaptures = (serviceWorker: Worker) =>
+  serviceWorker.evaluate(
+    () =>
+      new Promise<
+        {
+          step: { intent: string; comment: string; shapeIds: string[] };
+          capture: {
+            fragments: { kind: string; data: unknown; assets: { id: string }[] }[];
+            diagnostics: unknown[];
+          };
+        }[]
+      >((resolve, reject) => {
+        const open = indexedDB.open('redline');
+        open.onerror = () => {
+          reject(new Error('cannot open database'));
+        };
+        open.onsuccess = () => {
+          const request = open.result.transaction('captures').objectStore('captures').getAll();
+          request.onsuccess = () => {
+            resolve(request.result as never);
+          };
+        };
+      }),
+  );
+
+/** Pixel size of a stored image asset, decoded in the service worker. */
+const imageSize = (serviceWorker: Worker, assetId: string) =>
+  serviceWorker.evaluate(
+    (id) =>
+      new Promise<{ width: number; height: number; type: string }>((resolve, reject) => {
+        const open = indexedDB.open('redline');
+        open.onsuccess = () => {
+          const request = open.result.transaction('assets').objectStore('assets').get(id);
+          request.onsuccess = async () => {
+            const { data } = request.result as { data: Blob };
+            const bitmap = await createImageBitmap(data);
+            resolve({ width: bitmap.width, height: bitmap.height, type: data.type });
+          };
+          request.onerror = () => {
+            reject(new Error('missing asset'));
+          };
+        };
+      }),
+    assetId,
+  );
+
+test('circling cards collects context and stores the step with real screenshots', async ({
   context,
   extensionPage,
+  serviceWorker,
 }) => {
   const page = await context.newPage();
   const logs: string[] = [];
   page.on('console', (message) => logs.push(message.text()));
   await page.goto(pageUrl);
+  await page.bringToFront();
 
   const response = await startCapture(extensionPage, pageUrl);
   expect(response).toMatchObject({ result: { ok: true, value: { status: 'started' } } });
-  await page.bringToFront();
   await expect(page.locator('redline-overlay')).toHaveCount(1);
 
   const cards = page.getByTestId('plan-card');
@@ -81,7 +129,28 @@ test('circling cards resolves them, and a described step is committed', async ({
   await probe.click('submit');
 
   await expect(page.locator('redline-overlay')).toHaveCount(0);
-  expect(logs.some((line) => line.includes('[redline:capture] Step captured'))).toBe(true);
+  await expect
+    .poll(() => logs.some((line) => line.includes('[redline:capture] Step captured')))
+    .toBe(true);
+
+  const [stored] = await storedCaptures(serviceWorker);
+  expect(stored?.step).toMatchObject({ intent: 'layout', comment: 'Make the cards equal height' });
+  expect(stored?.capture.diagnostics).toEqual([]);
+  expect(stored?.capture.fragments.map((f) => f.kind).sort()).toEqual([
+    'anchors',
+    'dom-snapshot',
+    'layout',
+    'page-meta',
+    'region',
+    'screenshot',
+  ]);
+  const screenshot = stored?.capture.fragments.find((f) => f.kind === 'screenshot');
+  const [crop, overview] = screenshot?.assets ?? [];
+  if (crop === undefined || overview === undefined) throw new Error('screenshot assets missing');
+  expect(await imageSize(serviceWorker, crop.id)).toMatchObject({ type: 'image/png' });
+  const overviewSize = await imageSize(serviceWorker, overview.id);
+  expect(overviewSize.type).toBe('image/webp');
+  expect(overviewSize.width).toBeGreaterThan(overviewSize.height);
 });
 
 test('submitting without a description keeps the composer open with a hint', async ({

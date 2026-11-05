@@ -1,3 +1,4 @@
+import type { ShapeSubject, StepSubject, ViewportSnapshot } from '@redline/capture';
 import type { AppError, IdGenerator, Logger, Result } from '@redline/core';
 import {
   summarizeRegion,
@@ -24,19 +25,14 @@ import {
   type SceneHighlight,
   type SceneOutline,
 } from './lasso-renderer';
+import type { ViewportSnapshots } from '../../ports/capture';
 import type { OverlayHost } from './overlay-host';
 import { OverlayView } from './OverlayView';
 
-export interface ResolvedShape {
-  readonly shape: CapturedShape;
-  /** Live element references: valid only in this content script, for the pipeline to read. */
+/** What a shape resolved to: live elements (content script only) and the page it was drawn on. */
+interface ShapeResolution {
   readonly region: ResolvedRegion;
-}
-
-export interface ResolvedCapture {
-  readonly comment: CaptureSubmission['comment'];
-  readonly intent: CaptureSubmission['intent'];
-  readonly shapes: readonly ResolvedShape[];
+  readonly snapshot: ViewportSnapshot | null;
 }
 
 export type SessionOutcome = 'committed' | 'cancelled';
@@ -48,8 +44,11 @@ export interface CaptureSessionDeps {
   readonly resolver: RegionResolver;
   readonly ids: IdGenerator;
   readonly logger: Logger;
+  readonly snapshots: ViewportSnapshots;
+  /** Taken before the overlay appeared; reused while the page has not scrolled. */
+  readonly initialSnapshot: ViewportSnapshot | null;
   /** Hands a finished step over for context collection. Failure keeps the composer open. */
-  readonly commit: (capture: ResolvedCapture) => Promise<Result<void, AppError>>;
+  readonly commit: (step: StepSubject) => Promise<Result<unknown, AppError>>;
   readonly config?: MachineConfig;
 }
 
@@ -78,7 +77,10 @@ const ISOLATED_EVENTS = [
  */
 export class CaptureSession {
   private state: CaptureState = initialCaptureState();
-  private readonly regions = new Map<string, ResolvedRegion>();
+  private readonly resolutions = new Map<string, ShapeResolution>();
+  private snapshot: ViewportSnapshot | null;
+  /** Snapshots are taken one at a time: each needs the overlay hidden. */
+  private snapshotQueue: Promise<unknown> = Promise.resolve();
   private readonly queue: CaptureEvent[] = [];
   private dispatching = false;
   private readonly renderer: LassoRenderer;
@@ -90,6 +92,7 @@ export class CaptureSession {
   private readonly outcome = Promise.withResolvers<SessionOutcome>();
 
   constructor(private readonly deps: CaptureSessionDeps) {
+    this.snapshot = deps.initialSnapshot;
     this.renderer = new LassoRenderer(deps.host.canvas, deps.view);
     this.reducedMotion = deps.view.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
@@ -129,7 +132,7 @@ export class CaptureSession {
   private execute(effect: CaptureEffect): void {
     switch (effect.type) {
       case 'resolve-shape':
-        this.resolveShape(effect.shape);
+        void this.resolveShape(effect.shape);
         return;
       case 'commit':
         void this.commit(effect.submission);
@@ -140,14 +143,20 @@ export class CaptureSession {
     }
   }
 
-  private resolveShape(shape: CapturedShape): void {
+  /**
+   * Pairs the shape with a snapshot of the page as drawn, then resolves what it refers to.
+   * The machine keeps the shape pending meanwhile, so a step cannot be committed half-resolved.
+   */
+  private async resolveShape(shape: CapturedShape): Promise<void> {
+    const snapshot = await this.snapshotAt(shape.scroll);
+    if (this.ended) return;
     const polygon =
       shape.source === 'click'
         ? this.pickedBox(shape)
         : shift(shape.polygon, this.offsetFrom(shape.scroll));
     const region = polygon === null ? null : this.deps.resolver.resolve(polygon);
-    if (region === null) this.regions.delete(shape.id);
-    else this.regions.set(shape.id, region);
+    if (region === null) this.resolutions.delete(shape.id);
+    else this.resolutions.set(shape.id, { region, snapshot });
     this.dispatch({
       type: 'shape-resolved',
       shapeId: shape.id,
@@ -165,16 +174,59 @@ export class CaptureSession {
     return element === null ? null : rectPolygon(this.deps.dom.rectOf(element));
   }
 
+  /** Snapshot matching the page at `scroll`: the current one if still valid, else a new one. */
+  private snapshotAt(scroll: Point): Promise<ViewportSnapshot | null> {
+    const next = this.snapshotQueue.then(async () => {
+      const { view } = this.deps;
+      const current = this.snapshot;
+      if (current !== null && showsSameView(current, scroll, view)) return current;
+      const taken = await this.withOverlayHidden(() => this.deps.snapshots.take());
+      if (!taken.ok) {
+        this.deps.logger.warn('Viewport snapshot failed; the step will have no screenshot', {
+          ...taken.error,
+        });
+        return null;
+      }
+      this.snapshot = taken.value;
+      return taken.value;
+    });
+    this.snapshotQueue = next;
+    return next;
+  }
+
+  /** Hides the overlay until the page has painted without it, runs `task`, then restores it. */
+  private async withOverlayHidden<T>(task: () => Promise<T>): Promise<T> {
+    this.deps.host.setVisible(false);
+    try {
+      await afterNextPaint(this.deps.view);
+      return await task();
+    } finally {
+      if (!this.ended) this.deps.host.setVisible(true);
+    }
+  }
+
   private async commit(submission: CaptureSubmission): Promise<void> {
-    const shapes: ResolvedShape[] = [];
+    const shapes: ShapeSubject[] = [];
     for (const shape of submission.shapes) {
-      const region = this.regions.get(shape.id);
-      if (region === undefined) {
+      const resolution = this.resolutions.get(shape.id);
+      if (resolution === undefined) {
         this.deps.logger.error('Submitted shape has no resolved region', { shapeId: shape.id });
         this.dispatch({ type: 'commit-failed' });
         return;
       }
-      shapes.push({ shape, region });
+      const { region, snapshot } = resolution;
+      // Express the outline in the coordinates of the snapshot it will be drawn on.
+      const reference = snapshot?.scroll ?? this.scroll();
+      shapes.push({
+        id: shape.id,
+        source: shape.source,
+        polygon: shift(shape.polygon, {
+          x: shape.scroll.x - reference.x,
+          y: shape.scroll.y - reference.y,
+        }),
+        region,
+        snapshot,
+      });
     }
     const result = await this.deps.commit({
       comment: submission.comment,
@@ -189,7 +241,7 @@ export class CaptureSession {
     const live = new Set(
       this.state.kind === 'closed' ? [] : this.state.shapes.map((e) => e.shape.id),
     );
-    for (const id of this.regions.keys()) if (!live.has(id)) this.regions.delete(id);
+    for (const id of this.resolutions.keys()) if (!live.has(id)) this.resolutions.delete(id);
   }
 
   private listen(): void {
@@ -343,7 +395,7 @@ export class CaptureSession {
 
     const highlights: SceneHighlight[] = [];
     for (const { shape } of state.shapes) {
-      const region = this.regions.get(shape.id);
+      const region = this.resolutions.get(shape.id)?.region;
       if (region === undefined) continue;
       highlights.push({ rect: this.deps.dom.rectOf(region.container), role: 'container' });
       for (const group of region.groups) {
@@ -397,3 +449,23 @@ const shift = (polygon: Polygon, by: Point): Point[] =>
   polygon.map((p) => ({ x: p.x + by.x, y: p.y + by.y }));
 
 const invert = (point: Point): Point => ({ x: -point.x, y: -point.y });
+
+const showsSameView = (snapshot: ViewportSnapshot, scroll: Point, view: Window): boolean =>
+  snapshot.scroll.x === scroll.x &&
+  snapshot.scroll.y === scroll.y &&
+  snapshot.viewport.width === view.innerWidth &&
+  snapshot.viewport.height === view.innerHeight &&
+  snapshot.devicePixelRatio === view.devicePixelRatio;
+
+/**
+ * Resolves after the browser has produced a frame reflecting current DOM changes: the first
+ * animation frame runs before that paint, the second one after it.
+ */
+const afterNextPaint = (view: Window): Promise<void> =>
+  new Promise((resolve) => {
+    view.requestAnimationFrame(() => {
+      view.requestAnimationFrame(() => {
+        resolve();
+      });
+    });
+  });

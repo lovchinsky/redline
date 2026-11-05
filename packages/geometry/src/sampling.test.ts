@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { coverage, samplePolygon, sampleRect } from './sampling';
-import { ellipsePolygon, rectPolygon } from './shapes';
+import { ellipsePolygon, rectPolygon, roundedLassoPolygon } from './shapes';
 import { polygonContains } from './polygon';
 
 describe('sampleRect', () => {
@@ -48,5 +48,14 @@ describe('coverage', () => {
 
   it('is about π/4 for the ellipse inscribed in the rectangle', () => {
     expect(coverage(rect, ellipsePolygon(rect))).toBeCloseTo(Math.PI / 4, 1);
+  });
+});
+
+describe('roundedLassoPolygon', () => {
+  it('fully encloses the rectangle, corners included, without overshooting much', () => {
+    const rect = { x: 100, y: 100, width: 700, height: 200 };
+    const lasso = roundedLassoPolygon(rect, 16);
+    expect(coverage(rect, lasso)).toBe(1);
+    expect(coverage({ x: 100, y: 330, width: 700, height: 40 }, lasso)).toBe(0);
   });
 });
