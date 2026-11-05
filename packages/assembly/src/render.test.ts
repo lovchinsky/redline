@@ -55,14 +55,6 @@ const areaFragment: ErasedFragmentDescriptor = {
             ]),
       ];
     },
-    details: (f) => [
-      {
-        name: 'dom',
-        extension: 'html',
-        mediaType: 'text/html',
-        content: `<p>${(f.data as { label: string }).label}</p>`,
-      },
-    ],
   },
 };
 
@@ -172,6 +164,43 @@ describe('references', () => {
     expect(rendered.warnings).toEqual([]);
   });
 
+  it('says when the original was moved to more-context.md by the budget', () => {
+    const perChar: TokenEstimator = { estimate: (text) => text.length };
+    const longLabel = 'a label long enough that no step budget below can hold it';
+    const { markdown } = renderer({ summaryTokensPerStep: 200 }, perChar).render({
+      steps: [
+        {
+          id: 'step-a',
+          comment: 'Fix it',
+          shapeIds: ['s1'],
+          references: [],
+          fragments: [
+            fragment({
+              target: { level: 'shape', shapeId: 's1' },
+              priority: 'low',
+              data: { label: longLabel.repeat(4) },
+            }),
+          ],
+        },
+        {
+          id: 'step-b',
+          comment: 'Here too',
+          shapeIds: ['s2'],
+          fragments: [],
+          references: [
+            {
+              kind: 'test-area',
+              target: { level: 'shape', shapeId: 's2' },
+              original: { stepId: 'step-a', target: { level: 'shape', shapeId: 's1' } },
+            },
+          ],
+        },
+      ],
+    });
+    expect(markdown).not.toContain(longLabel);
+    expect(markdown).toContain('same as Step 1 · Area 1, in [more-context.md](more-context.md)');
+  });
+
   it('warns about a reference whose original was not rendered', () => {
     const rendered = renderer().render({
       steps: [
@@ -225,13 +254,21 @@ describe('budget', () => {
   };
 
   it('keeps critical and higher-priority blocks, moving the rest to more-context.md', async () => {
-    const rendered = renderer({ summaryTokensPerStep: 60 }, perChar).render(budgeted);
+    const rendered = renderer({ summaryTokensPerStep: 150 }, perChar).render(budgeted);
     await expect(rendered.markdown).toMatchFileSnapshot('./__golden__/budgeted.md');
     const more = rendered.files.find((file) => file.path === 'more-context.md');
     expect(more?.owner).toBeNull();
     await expect(more?.content.kind === 'text' ? more.content.text : '').toMatchFileSnapshot(
       './__golden__/budgeted-more.md',
     );
+  });
+
+  it('keeps what it writes for a step within the step budget, headings and all', () => {
+    for (const budget of [130, 140, 160, 200, 260]) {
+      const { markdown } = renderer({ summaryTokensPerStep: budget }, perChar).render(budgeted);
+      const step = markdown.slice(markdown.indexOf('## Step 1'));
+      expect(step.length, `budget ${String(budget)}`).toBeLessThanOrEqual(budget);
+    }
   });
 
   it('never drops critical blocks, even over budget', () => {
@@ -250,8 +287,8 @@ describe('budget', () => {
     const [only] = budgeted.steps;
     if (only === undefined) throw new Error('Fixture has a step');
     const twice: RenderInput = { steps: [only, { ...only, id: 'step-b' }] };
-    // Each step needs about 40 tokens for what it keeps; together they would exceed 60.
-    const { markdown } = renderer({ summaryTokensPerStep: 60 }, perChar).render(twice);
+    // Each step needs about 140 tokens for what it keeps; together they would exceed 150.
+    const { markdown } = renderer({ summaryTokensPerStep: 150 }, perChar).render(twice);
     const [first = '', second = ''] = markdown.split('## Step 2');
     expect(first).toContain('**Page:** /key');
     expect(second).toContain('**Page:** /key');

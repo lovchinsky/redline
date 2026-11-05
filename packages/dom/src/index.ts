@@ -7,6 +7,7 @@ export type * from './region/types';
 export * from './region/enclosure-resolver';
 export * from './region/summary';
 export * from './region/representatives';
+export * from './region/liveness';
 export * from './serializer';
 export * from './privacy';
 export * from './traversal';

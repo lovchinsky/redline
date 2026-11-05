@@ -2,6 +2,7 @@ import type { ShapeSubject, StepSubject, ViewportSnapshot } from '@redline/captu
 import type { AppError, IdGenerator, Logger, Result } from '@redline/core';
 import {
   describeElement,
+  isRegionLive,
   summarizeRegion,
   type DomQuery,
   type ElementTraversal,
@@ -250,7 +251,8 @@ export class CaptureSession {
         this.dispatch({ type: 'commit-failed' });
         return;
       }
-      const { region, snapshot } = resolution;
+      const { snapshot } = resolution;
+      const region = this.liveRegion(shape, resolution.region);
       // Express the outline in the coordinates of the snapshot it will be drawn on.
       const reference = snapshot?.scroll ?? this.scroll();
       shapes.push({
@@ -270,6 +272,21 @@ export class CaptureSession {
     });
     if (!result.ok) this.deps.logger.error('Committing the step failed', { ...result.error });
     this.dispatch(result.ok ? { type: 'commit-succeeded' } : { type: 'commit-failed' });
+  }
+
+  /**
+   * The region as the page is now. If the page re-rendered since the shape was drawn (the
+   * circled elements were replaced while the user typed), the same outline is resolved again,
+   * so context comes from the elements on screen rather than detached copies.
+   */
+  private liveRegion(shape: CapturedShape, region: ResolvedRegion): ResolvedRegion {
+    if (isRegionLive(region)) return region;
+    const again = this.deps.resolver.resolve(shift(shape.polygon, this.offsetFrom(shape.scroll)));
+    if (again === null) {
+      this.deps.logger.warn('The circled elements left the page', { shapeId: shape.id });
+      return region;
+    }
+    return again;
   }
 
   private pruneRegions(): void {

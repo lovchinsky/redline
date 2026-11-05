@@ -51,13 +51,15 @@ export class BundlePaths {
         });
         return path;
       },
-      // A detail file's name is unique within its area: the same name is the same file.
+      // The same file asked for twice gets one path; another file with the same name gets
+      // a path of its own instead of being lost.
       detail: (file: DetailFile): string => {
         const base = `details/${prefix}/${area}${slug(file.name)}`;
-        const existing = this.detailPaths.get(base);
+        const identity = `${base}\u0000${file.extension}\u0000${file.content}`;
+        const existing = this.detailPaths.get(identity);
         if (existing !== undefined) return existing;
         const path = this.unique(base, file.extension);
-        this.detailPaths.set(base, path);
+        this.detailPaths.set(identity, path);
         this.files.set(path, {
           path,
           mediaType: file.mediaType,

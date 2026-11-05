@@ -249,3 +249,44 @@ test('choosing with the keyboard from the composer starts where the page had foc
   const probe = await OverlayProbe.attach(page);
   await expect.poll(() => probe.text('cursor')).toBe('Елемент: a');
 });
+
+test('a page that re-renders while the user types still gives the context of what is on screen', async ({
+  context,
+  extensionPage,
+  serviceWorker,
+}) => {
+  const page = await context.newPage();
+  await page.goto(pageUrl);
+  await page.bringToFront();
+  await startCapture(extensionPage, pageUrl);
+
+  const card = await page.getByTestId('plan-card').nth(1).boundingBox();
+  if (card === null) throw new Error('fixture cards are not rendered');
+  await drawLassoAround(page, card);
+  const composer = await composerOf(page);
+  await expect(composer.getByTestId('shape-summaries')).toHaveText(
+    'article[data-testid=plan-card]',
+  );
+
+  // A framework re-render: every card is replaced by an identical new node.
+  await page.evaluate(() => {
+    for (const element of document.querySelectorAll('[data-testid=plan-card]')) {
+      element.replaceWith(element.cloneNode(true));
+    }
+  });
+  await composer.getByTestId('comment').fill('Tighten the spacing');
+  await composer.getByTestId('submit').click();
+  await expect(page.locator('redline-overlay')).toHaveCount(0);
+
+  await expect
+    .poll(async () => (await readStore<StoredTask>(serviceWorker, 'tasks')).length)
+    .toBe(1);
+  const [task] = await readStore<StoredTask>(serviceWorker, 'tasks');
+  const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
+    (record) => record.id === task?.steps[0]?.captureId,
+  );
+  const styles = stored?.capture.fragments.find((f) => f.kind === 'computed-styles')?.data as
+    { elements: { styles: Record<string, string> }[] } | undefined;
+  // Read from the live card: a detached one has no computed styles at all.
+  expect(Object.keys(styles?.elements[0]?.styles ?? {}).length).toBeGreaterThan(0);
+});

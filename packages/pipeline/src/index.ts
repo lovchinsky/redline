@@ -38,9 +38,11 @@ export const shippedCapture = (
   const catalog = new FragmentCatalog(fragmentDescriptors);
   return {
     catalog,
-    plan: buildCollectionPlan(collectors, {
-      collectors: captureProfile.collectors.filter((entry) => only(idOf(entry))),
-    }),
+    plan: buildCollectionPlan(
+      collectors,
+      { collectors: captureProfile.collectors.filter((entry) => only(idOf(entry))) },
+      catalog,
+    ),
     engine: new CaptureEngine(catalog, [redactionProcessor], CAPTURE_POLICY, clock),
   };
 };

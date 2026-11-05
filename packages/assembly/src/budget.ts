@@ -1,4 +1,5 @@
 import { PRIORITIES, SECTIONS } from '@redline/core';
+import { SEPARATOR, referenceText, stepFrame } from './framing';
 import type { PresentedBlock, Presentation, PresentedStep } from './presentation';
 
 /** Estimates how many model tokens a text costs. */
@@ -29,9 +30,10 @@ const blocksOf = (step: PresentedStep): PresentedBlock[] => [
 ];
 
 /**
- * Decides which blocks stay in the summary. Per step: the header, the user's comment and
- * critical blocks always stay; the rest are admitted by priority, then section, then document
- * order, while they fit. Steps have separate budgets so one large step cannot crowd out another.
+ * Decides which blocks stay in the summary. Per step: its frame (headings, the user's comment)
+ * and critical blocks always stay; the rest are admitted by priority, then section, then
+ * document order, while they fit. Everything is counted as written, separators included.
+ * Steps have separate budgets so one large step cannot crowd out another.
  */
 export const allocate = (
   presentation: Presentation,
@@ -41,9 +43,16 @@ export const allocate = (
   const overflow = new Set<PresentedBlock>();
   for (const step of presentation.steps) {
     const blocks = blocksOf(step);
-    const cost = (block: PresentedBlock) => estimator.estimate(block.markdown);
+    const written = (text: string) => estimator.estimate(`${text}${SEPARATOR}`);
+    // A pointer is counted at its longest, as if its original had moved.
+    const cost = (block: PresentedBlock) =>
+      written(
+        block.reference === undefined
+          ? block.markdown
+          : referenceText(block.reference.title, block.reference.label, true),
+      );
     let spent =
-      estimator.estimate(step.comment) +
+      stepFrame(step).reduce((sum, part) => sum + written(part), 0) +
       blocks.filter((block) => block.priority === 'critical').reduce((sum, b) => sum + cost(b), 0);
 
     const optional = blocks

@@ -1,4 +1,4 @@
-import { parseWith } from '@redline/core';
+import { parseWith, type FragmentCatalog } from '@redline/core';
 import type { ErasedCollector } from './collector';
 
 /** A collector id, or an id with options for it. */
@@ -23,12 +23,14 @@ export class PlanConfigError extends Error {
 }
 
 /**
- * Resolves a profile into a ready-to-run plan. Every collector id is looked up and its options
- * validated here, so a misconfigured profile fails at start-up, not during a capture.
+ * Resolves a profile into a ready-to-run plan. Every collector id is looked up, its options
+ * validated and the kind it produces checked against the catalog here, so a misconfigured
+ * profile or a module registered by halves fails at start-up, not during every capture.
  */
 export const buildCollectionPlan = (
   collectors: readonly ErasedCollector[],
   profile: CaptureProfile,
+  catalog: Pick<FragmentCatalog, 'get'>,
 ): CollectionPlan => {
   const byId = new Map<string, ErasedCollector>();
   for (const collector of collectors) {
@@ -45,6 +47,11 @@ export const buildCollectionPlan = (
       throw new PlanConfigError(`The profile uses unknown collector "${id}"`);
     }
     if (seen.has(id)) throw new PlanConfigError(`The profile lists "${id}" twice`);
+    if (catalog.get(collector.produces) === undefined) {
+      throw new PlanConfigError(
+        `Collector "${id}" produces "${collector.produces}", which has no fragment descriptor`,
+      );
+    }
     seen.add(id);
     const options = parseWith(collector.optionsSchema, rawOptions);
     if (!options.ok) {

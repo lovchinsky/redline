@@ -90,7 +90,7 @@ const stepCollector = (
 const profile = (ids: string[]): CaptureProfile => ({ collectors: ids });
 
 const runWithReport = async (collectors: ErasedCollector[], timeoutMs = 200) => {
-  const plan = buildCollectionPlan(collectors, profile(collectors.map((c) => c.id)));
+  const plan = buildCollectionPlan(collectors, profile(collectors.map((c) => c.id)), catalog);
   let now = 0;
   // Every reading of the clock advances it, so durations are positive.
   const clock = { now: () => (now += 5) };
@@ -231,9 +231,11 @@ describe('buildCollectionPlan', () => {
   };
 
   it('resolves options for every profile entry', () => {
-    const plan = buildCollectionPlan([echo, limited], {
-      collectors: ['echo', ['limited', { limit: 3 }]],
-    });
+    const plan = buildCollectionPlan(
+      [echo, limited],
+      { collectors: ['echo', ['limited', { limit: 3 }]] },
+      catalog,
+    );
     expect(plan.invocations.map((i) => [i.collector.id, i.options])).toEqual([
       ['echo', undefined],
       ['limited', { limit: 3 }],
@@ -245,10 +247,15 @@ describe('buildCollectionPlan', () => {
     ['invalid options', [echo, limited], profile(['limited'])],
     ['a duplicated collector id', [echo, echo], profile(['echo'])],
     ['a collector listed twice', [echo], profile(['echo', 'echo'])],
+    [
+      'a collector whose fragment kind has no descriptor',
+      [{ ...echo, produces: 'unregistered' }],
+      profile(['echo']),
+    ],
   ] as [string, ErasedCollector[], CaptureProfile][])(
     'fails at start-up on %s',
     (_, collectors, config) => {
-      expect(() => buildCollectionPlan(collectors, config)).toThrow(PlanConfigError);
+      expect(() => buildCollectionPlan(collectors, config, catalog)).toThrow(PlanConfigError);
     },
   );
 

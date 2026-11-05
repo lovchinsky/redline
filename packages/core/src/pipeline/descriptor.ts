@@ -32,14 +32,16 @@ export interface DetailFile {
 export interface RenderContext {
   /** Bundle path for an asset; `role` makes the file name readable (e.g. `crop`). */
   assetPath(asset: AssetRef, role: string): string;
-  /** Bundle path a detail file will be written to. */
+  /**
+   * Adds a detail file to the bundle and returns its path: the one way a presenter ships a
+   * file, so every file it ships is one its Markdown links to.
+   */
   detailPath(file: DetailFile): string;
 }
 
 /** Turns one fragment kind into Markdown for `context.md` and optional detail files. */
 export interface FragmentPresenter<K extends FragmentKind> {
   summarize(fragment: Fragment<K>, context: RenderContext): readonly MarkdownBlock[];
-  details?(fragment: Fragment<K>): readonly DetailFile[];
   /** An image that stands for the fragment in lists, e.g. a step's thumbnail. */
   thumbnail?(fragment: Fragment<K>): AssetRef | null;
 }
@@ -76,7 +78,6 @@ export interface ErasedFragmentDescriptor {
   readonly migrations: readonly FragmentMigration[];
   readonly presenter: {
     summarize(fragment: FragmentBase, context: RenderContext): readonly MarkdownBlock[];
-    details?(fragment: FragmentBase): readonly DetailFile[];
     thumbnail?(fragment: FragmentBase): AssetRef | null;
   };
 }

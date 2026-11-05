@@ -70,4 +70,24 @@ describe('ElementTraversal', () => {
     const { page, traversal } = setUp();
     expect(traversal.next(page.get('section.card'))).toBe(page.get('section.card h2'));
   });
+
+  it('moves by a key press without walking the whole page', () => {
+    mount(
+      `<nav><a href="/a">A</a><a href="/b">B</a></nav><ul>${'<li><span>Row</span></li>'.repeat(3000)}</ul>`,
+    );
+    const real = new DocumentDomQuery(document);
+    let looked = 0;
+    const counting = Object.assign(Object.create(real) as DocumentDomQuery, {
+      isVisible: (element: Element) => {
+        looked += 1;
+        return real.isVisible(element);
+      },
+    });
+    const traversal = new ElementTraversal(counting, document.body);
+    const first = document.querySelector('a');
+    if (first === null) throw new Error('fixture');
+    expect(traversal.next(first)?.textContent).toBe('B');
+    expect(traversal.previous(first)?.textContent).toBe('Row');
+    expect(looked).toBeLessThan(10);
+  });
 });

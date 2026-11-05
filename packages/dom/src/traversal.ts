@@ -85,17 +85,71 @@ export class ElementTraversal {
     return null;
   }
 
-  /** The stop before or after `from` in reading order, wrapping around. */
+  /**
+   * The stop before or after `from` in reading order, wrapping around. Walks from `from` only
+   * as far as the next stop, so a key press costs a few elements, not the whole page.
+   */
   private step(from: Element, direction: 1 | -1): Element | null {
-    const order = this.walk();
-    const position = order.indexOf(from);
-    const stops = order.flatMap((element, index) => (isStop(element) ? [index] : []));
-    if (stops.length === 0) return null;
-    const target =
-      direction === 1
-        ? (stops.find((index) => index > position) ?? stops[0])
-        : (stops.findLast((index) => index < position) ?? stops.at(-1));
-    return target === undefined ? null : (order[target] ?? null);
+    const move = (element: Element) =>
+      direction === 1 ? this.following(element) : this.preceding(element);
+    const restart = () =>
+      direction === 1 ? this.following(this.root) : this.lastWithin(this.root);
+    let wrapped = false;
+    for (let node = move(from); ; node = move(node)) {
+      if (node === null) {
+        if (wrapped) return null;
+        wrapped = true;
+        node = restart();
+        if (node === null) return null;
+      }
+      if (node === from) return wrapped && this.isVisibleStop(from) ? from : null;
+      if (this.isVisibleStop(node)) return node;
+    }
+  }
+
+  private isVisibleStop(element: Element): boolean {
+    return element !== this.root && isStop(element) && this.dom.isVisible(element);
+  }
+
+  /** The element after `element` in flat-tree document order, or null after the last. */
+  private following(element: Element): Element | null {
+    const [child] = this.dom.childrenOf(element);
+    if (child !== undefined) return child;
+    for (let node = element; node !== this.root;) {
+      const parent = this.dom.parentOf(node);
+      if (parent === null) return null;
+      const siblings = this.dom.childrenOf(parent);
+      const index = siblings.indexOf(node);
+      // Not rendered where its parent puts children (unslotted content): nothing follows.
+      if (index === -1) return null;
+      const next = siblings[index + 1];
+      if (next !== undefined) return next;
+      node = parent;
+    }
+    return null;
+  }
+
+  /** The element before `element` in flat-tree document order, or null before the first. */
+  private preceding(element: Element): Element | null {
+    if (element === this.root) return null;
+    const parent = this.dom.parentOf(element);
+    if (parent === null) return null;
+    const siblings = this.dom.childrenOf(parent);
+    const index = siblings.indexOf(element);
+    if (index === -1) return null;
+    const previous = siblings[index - 1];
+    if (previous === undefined) return parent === this.root ? null : parent;
+    return this.lastWithin(previous) ?? previous;
+  }
+
+  /** The last element inside `element` in document order (its deepest last descendant). */
+  private lastWithin(element: Element): Element | null {
+    let last: Element | null = null;
+    for (let child = this.dom.childrenOf(element).at(-1); child !== undefined;) {
+      last = child;
+      child = this.dom.childrenOf(child).at(-1);
+    }
+    return last;
   }
 
   /** Visible elements in flat-tree document order. */

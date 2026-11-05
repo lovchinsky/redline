@@ -15,12 +15,14 @@ export const domSnapshotFragment = defineFragment({
   schema: domSnapshotSchema,
   migrations: [],
   presenter: {
-    summarize: ({ data }, context) => [
-      {
-        section: 'details',
-        markdown: `**DOM of ${md.code(data.root)}:** [${context.detailPath(detailFile(data))}](${context.detailPath(detailFile(data))})${data.truncated ? ' (truncated)' : ''} — circled elements carry \`data-redline="selected"\`.`,
-      },
-    ],
-    details: ({ data }) => [detailFile(data)],
+    summarize: ({ data }, context) => {
+      const path = context.detailPath(detailFile(data));
+      return [
+        {
+          section: 'details',
+          markdown: `**DOM of ${md.code(data.root)}:** [${path}](${path})${data.truncated ? ' (truncated)' : ''} — circled elements carry \`data-redline="selected"\`.`,
+        },
+      ];
+    },
   },
 });

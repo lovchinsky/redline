@@ -8,6 +8,7 @@ import {
   type Priority,
   type Section,
 } from '@redline/core';
+import { referenceText } from './framing';
 import { BundlePaths, type RenderedFile } from './paths';
 
 export interface RenderStep {
@@ -26,8 +27,18 @@ export interface RenderInput {
 /** A Markdown block with the priority of the fragment it came from. */
 export interface PresentedBlock {
   readonly section: Section;
+  /** As written when everything stays in the summary; see `reference`. */
   readonly markdown: string;
   readonly priority: Priority;
+  /**
+   * For a pointer to an identical earlier fragment: the blocks it points to, so the text can
+   * say where they ended up once the budget has placed them.
+   */
+  readonly reference?: {
+    readonly title: string;
+    readonly label: string;
+    readonly originals: readonly PresentedBlock[];
+  };
 }
 
 export interface PresentedArea {
@@ -72,8 +83,15 @@ const bySection = <B extends { readonly section: Section }>(blocks: readonly B[]
 export const present = (catalog: FragmentCatalog, input: RenderInput): Presentation => {
   const paths = new BundlePaths();
   const warnings: string[] = [];
-  /** Where each fragment was rendered: its label and the first section it produced. */
-  const rendered = new Map<string, { readonly label: string; readonly section: Section }>();
+  /** Where each fragment was rendered: its label, first section, and its blocks. */
+  const rendered = new Map<
+    string,
+    {
+      readonly label: string;
+      readonly section: Section;
+      readonly blocks: readonly PresentedBlock[];
+    }
+  >();
 
   const presentTarget = (
     step: RenderStep,
@@ -99,15 +117,16 @@ export const present = (catalog: FragmentCatalog, input: RenderInput): Presentat
         assetPath: scope.asset,
         detailPath: scope.detail,
       });
-      for (const file of descriptor.presenter.details?.(fragment) ?? []) scope.detail(file);
-      const [first] = bySection(produced);
+      const presented = produced.map((block) => ({ ...block, priority: fragment.priority }));
+      const [first] = bySection(presented);
       if (first !== undefined) {
         rendered.set(locationKey(step.id, target, fragment.kind), {
           label,
           section: first.section,
+          blocks: presented,
         });
       }
-      blocks.push(...produced.map((block) => ({ ...block, priority: fragment.priority })));
+      blocks.push(...presented);
     }
 
     for (const reference of step.references.filter((r) => sameTarget(r.target, target))) {
@@ -121,8 +140,9 @@ export const present = (catalog: FragmentCatalog, input: RenderInput): Presentat
       }
       blocks.push({
         section: original.section,
-        markdown: `_${title}: same as ${original.label}._`,
+        markdown: referenceText(title, original.label, false),
         priority: 'critical',
+        reference: { title, label: original.label, originals: original.blocks },
       });
     }
     return bySection(blocks);

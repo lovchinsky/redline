@@ -111,7 +111,7 @@ describe('presenters keep page text inline', () => {
     const cards = Array.from(document.querySelectorAll('[data-testid="plan-card"]'));
     const step = stepOf('Make the cards equal height', [shapeAround('shape-1', cards)]);
     const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: 2000 }, { now: () => 0 });
-    const plan = buildCollectionPlan(collectors, captureProfile);
+    const plan = buildCollectionPlan(collectors, captureProfile, catalog);
 
     const benign = (await engine.run(plan, step, captureContext(new FakeImages(), runtime(''))))
       .capture;

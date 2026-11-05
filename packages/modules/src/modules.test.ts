@@ -21,7 +21,7 @@ const collect = async (
   images = new FakeImages(),
   available: readonly ErasedCollector[] = collectors,
 ) => {
-  const plan = buildCollectionPlan(available, { collectors: [entry] });
+  const plan = buildCollectionPlan(available, { collectors: [entry] }, catalog);
   const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: 2000 }, { now: () => 0 });
   const { capture } = await engine.run(plan, stepOf('x', shapes), captureContext(images));
   return FragmentSet.fromCapture(capture);

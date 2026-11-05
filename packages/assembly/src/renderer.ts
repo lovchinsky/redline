@@ -1,6 +1,7 @@
 import type { FragmentCatalog } from '@redline/core';
 import { allocate, approximateTokens, type BudgetPolicy, type TokenEstimator } from './budget';
-import { MORE_CONTEXT_PATH, compose } from './composer';
+import { compose } from './composer';
+import { MORE_CONTEXT_PATH } from './framing';
 import type { RenderedFile } from './paths';
 import { present, type RenderInput } from './presentation';
 
