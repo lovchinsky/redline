@@ -1,6 +1,6 @@
 /**
- * Version 5 of the stored records: a task is a draft until it is sent, and drafts get a store
- * of their own without the `state` they no longer need. Works on plain data, frozen as it was.
+ * Converts version 4 task records for version 5: a draft (state `draft`) goes to the `drafts`
+ * store without a `state`; a sent task stays in `tasks`. Works on plain data, frozen as it was.
  */
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>

@@ -1,8 +1,8 @@
 /**
- * Version 4 of the task records: the fields of a delivery (project, bundle digest) move into one
- * `delivery` record with its own id, which the receiver uses as the idempotency key; a status
- * check that fails is counted; a task the receiver forgot is `lost` instead of a made-up
- * `failed` status. Works on plain data, frozen as it was: never on today's domain types.
+ * Converts a version 3 task record to version 4: the delivery fields (project, bundle digest)
+ * form one `delivery` record whose id is the receiver's idempotency key, status checks carry a
+ * failure count, and a task the receiver answered 404 for is `lost`. Works on plain data,
+ * frozen as it was: never on today's domain types.
  */
 
 type StoredRecord = Readonly<Record<string, unknown>>;
@@ -10,12 +10,13 @@ type StoredRecord = Readonly<Record<string, unknown>>;
 const isRecord = (value: unknown): value is StoredRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** The status version 3 wrote when the receiver answered 404 for a task. */
+/** The failure reason a version 3 record holds for a task the receiver answered 404 for. */
 const FORGOTTEN_REASON = 'The receiver no longer knows this task';
 
 /**
- * The record a version 3 task becomes. `bundleDigest` is the digest of the task's stored bundle,
- * which version 3 did not keep on submitted tasks. Records that need no change come back as is.
+ * The version 4 record of a version 3 task. `bundleDigest` is the digest of the task's stored
+ * bundle, which a version 3 submitted record does not carry. Records that need no change come
+ * back as is.
  */
 export const upgradeTaskRecord = (record: unknown, bundleDigest: string | null): unknown => {
   if (!isRecord(record) || !isRecord(record['state'])) return record;
@@ -23,7 +24,7 @@ export const upgradeTaskRecord = (record: unknown, bundleDigest: string | null):
   if (kind !== 'queued' && kind !== 'submitted' && kind !== 'failed') return record;
 
   const delivery = {
-    // Version 3 sent the task id as the idempotency key: keep it, so a delivery whose
+    // A version 3 delivery's idempotency key is the task id: kept, so a delivery whose
     // response was lost still finds the remote task it created.
     id: record['id'],
     projectId,

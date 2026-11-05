@@ -7,26 +7,26 @@
 
 ## Структура
 
-| Шлях                             | Роль                                                                                          |
-| -------------------------------- | --------------------------------------------------------------------------------------------- |
-| `packages/core`                  | Result, AppError, ids, схеми, порти, домен задачі (`Task`, доставка, прив'язки). Без браузера |
-| `packages/contract`              | Контракт з отримувачем: `bundle.v1`, `receiver-api.v1`                                        |
-| `packages/rpc`                   | Типізований RPC і події між контекстами розширення, протокол застосунку                       |
-| `packages/geometry`              | Полігони, спрощення й згладжування ліній, вибірка точок, покриття                             |
-| `packages/dom`                   | Запити до DOM з урахуванням shadow DOM, `EnclosureResolver`: що саме обведено                 |
-| `packages/capture`               | Рушій збору контексту: контракт колектора, профілі → план, ізоляція і таймаути                |
-| `packages/modules`               | Модулі контексту: `descriptors` (схема + presenter, будь-де) і `collectors` (лише в сторінці) |
-| `packages/page-runtime`          | Скрипт у MAIN world сторінки (≈ 7 КБ): компоненти React/Vue/Svelte/Angular, помилки, запити   |
-| `packages/profiles`              | Який контекст збирати для кожного типу правки                                                 |
-| `packages/processors`            | `redaction` (маскування особистих даних у кроці), `dedupe` (повтори між кроками → посилання)  |
-| `packages/assembly`              | Збирання пакета: presenters → бюджет токенів → `context.md` + `more-context.md` → `bundle.v1` |
-| `tools/mock-receiver`            | Отримувач за `receiver-api.v1` у пам'яті: для e2e і щоб спробувати розширення без сервера     |
-| `apps/extension/src/ports`       | Контракти, які сценарії вимагають від платформи; реалізуються адаптерами                      |
-| `apps/extension/src/adapters`    | Єдине місце, де живуть `wxt/browser`, IndexedDB, console                                      |
-| `apps/extension/src/application` | Обробники сценаріїв; залежать лише від портів                                                 |
-| `apps/extension/src/composition` | Composition roots: збирають систему з адаптерів                                               |
-| `apps/extension/src/ui`          | Preact UI; отримує сервіси від composition root                                               |
-| `apps/extension/src/entrypoints` | Точки входу WXT: лише запускають composition root                                             |
+| Шлях                             | Роль                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `packages/core`                  | Result, AppError, ids, схеми, порти, домен (`Draft`, `Task`, доставка, прив'язки). Без браузера   |
+| `packages/contract`              | Контракт з отримувачем: `bundle.v1`, `receiver-api.v1`                                            |
+| `packages/rpc`                   | Типізований RPC і події між контекстами розширення, протокол застосунку                           |
+| `packages/geometry`              | Полігони, спрощення й згладжування ліній, вибірка точок, покриття                                 |
+| `packages/dom`                   | Запити до DOM з урахуванням shadow DOM, `EnclosureResolver`: що саме обведено                     |
+| `packages/capture`               | Рушій збору контексту: контракт колектора, профілі → план, ізоляція і таймаути                    |
+| `packages/modules`               | Модулі контексту: `descriptors` (схема + presenter, будь-де) і `collectors` (лише в сторінці)     |
+| `packages/page-runtime`          | Скрипт у MAIN world сторінки, окремий бандл: компоненти React/Vue/Svelte/Angular, помилки, запити |
+| `packages/profiles`              | Який контекст збирати для кожного типу правки                                                     |
+| `packages/processors`            | `redaction` (маскування особистих даних у кроці), `dedupe` (повтори між кроками → посилання)      |
+| `packages/assembly`              | Збирання пакета: presenters → бюджет токенів → `context.md` + `more-context.md` → `bundle.v1`     |
+| `tools/mock-receiver`            | Отримувач за `receiver-api.v1` у пам'яті: для e2e і щоб спробувати розширення без сервера         |
+| `apps/extension/src/ports`       | Контракти, які сценарії вимагають від платформи; реалізуються адаптерами                          |
+| `apps/extension/src/adapters`    | Єдине місце, де живуть `wxt/browser`, IndexedDB, console                                          |
+| `apps/extension/src/application` | Обробники сценаріїв; залежать лише від портів                                                     |
+| `apps/extension/src/composition` | Composition roots: збирають систему з адаптерів                                                   |
+| `apps/extension/src/ui`          | Preact UI; отримує сервіси від composition root                                                   |
+| `apps/extension/src/entrypoints` | Точки входу WXT: лише запускають composition root                                                 |
 
 Межі між шарами перевіряють ESLint (`eslint-plugin-boundaries`) і dependency-cruiser.
 `pnpm lint:boundaries:selftest` доводить, що правила справді спрацьовують на порушеннях.
@@ -75,3 +75,6 @@ pnpm test:e2e     # збірка + Playwright з завантаженим роз
   у `descriptors.ts`, `collectors.ts` та потрібних профілях. Golden-тести показують, як зміниться `context.md`.
 - Нове RPC-повідомлення описується в модулі своєї функції в `packages/rpc/src/protocol/`, який
   збирає `protocol/index.ts`; обробник обов'язковий на рівні типів.
+- Документація, специфікація і коментарі описують систему такою, якою вона є: без «раніше / тепер /
+  замість старого», без історії міграцій і змін у прозі. Обґрунтування — властивість рішення в
+  теперішньому часі, а не порівняння із заміненим. Історія живе в git.
