@@ -4,4 +4,4 @@ export type * from './runtime/transport';
 export * from './runtime/client';
 export * from './runtime/server';
 export * from './runtime/events';
-export * from './protocol';
+export * from './protocol/index';
