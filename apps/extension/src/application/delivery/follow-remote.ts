@@ -70,10 +70,13 @@ export class FollowRemote {
       state.status.phase !== 'needs-input' ||
       state.status.question.id !== questionId
     ) {
-      return err(appError('conflict', 'The agent is not waiting for this answer'));
+      return err(
+        appError('conflict', 'The agent is not waiting for this answer', { reason: 'not-waiting' }),
+      );
     }
     const answer = text.trim();
-    if (answer === '') return err(appError('validation', 'The answer is empty'));
+    if (answer === '')
+      return err(appError('validation', 'The answer is empty', { reason: 'answer-empty' }));
     const report = await this.deps.receiver.reply(state.remoteId, { questionId, text: answer });
     if (!report.ok) return report;
     const applied = await this.apply(task.value.id, state.remoteId, report);

@@ -19,7 +19,8 @@ export interface SceneOutline {
 
 export interface SceneHighlight {
   readonly rect: Rect;
-  readonly role: 'selected' | 'container';
+  /** `cursor`: the element keyboard picking is on, drawn like a focus ring. */
+  readonly role: 'selected' | 'container' | 'cursor';
 }
 
 export interface Scene {
@@ -90,6 +91,17 @@ export class LassoRenderer {
   private highlight({ rect, role }: SceneHighlight): void {
     const { context: ctx } = this;
     ctx.save();
+    if (role === 'cursor') {
+      // Two contrasting solid rings stay visible on light and dark pages alike.
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgb(255 255 255 / 0.95)';
+      ctx.strokeRect(rect.x - 3, rect.y - 3, rect.width + 6, rect.height + 6);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#4a5cf0';
+      ctx.strokeRect(rect.x - 3, rect.y - 3, rect.width + 6, rect.height + 6);
+      ctx.restore();
+      return;
+    }
     ctx.lineWidth = role === 'selected' ? 1.5 : 1;
     ctx.setLineDash(role === 'selected' ? [6, 4] : [2, 4]);
     ctx.strokeStyle = 'rgb(0 0 0 / 0.45)';

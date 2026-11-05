@@ -1,0 +1,521 @@
+{
+  "locale": {
+    "message": "en"
+  },
+  "extName": {
+    "message": "Redline"
+  },
+  "extDescription": {
+    "message": "Circle an area on a website, describe the change, and send the task to a coding agent."
+  },
+  "commandStartCapture": {
+    "message": "Circle an area on the page"
+  },
+  "contextMenuCapture": {
+    "message": "Circle an area (Redline)"
+  },
+  "toolbarNeedsInput": {
+    "message": "Redline: the agent is waiting for your answer ($1)"
+  },
+  "toolbarActive": {
+    "message": "Redline: tasks in progress — $1"
+  },
+  "unavailableBrowserPage": {
+    "message": "Redline does not work on browser pages"
+  },
+  "unavailableWebStore": {
+    "message": "The browser does not let extensions work in the extension store"
+  },
+  "unavailableScheme": {
+    "message": "Redline does not work on pages of this type"
+  },
+  "unavailableNoAccess": {
+    "message": "No access to the page. Press Alt+Shift+A again on the page itself"
+  },
+  "noticeNeedsInput": {
+    "message": "The agent asks: $1"
+  },
+  "noticeResultReady": {
+    "message": "The result is ready — click to open it"
+  },
+  "noticeRemoteFailed": {
+    "message": "The agent could not finish: $1"
+  },
+  "noticeDeliveryFailed": {
+    "message": "The receiver did not accept the task: $1"
+  },
+  "overlayArmedHint": {
+    "message": "Circle an area · click — one element · Tab — choose with the keyboard · Esc — exit"
+  },
+  "overlayKeyboardHint": {
+    "message": "Tab / Shift+Tab — next / previous · ↑ — outer · ↓ — inner · Enter — choose · Esc — exit"
+  },
+  "overlayKeyboardCurrent": {
+    "message": "Element: $1"
+  },
+  "chooseWithKeyboard": {
+    "message": "Choose with the keyboard"
+  },
+  "overlayLabel": {
+    "message": "Redline: describe the change"
+  },
+  "areaCount_one": {
+    "message": "$1 area"
+  },
+  "areaCount_few": {
+    "message": "$1 areas"
+  },
+  "areaCount_many": {
+    "message": "$1 areas"
+  },
+  "areaCount_other": {
+    "message": "$1 areas"
+  },
+  "removeLastShape": {
+    "message": "Remove the last area"
+  },
+  "commentLabel": {
+    "message": "What should change?"
+  },
+  "commentPlaceholder": {
+    "message": "For example: make the cards the same height"
+  },
+  "saveStep": {
+    "message": "Save step"
+  },
+  "savingStep": {
+    "message": "Saving…"
+  },
+  "problemCommentRequired": {
+    "message": "Describe what should change"
+  },
+  "problemResolutionPending": {
+    "message": "Please wait, the area is still being analysed"
+  },
+  "problemEmptyShape": {
+    "message": "Nothing was found in one of the areas — remove it or circle again"
+  },
+  "problemCommitFailed": {
+    "message": "The step could not be saved. Please try again"
+  },
+  "resolutionPending": {
+    "message": "Working out what is circled…"
+  },
+  "resolutionEmpty": {
+    "message": "Nothing found"
+  },
+  "regionInside": {
+    "message": "Inside $1"
+  },
+  "regionEmptySpace": {
+    "message": "Empty space in $1"
+  },
+  "cancel": {
+    "message": "Cancel"
+  },
+  "save": {
+    "message": "Save"
+  },
+  "loading": {
+    "message": "Loading…"
+  },
+  "sizeBytes": {
+    "message": "$1 B"
+  },
+  "sizeKilobytes": {
+    "message": "$1 KB"
+  },
+  "sizeMegabytes": {
+    "message": "$1 MB"
+  },
+  "panelLabel": {
+    "message": "Redline tasks"
+  },
+  "tabDraft": {
+    "message": "Draft"
+  },
+  "tabActive": {
+    "message": "In progress"
+  },
+  "tabActiveCount": {
+    "message": "In progress ($1)"
+  },
+  "tabHistory": {
+    "message": "History"
+  },
+  "draftLabel": {
+    "message": "Draft"
+  },
+  "newDraft": {
+    "message": "New draft"
+  },
+  "emptyDraft": {
+    "message": "Empty draft"
+  },
+  "draftOption": {
+    "message": "$1 · $2"
+  },
+  "titleLabel": {
+    "message": "Title"
+  },
+  "titlePlaceholder": {
+    "message": "Task title (optional)"
+  },
+  "deleteDraft": {
+    "message": "Delete draft"
+  },
+  "confirmDelete": {
+    "message": "Yes, delete"
+  },
+  "noActiveDraft": {
+    "message": "A new draft appears with the first step."
+  },
+  "howToCapture": {
+    "message": "Open a page and press Alt+Shift+A to circle an area."
+  },
+  "stepsLabel": {
+    "message": "Steps"
+  },
+  "stepTitle": {
+    "message": "Step $1"
+  },
+  "stepCount_one": {
+    "message": "$1 step"
+  },
+  "stepCount_few": {
+    "message": "$1 steps"
+  },
+  "stepCount_many": {
+    "message": "$1 steps"
+  },
+  "stepCount_other": {
+    "message": "$1 steps"
+  },
+  "moveUp": {
+    "message": "Move up"
+  },
+  "moveDown": {
+    "message": "Move down"
+  },
+  "edit": {
+    "message": "Edit"
+  },
+  "removeStep": {
+    "message": "Delete step"
+  },
+  "stepCommentLabel": {
+    "message": "Comment"
+  },
+  "stepScreenshot": {
+    "message": "Screenshot of step $1"
+  },
+  "previewTitle": {
+    "message": "What the agent gets"
+  },
+  "preview": {
+    "message": "Preview the bundle"
+  },
+  "previewing": {
+    "message": "Assembling…"
+  },
+  "previewStale": {
+    "message": "The draft has changed — assemble the bundle again."
+  },
+  "files": {
+    "message": "Files"
+  },
+  "downloadZip": {
+    "message": "Download .zip"
+  },
+  "sendTitle": {
+    "message": "Send to the agent"
+  },
+  "project": {
+    "message": "Project"
+  },
+  "chooseProject": {
+    "message": "Choose a project"
+  },
+  "sendTo": {
+    "message": "Send to “$1”"
+  },
+  "sending": {
+    "message": "Sending…"
+  },
+  "bindHint": {
+    "message": "The site $1 will be remembered for this project."
+  },
+  "projectConflict": {
+    "message": "The steps belong to different projects. Split them into separate drafts."
+  },
+  "noReceiver": {
+    "message": "No receiver is set up."
+  },
+  "openSettings": {
+    "message": "Settings"
+  },
+  "noTasks": {
+    "message": "Sent tasks appear here."
+  },
+  "noHistory": {
+    "message": "Finished tasks appear here."
+  },
+  "retry": {
+    "message": "Try now"
+  },
+  "retrySend": {
+    "message": "Send again"
+  },
+  "reopen": {
+    "message": "Back to drafts"
+  },
+  "refresh": {
+    "message": "Refresh status"
+  },
+  "deleteTask": {
+    "message": "Delete"
+  },
+  "openResult": {
+    "message": "Open the result"
+  },
+  "answerLabel": {
+    "message": "Your answer"
+  },
+  "answer": {
+    "message": "Answer"
+  },
+  "stateQueued": {
+    "message": "Waiting to be sent"
+  },
+  "stateRetryAt": {
+    "message": "Failed: $1. Next attempt at $2"
+  },
+  "stateFailed": {
+    "message": "The receiver did not accept the task: $1"
+  },
+  "remoteQueued": {
+    "message": "The receiver accepted the task"
+  },
+  "remoteWorking": {
+    "message": "The agent is working"
+  },
+  "remoteNeedsInput": {
+    "message": "The agent is waiting for your answer"
+  },
+  "remoteResultReady": {
+    "message": "Done"
+  },
+  "remoteFailed": {
+    "message": "The agent could not finish: $1"
+  },
+  "remoteClosed": {
+    "message": "Closed"
+  },
+  "optionsTitle": {
+    "message": "Redline settings"
+  },
+  "receiverTitle": {
+    "message": "Receiver"
+  },
+  "receiverHint": {
+    "message": "The service that turns tasks into code changes. Redline sends it the bundle and shows the status."
+  },
+  "receiverUrl": {
+    "message": "Address"
+  },
+  "receiverToken": {
+    "message": "Access token"
+  },
+  "tokenKept": {
+    "message": "Saved — leave empty to keep it"
+  },
+  "tokenNone": {
+    "message": "Optional"
+  },
+  "check": {
+    "message": "Check"
+  },
+  "disconnect": {
+    "message": "Disconnect"
+  },
+  "projectsFound": {
+    "message": "The receiver is reachable, projects: $1"
+  },
+  "bindingsTitle": {
+    "message": "Sites and projects"
+  },
+  "bindingsHint": {
+    "message": "Tasks from these sites go to the given project. Pattern: https://app.acme.io, https://*.acme.io or http://localhost:3000/admin."
+  },
+  "noBindings": {
+    "message": "None yet. A site is remembered the first time you send a task from it."
+  },
+  "site": {
+    "message": "Site"
+  },
+  "add": {
+    "message": "Add"
+  },
+  "remove": {
+    "message": "Remove"
+  },
+  "removeBinding": {
+    "message": "Remove $1"
+  },
+  "permissionDenied": {
+    "message": "Access to the site was not granted — without it Redline cannot send requests."
+  },
+  "diagnosticsTitle": {
+    "message": "Diagnostics"
+  },
+  "diagnosticsHint": {
+    "message": "How context collection went on recent captures. Stored only in this browser; nothing is sent anywhere."
+  },
+  "diagnosticsEmpty": {
+    "message": "No captures yet."
+  },
+  "diagnosticsExport": {
+    "message": "Export JSON"
+  },
+  "diagnosticsClear": {
+    "message": "Clear"
+  },
+  "diagnosticsCapture": {
+    "message": "$1 · $2 · $3 ms"
+  },
+  "diagnosticsCollector": {
+    "message": "Collector"
+  },
+  "diagnosticsTarget": {
+    "message": "Target"
+  },
+  "diagnosticsOutcome": {
+    "message": "Outcome"
+  },
+  "diagnosticsDuration": {
+    "message": "Time, ms"
+  },
+  "diagnosticsStep": {
+    "message": "step"
+  },
+  "diagnosticsShape": {
+    "message": "area $1"
+  },
+  "outcomeCollected": {
+    "message": "collected"
+  },
+  "outcomeNotApplicable": {
+    "message": "not applicable"
+  },
+  "outcomeFailed": {
+    "message": "failed"
+  },
+  "outcomeTimedOut": {
+    "message": "timed out"
+  },
+  "outcomeInvalidOutput": {
+    "message": "invalid output"
+  },
+  "swTitle": {
+    "message": "Background process"
+  },
+  "swChecking": {
+    "message": "Checking the connection…"
+  },
+  "swConnected": {
+    "message": "Connected · v$1 · $2 ms"
+  },
+  "swUnreachable": {
+    "message": "Unreachable: $1"
+  },
+  "swPingEvents": {
+    "message": "Pings received:"
+  },
+  "swCheckAgain": {
+    "message": "Check again"
+  },
+  "errorValidation": {
+    "message": "The data is not valid"
+  },
+  "errorNotFound": {
+    "message": "Not found"
+  },
+  "errorConflict": {
+    "message": "The action conflicts with the current state"
+  },
+  "errorPermissionDenied": {
+    "message": "Access denied"
+  },
+  "errorRestrictedPage": {
+    "message": "Redline does not work on this page"
+  },
+  "errorReceiverUnavailable": {
+    "message": "The receiver is not reachable"
+  },
+  "errorNotConfigured": {
+    "message": "No receiver is set up"
+  },
+  "errorBridgeUnavailable": {
+    "message": "The page does not let Redline read its runtime"
+  },
+  "errorQuota": {
+    "message": "Not enough storage space"
+  },
+  "errorStorage": {
+    "message": "Local storage error"
+  },
+  "errorTimeout": {
+    "message": "No answer in time"
+  },
+  "errorTransport": {
+    "message": "The extension could not reach its background process"
+  },
+  "errorInternal": {
+    "message": "Something went wrong"
+  },
+  "errorWithDetail": {
+    "message": "$1 ($2)"
+  },
+  "errorNotAUrl": {
+    "message": "This is not a web address"
+  },
+  "errorInsecureReceiver": {
+    "message": "The receiver must use https (http only on localhost)"
+  },
+  "errorReceiverUrlExtras": {
+    "message": "The receiver address must not contain a query, fragment or credentials"
+  },
+  "errorNotASitePattern": {
+    "message": "This is not a site pattern"
+  },
+  "errorInvalidHost": {
+    "message": "The host name is not valid"
+  },
+  "errorWildcardNeedsDomain": {
+    "message": "A wildcard needs a domain, e.g. *.acme.io"
+  },
+  "errorProjectRequired": {
+    "message": "Choose a project for this task"
+  },
+  "errorBoundElsewhere": {
+    "message": "These pages are bound to $1"
+  },
+  "errorCommentRequired": {
+    "message": "A step needs a comment"
+  },
+  "errorCommentTooLong": {
+    "message": "The comment is too long (at most $1 characters)"
+  },
+  "errorTitleTooLong": {
+    "message": "The title is too long (at most $1 characters)"
+  },
+  "errorAnswerEmpty": {
+    "message": "The answer is empty"
+  },
+  "errorNotWaiting": {
+    "message": "The agent is no longer waiting for this answer"
+  },
+  "errorTokenRefused": {
+    "message": "The receiver refused the access token"
+  }
+}

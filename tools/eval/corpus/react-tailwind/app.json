@@ -1,0 +1,38 @@
+{
+  "framework": "react",
+  "styling": "tailwind",
+  "i18n": false,
+  "cases": [
+    {
+      "id": "stat-card",
+      "circle": "div.rounded-lg:has(> p:text-is('Churn rate'))",
+      "expect": ["src/components/StatCard.tsx", "src/App.tsx"]
+    },
+    {
+      "id": "chart-header",
+      "circle": "section:has(h2:text-is('Monthly recurring revenue'))",
+      "expect": ["src/components/RevenueChart.tsx"]
+    },
+    {
+      "id": "orders-export",
+      "circle": "button:text-is('Export CSV')",
+      "expect": ["src/components/OrdersTable.tsx"]
+    },
+    {
+      "id": "orders-status",
+      "circle": "td:has(span:text-is('Pending'))",
+      "expect": ["src/components/OrdersTable.tsx"]
+    },
+    { "id": "sidebar-links", "circle": "nav ul", "expect": ["src/components/Sidebar.tsx"] },
+    {
+      "id": "user-menu",
+      "circle": "button[aria-label='Account menu']",
+      "expect": ["src/components/UserMenu.tsx", "src/App.tsx"]
+    },
+    {
+      "id": "trial-banner",
+      "circle": "div:has(> a:text-is('Upgrade plan'))",
+      "expect": ["src/components/PlanBanner.tsx"]
+    }
+  ]
+}

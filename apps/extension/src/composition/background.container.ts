@@ -10,6 +10,8 @@ import {
   scriptingPageRuntimeRegistration,
 } from '../adapters/capture/page-runtime-scripts';
 import { VisibleTabCapturer } from '../adapters/capture/visible-tab-capturer';
+import { chromeMessages } from '../adapters/i18n/chrome-messages';
+import { MessageTranslator } from '../adapters/i18n/message-translator';
 import { DatabaseConnection, openDatabase } from '../adapters/idb/database';
 import { offscreenImageDeriver } from '../adapters/images/offscreen-image-deriver';
 import { RuntimeEventSink } from '../adapters/messaging/runtime-events';
@@ -20,6 +22,7 @@ import { ToolbarActivity } from '../adapters/platform/toolbar-activity';
 import { ConsoleLogger } from '../adapters/system/console-logger';
 import { systemClock } from '../adapters/system/system-clock';
 import { uuidIdGenerator } from '../adapters/system/uuid-id-generator';
+import type { Translator } from '../ports/i18n';
 import { createBackgroundServices, type BackgroundPlatform } from './background.services';
 
 /** Manifest command and context menu item that start capture on the current page. */
@@ -34,7 +37,7 @@ const sleep = (ms: number) =>
   });
 
 /** The Chrome side of the service worker. */
-const chromePlatform = (logger: Logger): BackgroundPlatform => ({
+const chromePlatform = (i18n: Translator, logger: Logger): BackgroundPlatform => ({
   version: browser.runtime.getManifest().version,
   clock: systemClock,
   ids: uuidIdGenerator,
@@ -43,9 +46,13 @@ const chromePlatform = (logger: Logger): BackgroundPlatform => ({
   fetch: (input, init) => fetch(input, init),
   eventSink: new RuntimeEventSink(logger.child('events')),
   wakeUps: new AlarmWakeUps(logger.child('alarms')),
-  notifier: new ChromeNotifier(browser.runtime.getURL('/icon/128.png'), logger.child('notify')),
-  activity: new ToolbarActivity(logger.child('badge')),
-  notice: new BadgeNotice(logger.child('notice')),
+  notifier: new ChromeNotifier(
+    browser.runtime.getURL('/icon/128.png'),
+    i18n,
+    logger.child('notify'),
+  ),
+  activity: new ToolbarActivity(i18n, logger.child('badge')),
+  notice: new BadgeNotice(i18n, logger.child('notice')),
   injector: scriptingInjector,
   tabs: new RpcTabCaptureClient(uuidIdGenerator),
   capturer: new VisibleTabCapturer(new SerialRateLimiter(CAPTURE_INTERVAL_MS, systemClock, sleep)),
@@ -65,7 +72,8 @@ const COLLECT_GARBAGE_PERIOD_MIN = 6 * 60;
  */
 export const createBackgroundContainer = () => {
   const logger = new ConsoleLogger('background');
-  const services = createBackgroundServices(chromePlatform(logger), logger);
+  const i18n = new MessageTranslator(chromeMessages);
+  const services = createBackgroundServices(chromePlatform(i18n, logger), logger);
   const server = new RpcServer(protocol, services.handlers, logger.child('rpc'));
 
   const runGarbageCollection = (): void => {
@@ -122,7 +130,7 @@ export const createBackgroundContainer = () => {
       const onInstalled = () => {
         browser.contextMenus.create({
           id: START_CAPTURE,
-          title: 'Обвести область (Redline)',
+          title: i18n.text('contextMenuCapture'),
           contexts: ['page', 'selection', 'link', 'image'],
         });
         void browser.alarms.create(COLLECT_GARBAGE, {

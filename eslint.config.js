@@ -109,6 +109,8 @@ export default defineConfig(
       '**/coverage/**',
       '**/test-results/**',
       '**/playwright-report/**',
+      // Stand-ins for users' projects: the anchor evaluation reads them, our rules do not apply.
+      'tools/eval/corpus/**',
     ],
   },
   js.configs.recommended,

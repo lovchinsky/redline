@@ -2,24 +2,27 @@ import { hostPermissionOf, parseBindingPattern } from '@redline/core';
 import type { DeliveryTarget, DraftView, ProjectRef } from '@redline/rpc';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
-import { PANEL_TEXT } from './copy';
+import type { AppError } from '@redline/core';
+import { ErrorAlert } from '../shared/ErrorAlert';
+import { useTranslator } from '../shared/i18n';
 
 type Projects =
   | { readonly kind: 'loading' }
   | { readonly kind: 'ready'; readonly projects: readonly ProjectRef[] }
   | { readonly kind: 'not-configured' }
-  | { readonly kind: 'failed'; readonly message: string };
+  | { readonly kind: 'failed'; readonly error: AppError };
 
 /**
  * Sends the draft. The project comes from the bindings of the draft's sites; for a site seen
  * for the first time the user picks it once, and the site is remembered for that project.
  */
 export const SubmitPanel = ({ services, draft }: { services: UiServices; draft: DraftView }) => {
+  const t = useTranslator();
   const [target, setTarget] = useState<DeliveryTarget | null>(null);
   const [projects, setProjects] = useState<Projects>({ kind: 'loading' });
   const [chosen, setChosen] = useState<ProjectRef | null>(null);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AppError | null>(null);
 
   const load = useCallback(async () => {
     const [resolved, listed] = await Promise.all([
@@ -32,7 +35,7 @@ export const SubmitPanel = ({ services, draft }: { services: UiServices; draft: 
         ? { kind: 'ready', projects: listed.value.projects }
         : listed.error.code === 'not-configured'
           ? { kind: 'not-configured' }
-          : { kind: 'failed', message: listed.error.message },
+          : { kind: 'failed', error: listed.error },
     );
   }, [services, draft.id]);
 
@@ -62,26 +65,26 @@ export const SubmitPanel = ({ services, draft }: { services: UiServices; draft: 
       project: unbound.length > 0 ? project : null,
     });
     setSending(false);
-    if (!sent.ok) setError(sent.error.message);
+    if (!sent.ok) setError(sent.error);
   };
 
   return (
     <section class="card submit" aria-live="polite">
-      <h2>{PANEL_TEXT.sendTitle}</h2>
+      <h2>{t.text('sendTitle')}</h2>
       {target.conflict ? (
-        <p class="error">{PANEL_TEXT.conflict}</p>
+        <p class="error">{t.text('projectConflict')}</p>
       ) : projects.kind === 'not-configured' && target.project === null ? (
         <p>
-          {PANEL_TEXT.noReceiver}{' '}
+          {t.text('noReceiver')}{' '}
           <button type="button" onClick={() => void services.navigation.openSettings()}>
-            {PANEL_TEXT.openSettings}
+            {t.text('openSettings')}
           </button>
         </p>
       ) : (
         <>
           {target.project === null && (
             <label>
-              <span class="label">{PANEL_TEXT.project}</span>
+              <span class="label">{t.text('project')}</span>
               <select
                 data-testid="project-select"
                 value={chosen?.id ?? ''}
@@ -91,7 +94,7 @@ export const SubmitPanel = ({ services, draft }: { services: UiServices; draft: 
                   setChosen(options.find((option) => option.id === id) ?? null);
                 }}
               >
-                <option value="">{PANEL_TEXT.chooseProject}</option>
+                <option value="">{t.text('chooseProject')}</option>
                 {projects.kind === 'ready' &&
                   projects.projects.map((option) => (
                     <option key={option.id} value={option.id}>
@@ -102,14 +105,10 @@ export const SubmitPanel = ({ services, draft }: { services: UiServices; draft: 
             </label>
           )}
           {project !== null && unbound.length > 0 && (
-            <p class="muted">{PANEL_TEXT.bindHint(unbound.join(', '))}</p>
+            <p class="muted">{t.text('bindHint', unbound.join(', '))}</p>
           )}
-          {projects.kind === 'failed' && <p class="error">{projects.message}</p>}
-          {error !== null && (
-            <p role="alert" class="error">
-              {error}
-            </p>
-          )}
+          {projects.kind === 'failed' && <ErrorAlert error={projects.error} />}
+          <ErrorAlert error={error} />
           <button
             type="button"
             class="primary"
@@ -117,7 +116,7 @@ export const SubmitPanel = ({ services, draft }: { services: UiServices; draft: 
             disabled={project === null || sending}
             onClick={() => void send()}
           >
-            {sending ? PANEL_TEXT.sending : PANEL_TEXT.sendTo(project?.name ?? '…')}
+            {sending ? t.text('sending') : t.text('sendTo', project?.name ?? '…')}
           </button>
         </>
       )}

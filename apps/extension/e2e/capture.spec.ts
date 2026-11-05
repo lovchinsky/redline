@@ -1,6 +1,6 @@
 import type { Worker } from '@playwright/test';
 import { drawLassoAround, readStore, startCapture } from './capture-helpers';
-import { SITE_ORIGIN, expect, test } from './fixtures';
+import { SITE_ORIGIN, expect, openOptions, test } from './fixtures';
 import { OverlayProbe } from './overlay-probe';
 
 const pageUrl = `${SITE_ORIGIN}/pricing.html`;
@@ -150,4 +150,42 @@ test('starting twice keeps one session, and Escape twice leaves capture', async 
   await expect(page.locator('redline-overlay')).toHaveCount(1);
   await page.keyboard.press('Escape'); // leaves capture
   await expect(page.locator('redline-overlay')).toHaveCount(0);
+});
+
+test('choosing an element with the keyboard instead of drawing, then Diagnostics', async ({
+  context,
+  extensionPage,
+}) => {
+  const page = await context.newPage();
+  await page.goto(pageUrl);
+  await startCapture(extensionPage, pageUrl);
+  await page.bringToFront();
+  const probe = await OverlayProbe.attach(page);
+  await expect.poll(() => probe.text('hint')).toContain('Tab');
+
+  await page.keyboard.press('Tab'); // starts on the first element on screen
+  await expect.poll(() => probe.text('cursor')).toBe('Елемент: nav');
+  await page.keyboard.press('Shift+Tab'); // wraps around to the last one
+  await expect.poll(() => probe.text('cursor')).toBe('Елемент: p');
+  await page.keyboard.press('ArrowUp'); // out to its card
+  await expect
+    .poll(() => probe.text('cursor'))
+    .toBe('Елемент: article[data-testid=enterprise-card]');
+  await page.keyboard.press('Enter');
+
+  await expect
+    .poll(() => probe.text('shape-summaries'))
+    .toBe('article[data-testid=enterprise-card]');
+  // The comment field takes focus: the step is described and saved without the pointer.
+  await expect.poll(() => probe.focused('comment')).toBe(true);
+  await page.keyboard.type('Rename Enterprise to Business');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('redline-overlay')).toHaveCount(0);
+
+  const options = await openOptions(context);
+  const record = options.getByTestId('capture-record').first();
+  await expect(record).toContainText('https://redline.test/pricing.html');
+  await record.locator('summary').click();
+  await expect(record.locator('tr[data-outcome="collected"]').first()).toBeVisible();
+  await expect(record.getByText('anchors')).toBeVisible();
 });

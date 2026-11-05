@@ -17,6 +17,7 @@ import { IdbCaptureRepository } from '../adapters/idb/idb-capture-repository';
 import { IdbTaskRepository } from '../adapters/idb/idb-task-repository';
 import { HttpReceiverClient } from '../adapters/receiver/http-receiver-client';
 import { StorageBindingStore } from '../adapters/storage/storage-bindings';
+import { StorageJournalStore } from '../adapters/storage/storage-journal';
 import { StorageSettingsStore } from '../adapters/storage/storage-settings';
 import type { DatabaseConnection } from '../adapters/idb/database';
 import type { Fetch } from '../adapters/receiver/http-receiver-client';
@@ -27,6 +28,8 @@ import { InjectPageRuntime, SyncPageRuntime } from '../application/capture/page-
 import { StartCapture } from '../application/capture/start-capture';
 import { DeliverQueued } from '../application/delivery/deliver-queued';
 import { createDeliveryHandlers } from '../application/delivery/delivery-handlers';
+import { createDiagnosticsHandlers } from '../application/diagnostics/diagnostics-handlers';
+import { DiagnosticsJournal } from '../application/diagnostics/diagnostics-journal';
 import { FollowRemote } from '../application/delivery/follow-remote';
 import {
   ActivityObserver,
@@ -77,7 +80,7 @@ export interface BackgroundPlatform {
   readonly clock: Clock;
   readonly ids: IdGenerator;
   readonly database: DatabaseConnection;
-  /** `storage.local`: settings and bindings. */
+  /** `storage.local`: settings, bindings and the Diagnostics journal. */
   readonly storage: StorageArea;
   readonly fetch: Fetch;
   readonly eventSink: EventSink;
@@ -93,6 +96,9 @@ export interface BackgroundPlatform {
   readonly pageRuntimeRegistration: PageRuntimeRegistration;
   readonly grantedHosts: GrantedHosts;
 }
+
+/** Captures kept in the Diagnostics journal. */
+const DIAGNOSTICS_CAPACITY = 50;
 
 /** The service worker's object graph: every adapter and use case, wired once. */
 export const createBackgroundServices = (platform: BackgroundPlatform, logger: Logger) => {
@@ -173,6 +179,17 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
 
   const handlers = {
     ...createSystemHandlers({ clock, version, events: publisher, logger: logger.child('system') }),
+    ...createDiagnosticsHandlers(
+      new DiagnosticsJournal({
+        store: new StorageJournalStore(platform.storage),
+        queue: new SerialQueue(),
+        ids,
+        clock,
+        events: publisher,
+        capacity: DIAGNOSTICS_CAPACITY,
+        logger: logger.child('diagnostics'),
+      }),
+    ),
     ...createCaptureHandlers({
       startCapture,
       takeSnapshot: new TakeSnapshot(platform.capturer, assets),

@@ -1,8 +1,10 @@
 import type { ShapeSubject, StepSubject, ViewportSnapshot } from '@redline/capture';
 import type { AppError, IdGenerator, Logger, Result } from '@redline/core';
 import {
+  describeElement,
   summarizeRegion,
   type DomQuery,
+  type ElementTraversal,
   type RegionResolver,
   type ResolvedRegion,
 } from '@redline/dom';
@@ -26,6 +28,8 @@ import {
   type SceneOutline,
 } from './lasso-renderer';
 import type { ViewportSnapshots } from '../../ports/capture';
+import type { Translator } from '../../ports/i18n';
+import { TranslatorProvider } from '../shared/i18n';
 import type { OverlayHost } from './overlay-host';
 import { OverlayView } from './OverlayView';
 
@@ -42,6 +46,9 @@ export interface CaptureSessionDeps {
   readonly host: OverlayHost;
   readonly dom: DomQuery;
   readonly resolver: RegionResolver;
+  /** Moves between page elements for picking with the keyboard. */
+  readonly traversal: ElementTraversal;
+  readonly i18n: Translator;
   readonly ids: IdGenerator;
   readonly logger: Logger;
   readonly snapshots: ViewportSnapshots;
@@ -87,6 +94,8 @@ export class CaptureSession {
   private readonly reducedMotion: boolean;
   private readonly cleanups: (() => void)[] = [];
   private frame: number | null = null;
+  /** The element keyboard picking is on, while picking. */
+  private cursor: Element | null = null;
   private viewDirty = true;
   private ended = false;
   private readonly outcome = Promise.withResolvers<SessionOutcome>();
@@ -298,10 +307,9 @@ export class CaptureSession {
     onWindow(
       'keydown',
       (event) => {
-        if (event.key !== 'Escape') return;
+        if (!this.handleKey(event)) return;
         event.preventDefault();
         event.stopPropagation();
-        this.dispatch({ type: 'escape' });
       },
       { capture: true },
     );
@@ -322,9 +330,69 @@ export class CaptureSession {
     this.cleanups.push(host.isolateEvents(ISOLATED_EVENTS));
   }
 
+  /** Overlay shortcuts; returns whether the key was the overlay's (and not the page's). */
+  private handleKey(event: KeyboardEvent): boolean {
+    if (event.key === 'Escape') {
+      this.dispatch({ type: 'escape' });
+      return true;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) return false;
+    if (this.state.kind === 'armed' && event.key === 'Tab') {
+      this.startPicking();
+      return true;
+    }
+    if (this.state.kind !== 'picking' || this.cursor === null) return false;
+    const { traversal } = this.deps;
+    const cursor = this.cursor;
+    switch (event.key) {
+      case 'Tab':
+        this.moveCursor(event.shiftKey ? traversal.previous(cursor) : traversal.next(cursor));
+        return true;
+      case 'ArrowUp':
+        this.moveCursor(traversal.outer(cursor));
+        return true;
+      case 'ArrowDown':
+        this.moveCursor(traversal.inner(cursor));
+        return true;
+      case 'Enter':
+      case ' ':
+        this.dispatch({
+          type: 'element-picked',
+          box: rectPolygon(this.deps.dom.rectOf(cursor)),
+          scroll: this.scroll(),
+        });
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** Keyboard picking starts on the focused element, or the first one on screen. */
+  private startPicking(): void {
+    const { view, dom, traversal } = this.deps;
+    const focused = view.document.activeElement;
+    const start =
+      focused !== null && focused !== view.document.body && dom.isVisible(focused)
+        ? focused
+        : traversal.first({ x: 0, y: 0, width: view.innerWidth, height: view.innerHeight });
+    if (start === null) return;
+    this.dispatch({ type: 'keyboard-start' });
+    this.moveCursor(start);
+  }
+
+  private moveCursor(element: Element | null): void {
+    if (element === null || this.state.kind !== 'picking') return;
+    this.cursor = element;
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    this.viewDirty = true;
+    this.requestFrame();
+  }
+
   /** Applies a state change: input mode, panel and canvas. */
   private update(): void {
     if (this.state.kind === 'closed') return;
+    if (this.state.kind !== 'picking') this.cursor = null;
+    // Pointer input stays on the canvas while picking, so a stray click never reaches the page.
     this.deps.host.setDrawingEnabled(this.state.kind !== 'committing');
     this.viewDirty = true;
     this.requestFrame();
@@ -352,23 +420,29 @@ export class CaptureSession {
   private renderView(state: Exclude<CaptureState, { kind: 'closed' }>): void {
     const { view } = this.deps;
     render(
-      <OverlayView
-        state={state}
-        anchor={this.anchorOf(state)}
-        viewport={{ width: view.innerWidth, height: view.innerHeight }}
-        onCommentChange={(comment) => {
-          this.dispatch({ type: 'comment-changed', comment });
-        }}
-        onRemoveLastShape={() => {
-          this.dispatch({ type: 'remove-last-shape' });
-        }}
-        onSubmit={() => {
-          this.dispatch({ type: 'submit' });
-        }}
-        onCancel={() => {
-          this.dispatch({ type: 'escape' });
-        }}
-      />,
+      <TranslatorProvider translator={this.deps.i18n}>
+        <OverlayView
+          state={state}
+          anchor={this.anchorOf(state)}
+          viewport={{ width: view.innerWidth, height: view.innerHeight }}
+          cursor={this.cursor === null ? null : describeElement(this.cursor)}
+          onPickWithKeyboard={() => {
+            this.startPicking();
+          }}
+          onCommentChange={(comment) => {
+            this.dispatch({ type: 'comment-changed', comment });
+          }}
+          onRemoveLastShape={() => {
+            this.dispatch({ type: 'remove-last-shape' });
+          }}
+          onSubmit={() => {
+            this.dispatch({ type: 'submit' });
+          }}
+          onCancel={() => {
+            this.dispatch({ type: 'escape' });
+          }}
+        />
+      </TranslatorProvider>,
       this.deps.host.ui,
     );
   }
@@ -399,6 +473,10 @@ export class CaptureSession {
           highlights.push({ rect: this.deps.dom.rectOf(element), role: 'selected' });
         }
       }
+    }
+
+    if (this.cursor !== null) {
+      highlights.push({ rect: this.deps.dom.rectOf(this.cursor), role: 'cursor' });
     }
 
     return {

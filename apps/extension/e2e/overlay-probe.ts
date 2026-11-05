@@ -35,7 +35,20 @@ export class OverlayProbe {
   }
 
   /** Text of the element with the given test id, or null when it is not rendered. */
-  async text(testId: string): Promise<string | null> {
+  text(testId: string): Promise<string | null> {
+    return this.evaluate<string>(testId, 'function () { return this.textContent; }');
+  }
+
+  /** Whether the element with the given test id has keyboard focus. */
+  async focused(testId: string): Promise<boolean> {
+    const focused = await this.evaluate<boolean>(
+      testId,
+      'function () { return this.getRootNode().activeElement === this; }',
+    );
+    return focused === true;
+  }
+
+  private async evaluate<T>(testId: string, functionDeclaration: string): Promise<T | null> {
     const node = await this.find(testId);
     if (node === null) return null;
     const { object } = (await this.cdp.send('DOM.resolveNode', { nodeId: node.nodeId })) as {
@@ -43,9 +56,9 @@ export class OverlayProbe {
     };
     const { result } = (await this.cdp.send('Runtime.callFunctionOn', {
       objectId: object.objectId,
-      functionDeclaration: 'function () { return this.textContent; }',
+      functionDeclaration,
       returnByValue: true,
-    })) as { result: { value: string } };
+    })) as { result: { value: T } };
     return result.value;
   }
 

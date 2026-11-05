@@ -2,29 +2,9 @@ import { isTerminal } from '@redline/core';
 import type { TaskSummary } from '@redline/rpc';
 import { useState } from 'preact/hooks';
 import type { UiServices } from '../services';
-import { PANEL_TEXT, STATE_TEXT, formatTime } from './copy';
+import { useTranslator } from '../shared/i18n';
+import { describeTaskState, titleOf } from './task-state';
 import type { TaskActions } from './use-tasks';
-
-const titleOf = (task: TaskSummary): string =>
-  task.title ?? task.firstComment ?? PANEL_TEXT.emptyDraft;
-
-const stateLine = (task: TaskSummary): string => {
-  const { state } = task;
-  switch (state.kind) {
-    case 'draft':
-      return '';
-    case 'queued':
-      return state.lastError === null
-        ? STATE_TEXT.queued
-        : STATE_TEXT.retryAt(formatTime(state.nextAttemptAt), state.lastError.message);
-    case 'failed':
-      return STATE_TEXT.failed(state.error.message);
-    case 'submitted':
-      return state.status.phase === 'failed'
-        ? `${STATE_TEXT.remote.failed}: ${state.status.reason}`
-        : STATE_TEXT.remote[state.status.phase];
-  }
-};
 
 const QuestionForm = ({
   task,
@@ -35,6 +15,7 @@ const QuestionForm = ({
   question: { id: string; text: string; options?: readonly string[] | undefined };
   actions: TaskActions;
 }) => {
+  const t = useTranslator();
   const [answer, setAnswer] = useState('');
   const [sending, setSending] = useState(false);
   const send = async (text: string) => {
@@ -61,7 +42,7 @@ const QuestionForm = ({
         </div>
       )}
       <textarea
-        aria-label={PANEL_TEXT.answerLabel}
+        aria-label={t.text('answerLabel')}
         rows={2}
         value={answer}
         onInput={(event) => {
@@ -69,7 +50,7 @@ const QuestionForm = ({
         }}
       />
       <button type="submit" disabled={sending || answer.trim() === ''}>
-        {PANEL_TEXT.answer}
+        {t.text('answer')}
       </button>
     </form>
   );
@@ -84,6 +65,7 @@ export const TaskCard = ({
   actions: TaskActions;
   services: UiServices;
 }) => {
+  const t = useTranslator();
   const { state } = task;
   const status = state.kind === 'submitted' ? state.status : null;
   return (
@@ -94,12 +76,12 @@ export const TaskCard = ({
       data-phase={status?.phase}
       data-attempts={state.kind === 'queued' ? state.attempts : undefined}
     >
-      <h3>{titleOf(task)}</h3>
+      <h3>{titleOf(t, task)}</h3>
       <p class="muted">
-        {state.kind === 'draft' ? '' : state.projectName} · {PANEL_TEXT.stepCount(task.stepCount)}
+        {state.kind === 'draft' ? '' : state.projectName} · {t.count('stepCount', task.stepCount)}
       </p>
       <p class="state" data-testid="task-state">
-        {stateLine(task)}
+        {describeTaskState(t, task)}
       </p>
       {status?.phase === 'needs-input' && (
         <QuestionForm task={task} question={status.question} actions={actions} />
@@ -107,7 +89,7 @@ export const TaskCard = ({
       <div class="actions">
         {status?.phase === 'result-ready' && (
           <button type="button" onClick={() => void services.navigation.openUrl(status.resultUrl)}>
-            {PANEL_TEXT.openResult}
+            {t.text('openResult')}
           </button>
         )}
         {state.kind === 'queued' && (
@@ -117,7 +99,7 @@ export const TaskCard = ({
               actions.retry(task.id);
             }}
           >
-            {PANEL_TEXT.retry}
+            {t.text('retry')}
           </button>
         )}
         {state.kind === 'failed' && (
@@ -128,7 +110,7 @@ export const TaskCard = ({
                 actions.retry(task.id);
               }}
             >
-              {PANEL_TEXT.retrySend}
+              {t.text('retrySend')}
             </button>
             <button
               type="button"
@@ -136,7 +118,7 @@ export const TaskCard = ({
                 actions.reopen(task.id);
               }}
             >
-              {PANEL_TEXT.reopen}
+              {t.text('reopen')}
             </button>
           </>
         )}
@@ -148,7 +130,7 @@ export const TaskCard = ({
               actions.refresh(task.id);
             }}
           >
-            {PANEL_TEXT.refresh}
+            {t.text('refresh')}
           </button>
         )}
         {state.kind !== 'queued' && (
@@ -159,7 +141,7 @@ export const TaskCard = ({
               actions.remove(task.id);
             }}
           >
-            {PANEL_TEXT.deleteTask}
+            {t.text('deleteTask')}
           </button>
         )}
       </div>

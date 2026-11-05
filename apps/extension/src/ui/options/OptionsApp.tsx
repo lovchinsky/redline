@@ -1,14 +1,27 @@
+import { useEffect } from 'preact/hooks';
 import type { UiServices } from '../services';
+import { TranslatorProvider, useTranslator } from '../shared/i18n';
 import { BindingsList } from './BindingsList';
-import { OPTIONS_TEXT } from './copy';
+import { DiagnosticsSection } from './DiagnosticsSection';
 import { ReceiverForm } from './ReceiverForm';
 
+const Options = ({ services }: { services: UiServices }) => {
+  const t = useTranslator();
+  useEffect(() => {
+    document.title = t.text('optionsTitle');
+  }, [t]);
+  return (
+    <main class="options">
+      <h1>{t.text('optionsTitle')}</h1>
+      <ReceiverForm services={services} />
+      <BindingsList services={services} />
+      <DiagnosticsSection services={services} />
+    </main>
+  );
+};
+
 export const OptionsApp = ({ services }: { services: UiServices }) => (
-  <main class="options">
-    <header>
-      <h1>{OPTIONS_TEXT.title}</h1>
-    </header>
-    <ReceiverForm services={services} />
-    <BindingsList services={services} />
-  </main>
+  <TranslatorProvider translator={services.i18n}>
+    <Options services={services} />
+  </TranslatorProvider>
 );

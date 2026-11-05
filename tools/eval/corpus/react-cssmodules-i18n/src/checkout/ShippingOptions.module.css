@@ -1,0 +1,18 @@
+.options {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #ece9e2;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.option {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.price {
+  margin-left: auto;
+  color: #555;
+}

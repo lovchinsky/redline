@@ -1,0 +1,17 @@
+.steps {
+  display: flex;
+  gap: 24px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  color: #8a8a8a;
+}
+
+.current {
+  color: #222;
+  font-weight: 600;
+  border-bottom: 2px solid #3d6b4f;
+}

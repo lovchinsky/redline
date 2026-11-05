@@ -1,0 +1,44 @@
+{
+  "name": "@redline/eval",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@redline/capture": "workspace:*",
+    "@redline/core": "workspace:*",
+    "@redline/dom": "workspace:*",
+    "@redline/geometry": "workspace:*",
+    "@redline/modules": "workspace:*",
+    "@redline/profiles": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@angular/common": "22.2.3",
+    "@angular/compiler": "22.2.3",
+    "@angular/core": "22.2.3",
+    "@angular/platform-browser": "22.2.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "22.20.5",
+    "@types/react": "19.1.17",
+    "@types/react-dom": "19.1.11",
+    "@vitejs/plugin-react": "6.1.2",
+    "@vitejs/plugin-vue": "6.0.10",
+    "playwright": "1.63.0",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
+    "rxjs": "7.8.2",
+    "styled-components": "6.6.0",
+    "svelte": "5.57.2",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vitest": "4.1.12",
+    "vue": "3.5.44"
+  }
+}

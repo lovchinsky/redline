@@ -1,0 +1,53 @@
+{
+  "framework": "angular",
+  "styling": "plain-css",
+  "i18n": false,
+  "cases": [
+    { "id": "stats", "circle": "app-stats-bar dl", "expect": ["src/app/stats-bar.component.ts"] },
+    {
+      "id": "search",
+      "circle": "input.search",
+      "expect": [
+        "src/app/users/users-table.component.html",
+        "src/app/users/users-table.component.ts"
+      ]
+    },
+    {
+      "id": "role-badge",
+      "circle": "tr:has-text('Tomás Herrera') span.badge",
+      "expect": ["src/app/users/role-badge.component.ts"]
+    },
+    {
+      "id": "remove-button",
+      "circle": "tr:has-text('Mei Lin') button:text-is('Remove')",
+      "expect": [
+        "src/app/users/users-table.component.html",
+        "src/app/users/users-table.component.ts"
+      ]
+    },
+    {
+      "id": "pagination",
+      "circle": "footer.pagination",
+      "expect": [
+        "src/app/users/users-table.component.html",
+        "src/app/users/users-table.component.ts"
+      ]
+    },
+    {
+      "id": "invite-button",
+      "circle": "button:text-is('Send invite')",
+      "expect": [
+        "src/app/invite/invite-form.component.html",
+        "src/app/invite/invite-form.component.ts"
+      ]
+    },
+    {
+      "id": "invite-form",
+      "circle": "form.invite",
+      "expect": [
+        "src/app/invite/invite-form.component.html",
+        "src/app/invite/invite-form.component.ts"
+      ]
+    }
+  ]
+}

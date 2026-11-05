@@ -154,9 +154,15 @@ const indexOfStep = (task: Task, stepId: StepId): Result<number, AppError> => {
 
 const normalizeComment = (comment: string): Result<string, AppError> => {
   const trimmed = comment.trim();
-  if (trimmed.length === 0) return err(appError('validation', 'A step needs a comment'));
+  if (trimmed.length === 0)
+    return err(appError('validation', 'A step needs a comment', { reason: 'comment-required' }));
   if (trimmed.length > MAX_COMMENT_LENGTH) {
-    return err(appError('validation', 'The comment is too long', { max: MAX_COMMENT_LENGTH }));
+    return err(
+      appError('validation', 'The comment is too long', {
+        max: MAX_COMMENT_LENGTH,
+        reason: 'comment-too-long',
+      }),
+    );
   }
   return ok(trimmed);
 };
@@ -233,7 +239,12 @@ export const renameTask = (task: Task, title: string, now: number): Result<Task,
   if (!draft.ok) return draft;
   const trimmed = title.trim();
   if (trimmed.length > MAX_TITLE_LENGTH) {
-    return err(appError('validation', 'The title is too long', { max: MAX_TITLE_LENGTH }));
+    return err(
+      appError('validation', 'The title is too long', {
+        max: MAX_TITLE_LENGTH,
+        reason: 'title-too-long',
+      }),
+    );
   }
   const next = trimmed.length === 0 ? null : trimmed;
   return next === task.title ? ok(task) : ok(changed(task, { title: next }, now));

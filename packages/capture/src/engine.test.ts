@@ -89,11 +89,17 @@ const stepCollector = (
 
 const profile = (ids: string[]): CaptureProfile => ({ collectors: ids });
 
-const run = async (collectors: ErasedCollector[], timeoutMs = 200) => {
+const runWithReport = async (collectors: ErasedCollector[], timeoutMs = 200) => {
   const plan = buildCollectionPlan(collectors, profile(collectors.map((c) => c.id)));
-  const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: timeoutMs }, { now: () => 0 });
+  let now = 0;
+  // Every reading of the clock advances it, so durations are positive.
+  const clock = { now: () => (now += 5) };
+  const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: timeoutMs }, clock);
   return engine.run(plan, step, context);
 };
+
+const run = async (collectors: ErasedCollector[], timeoutMs = 200) =>
+  (await runWithReport(collectors, timeoutMs)).capture;
 
 describe('CaptureEngine', () => {
   it('runs step collectors once and shape collectors once per shape', async () => {
@@ -230,4 +236,37 @@ describe('buildCollectionPlan', () => {
       expect(() => buildCollectionPlan(collectors, config)).toThrow(PlanConfigError);
     },
   );
+
+  it('reports every collector run, collected or not', async () => {
+    const { report } = await runWithReport([
+      stepCollector('page', () =>
+        Promise.resolve({ status: 'collected', items: [{ data: { value: 'p' } }] }),
+      ),
+      shapeCollector('echo', () => Promise.resolve({ status: 'not-applicable', reason: 'no' })),
+    ]);
+    expect(report.collectors).toEqual([
+      {
+        collector: 'page',
+        target: { level: 'step' },
+        outcome: 'collected',
+        durationMs: expect.any(Number) as number,
+        fragments: 1,
+      },
+      {
+        collector: 'echo',
+        target: { level: 'shape', shapeId: 's1' },
+        outcome: 'not-applicable',
+        durationMs: expect.any(Number) as number,
+        fragments: 0,
+      },
+      {
+        collector: 'echo',
+        target: { level: 'shape', shapeId: 's2' },
+        outcome: 'not-applicable',
+        durationMs: expect.any(Number) as number,
+        fragments: 0,
+      },
+    ]);
+    expect(report.durationMs).toBeGreaterThan(0);
+  });
 });

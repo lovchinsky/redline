@@ -44,8 +44,52 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @redline/extension exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+      # Scripts injected into users' pages stay within their size budgets.
+      - run: pnpm budgets
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-traces
           path: apps/extension/test-results
+
+  eval:
+    name: Anchor quality (tools/eval)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @redline/eval exec playwright install --with-deps chromium
+      # Fails below the target share of cases; the report shows every case and its anchors.
+      - run: pnpm eval
+      - if: always()
+        run: cat tools/eval/.output/report.md >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anchor-quality
+          path: tools/eval/.output/report.md
+
+  package:
+    name: Chrome Web Store package
+    runs-on: ubuntu-latest
+    needs: [e2e, eval]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Builds the store zip and checks it against the store's rules.
+      - run: pnpm package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chrome-web-store
+          path: apps/extension/.output/redline-*-chrome.zip

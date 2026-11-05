@@ -1,0 +1,37 @@
+{
+  "framework": "svelte",
+  "styling": "scoped-css",
+  "i18n": false,
+  "cases": [
+    {
+      "id": "header",
+      "circle": "header.board-header",
+      "expect": ["src/lib/BoardHeader.svelte", "src/App.svelte"]
+    },
+    {
+      "id": "complete-sprint",
+      "circle": "button:text-is('Complete sprint')",
+      "expect": ["src/lib/BoardHeader.svelte"]
+    },
+    {
+      "id": "column-title",
+      "circle": "h2:has-text('In progress')",
+      "expect": ["src/lib/Column.svelte", "src/App.svelte"]
+    },
+    {
+      "id": "bug-card",
+      "circle": "article:has-text('Search results flicker')",
+      "expect": ["src/lib/TaskCard.svelte", "src/lib/tasks.ts"]
+    },
+    {
+      "id": "card-meta",
+      "circle": "article:has-text('Saved filters') footer",
+      "expect": ["src/lib/TaskCard.svelte"]
+    },
+    {
+      "id": "add-form",
+      "circle": "section:has-text('Done') form",
+      "expect": ["src/lib/AddTaskForm.svelte"]
+    }
+  ]
+}

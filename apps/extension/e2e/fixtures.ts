@@ -41,10 +41,15 @@ const SPECIAL_ROUTES: Readonly<
 /**
  * Starts Chromium with the extension and the fixture site. `userDataDir` '' is a throwaway
  * profile; pass a directory to keep the profile across launches (a browser restart).
+ * Tests read Ukrainian text unless they choose another browser language.
  */
-export const launchExtension = async (userDataDir = ''): Promise<BrowserContext> => {
+export const launchExtension = async (userDataDir = '', locale = 'uk'): Promise<BrowserContext> => {
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: 'chromium',
+    // The browser's UI language picks the extension's catalog (`_locales`); on Linux Chromium
+    // takes it from the environment, `locale` sets the page language to match.
+    locale,
+    env: { ...process.env, LANGUAGE: locale.replace('-', '_') },
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
   await context.route(`${SITE_ORIGIN}/**`, async (route) => {

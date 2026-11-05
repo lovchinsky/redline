@@ -18,7 +18,7 @@ const collect = async (
 ) => {
   const plan = buildCollectionPlan(available, { collectors: [id] });
   const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: 2000 }, { now: () => 0 });
-  const capture = await engine.run(plan, stepOf('x', shapes), captureContext(images));
+  const { capture } = await engine.run(plan, stepOf('x', shapes), captureContext(images));
   return FragmentSet.fromCapture(capture);
 };
 
@@ -37,6 +37,17 @@ describe('anchors', () => {
     expect(anchors[0]).toBe('text:Choose your plan');
     expect(anchors).toContain('class:title');
     expect(anchors.some((a) => a.includes('css-1x2y3z'))).toBe(false);
+  });
+
+  it('drops utility classes with several segments, like Tailwind colours', async () => {
+    mount(
+      '<div class="rounded-lg border-gray-200 bg-white"><p class="text-sm text-red-600 hover:bg-indigo-50">Churn rate</p></div>',
+      '',
+    );
+    const set = await collect('anchors', [shapeAround('s1', [get('p')])]);
+    expect(first(set.ofKind('anchors')).data.anchors.map((a) => `${a.kind}:${a.value}`)).toEqual([
+      'text:Churn rate',
+    ]);
   });
 
   it('uses custom element tags and link targets', async () => {

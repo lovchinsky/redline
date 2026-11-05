@@ -1,0 +1,34 @@
+{
+  "framework": "react",
+  "styling": "styled-components",
+  "i18n": false,
+  "cases": [
+    {
+      "id": "add-to-cart",
+      "circle": "button:text-is('Add to cart')",
+      "expect": ["src/product/BuyBox.tsx"]
+    },
+    { "id": "price", "circle": "p:text-is('$149.00')", "expect": ["src/product/BuyBox.tsx"] },
+    {
+      "id": "swatches",
+      "circle": "button[title='Slate'] >> xpath=..",
+      "expect": ["src/product/BuyBox.tsx"]
+    },
+    {
+      "id": "gallery-thumbs",
+      "circle": "button[aria-label='Show side view'] >> xpath=..",
+      "expect": ["src/product/Gallery.tsx"]
+    },
+    { "id": "specs", "circle": "table", "expect": ["src/product/SpecsTable.tsx"] },
+    {
+      "id": "review",
+      "circle": "article:has-text('Luis M.')",
+      "expect": ["src/product/Reviews.tsx"]
+    },
+    {
+      "id": "breadcrumbs",
+      "circle": "nav[aria-label='Breadcrumb']",
+      "expect": ["src/product/Breadcrumbs.tsx", "src/product/ProductPage.tsx"]
+    }
+  ]
+}

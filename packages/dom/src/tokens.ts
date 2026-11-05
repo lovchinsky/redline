@@ -26,6 +26,12 @@ const isHashSegment = (segment: string): boolean =>
 
 const isNumericSegment = (segment: string): boolean => /^\d+$/.test(segment);
 
+/**
+ * Vite's CSS Modules names, `_<local>_<hash>_<line>`: the hash is five characters that may
+ * be letters only, so the shape of the whole name identifies it, not the hash alone.
+ */
+const VITE_CSS_MODULE = /^_([A-Za-z][\w-]*?)_[A-Za-z0-9]{5}_\d+$/;
+
 /** True when the whole token is machine-generated and carries no authored meaning. */
 export const isGeneratedToken = (token: string): boolean =>
   UUID.test(token) ||
@@ -39,14 +45,43 @@ export const isGeneratedToken = (token: string): boolean =>
  */
 export const semanticPart = (token: string): string | null => {
   if (UUID.test(token) || GENERATED_PREFIXES.some((pattern) => pattern.test(token))) return null;
+  const local = VITE_CSS_MODULE.exec(token)?.[1];
+  if (local !== undefined) return local;
   const segments = token.split(/_+/);
   if (!segments.some(isHashSegment)) return token;
   const authored = segments.filter((s) => s !== '' && !isHashSegment(s) && !isNumericSegment(s));
   return authored.length === 0 ? null : authored.join('_');
 };
 
+const STYLED_COMPONENTS_ID = /^sc-[a-z0-9]+/i;
+/** Hand-written names read as words: `card`, `navItem`, `nav-item`, `Card_title`. */
+const WORDLIKE = /^(?:[a-z]+(?:[A-Z][a-z]+)*|[A-Z][a-z]+(?:[A-Z][a-z]+)*)$/;
+
+/**
+ * styled-components gives every element its component id (`sc-…`) and a style hash of five
+ * to seven letters (`hBkjaA`). The hash has no digits, so it only shows next to the id.
+ */
+const isStyledHash = (token: string, classes: readonly string[]): boolean =>
+  /^[a-zA-Z]{5,7}$/.test(token) &&
+  !WORDLIKE.test(token) &&
+  classes.some((other) => STYLED_COMPONENTS_ID.test(other));
+
+export interface ClassToken {
+  /** As in the DOM. */
+  readonly raw: string;
+  /** What the author wrote. */
+  readonly authored: string;
+}
+
+/** Class names of an element that the author wrote, with generated parts stripped. */
+export const authoredClassTokens = (element: Element): ClassToken[] => {
+  const classes = Array.from(element.classList);
+  return classes.flatMap((raw) => {
+    const authored = isStyledHash(raw, classes) ? null : semanticPart(raw);
+    return authored === null ? [] : [{ raw, authored }];
+  });
+};
+
 /** Authored class names of an element, generated ones stripped. */
 export const semanticClasses = (element: Element): string[] =>
-  Array.from(element.classList)
-    .map(semanticPart)
-    .filter((part): part is string => part !== null);
+  authoredClassTokens(element).map((token) => token.authored);

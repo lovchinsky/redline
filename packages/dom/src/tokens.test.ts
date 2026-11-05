@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isGeneratedToken, semanticPart } from './tokens';
+import { authoredClassTokens, isGeneratedToken, semanticPart } from './tokens';
 
 describe('semanticPart', () => {
   it.each([
@@ -8,6 +8,9 @@ describe('semanticPart', () => {
     ['grid-cols-3', 'grid-cols-3'],
     ['Card_title__a8F3x', 'Card_title'],
     ['_title_1x2y3_5', 'title'],
+    ['_promo_ustqz_1', 'promo'],
+    ['_placeOrder_kQzrT_42', 'placeOrder'],
+    ['_order_summary_abcde_7', 'order_summary'],
   ])('keeps the authored part of %s', (token, expected) => {
     expect(semanticPart(token)).toBe(expected);
   });
@@ -23,5 +26,21 @@ describe('semanticPart', () => {
     '9b2f6c1e-8a4d-4d3e-9f1a-2b3c4d5e6f70',
   ])('treats %s as generated', (token) => {
     expect(isGeneratedToken(token)).toBe(true);
+  });
+});
+
+describe('authoredClassTokens', () => {
+  const classesOf = (className: string) => {
+    const element = document.createElement('div');
+    element.className = className;
+    return authoredClassTokens(element).map((token) => token.authored);
+  };
+
+  it('drops the style hash styled-components puts next to its component id', () => {
+    expect(classesOf('sc-bdVaJa hBkjaA gallery navItem')).toEqual(['gallery', 'navItem']);
+  });
+
+  it('keeps letter-only names elsewhere', () => {
+    expect(classesOf('fPCDPa hBkjaA')).toEqual(['fPCDPa', 'hBkjaA']);
   });
 });

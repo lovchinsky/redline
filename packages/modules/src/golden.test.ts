@@ -97,7 +97,7 @@ describe('context.md, end to end (golden)', () => {
       shapeAround('shape-1', cards),
     ]);
 
-    const capture = await engine.run(
+    const { capture } = await engine.run(
       plan,
       step,
       captureContext(new FakeImages(), failingReactPage),
@@ -113,7 +113,7 @@ describe('context.md, end to end (golden)', () => {
     const cards = Array.from(document.querySelectorAll('[data-testid="plan-card"]'));
     const step = stepOf('Make the three plan cards equal height', [shapeAround('shape-1', cards)]);
 
-    const capture = await engine.run(plan, step, captureContext());
+    const { capture } = await engine.run(plan, step, captureContext());
     const rendered = renderer.render({ steps: [renderStep(step, capture)] });
 
     expect(failures(capture)).toEqual([]);
@@ -130,7 +130,7 @@ describe('context.md, end to end (golden)', () => {
       shapeAround('shape-1', [get('.badge')]),
     ]);
 
-    const capture = await engine.run(plan, step, captureContext(images));
+    const { capture } = await engine.run(plan, step, captureContext(images));
     const rendered = renderer.render({ steps: [renderStep(step, capture)] });
 
     expect(failures(capture)).toEqual([]);
@@ -151,7 +151,7 @@ describe('context.md, end to end (golden)', () => {
     const captures = new Map<string, StepCapture>();
     for (const [index, subject] of subjects.entries()) {
       const captureId = CaptureId.parse(`capture-${String(index + 1)}`);
-      captures.set(captureId, await engine.run(plan, subject, captureContext(images)));
+      captures.set(captureId, (await engine.run(plan, subject, captureContext(images))).capture);
       const added = addStep(
         task,
         {

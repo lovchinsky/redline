@@ -1,7 +1,9 @@
 import type { ImagePort } from '@redline/capture';
 import { sensitiveRects, type DomQuery } from '@redline/dom';
-import type { AppProtocol, RpcClient } from '@redline/rpc';
+import type { Logger } from '@redline/core';
+import type { AppProtocol, CaptureReportInput, RpcClient } from '@redline/rpc';
 import type { StepCommitter, ViewportSnapshots } from '../../ports/capture';
+import type { CaptureJournal } from '../../ports/diagnostics';
 
 /** Content-script side of the capture ports: each call is an RPC to the service worker. */
 export class RpcImagePort implements ImagePort {
@@ -48,5 +50,18 @@ export class RpcViewportSnapshots implements ViewportSnapshots {
         sensitiveRects: masks,
       },
     };
+  }
+}
+
+/** Sends capture reports to the service worker's journal; a lost report is only logged. */
+export class RpcCaptureJournal implements CaptureJournal {
+  constructor(
+    private readonly rpc: RpcClient<AppProtocol>,
+    private readonly logger: Logger,
+  ) {}
+
+  async record(report: CaptureReportInput): Promise<void> {
+    const recorded = await this.rpc.call('diagnostics.record', report);
+    if (!recorded.ok) this.logger.warn('Capture report not recorded', { ...recorded.error });
   }
 }

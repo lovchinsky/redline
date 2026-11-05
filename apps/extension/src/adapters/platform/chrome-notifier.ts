@@ -1,26 +1,28 @@
 import type { Logger } from '@redline/core';
 import { browser } from 'wxt/browser';
 import type { Notifier, TaskNotice } from '../../ports/delivery';
+import type { Translator } from '../../ports/i18n';
 
 /** Notification ids carry the task id, so a click can be traced back to its task. */
 export const NOTIFICATION_PREFIX = 'task:';
 
-const messageOf = (notice: TaskNotice): string => {
+const messageOf = (t: Translator, notice: TaskNotice): string => {
   switch (notice.kind) {
     case 'needs-input':
-      return `Агент питає: ${notice.question}`;
+      return t.text('noticeNeedsInput', notice.question);
     case 'result-ready':
-      return 'Результат готовий — натисніть, щоб відкрити';
+      return t.text('noticeResultReady');
     case 'remote-failed':
-      return `Агент не впорався: ${notice.reason}`;
+      return t.text('noticeRemoteFailed', notice.reason);
     case 'delivery-failed':
-      return `Отримувач не прийняв задачу: ${notice.reason}`;
+      return t.text('noticeDeliveryFailed', notice.reason);
   }
 };
 
 export class ChromeNotifier implements Notifier {
   constructor(
     private readonly iconUrl: string,
+    private readonly i18n: Translator,
     private readonly logger: Logger,
   ) {}
 
@@ -30,7 +32,7 @@ export class ChromeNotifier implements Notifier {
         type: 'basic',
         iconUrl: this.iconUrl,
         title: notice.taskTitle,
-        message: messageOf(notice),
+        message: messageOf(this.i18n, notice),
         priority: notice.kind === 'needs-input' ? 2 : 1,
       });
     } catch (cause) {

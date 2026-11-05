@@ -1,5 +1,7 @@
 import {
   FragmentSet,
+  err,
+  ok,
   runProcessors,
   toAppError,
   type AnyFragment,
@@ -8,6 +10,7 @@ import {
   type FragmentCatalog,
   type FragmentProcessor,
   type FragmentTarget,
+  type Result,
   type StepCapture,
 } from '@redline/core';
 import type { CaptureContext, CollectorOutcome, ErasedCollector } from './collector';
@@ -33,9 +36,31 @@ type Task =
       readonly shape: ShapeSubject;
     };
 
+/** How one collector invocation went: what Diagnostics shows, per step and per shape. */
+export interface CollectorRun {
+  readonly collector: string;
+  readonly target: FragmentTarget;
+  readonly outcome: 'collected' | Diagnostic['outcome'];
+  readonly durationMs: number;
+  readonly fragments: number;
+}
+
+export interface CaptureReport {
+  /** Wall time of the whole plan, collectors running in parallel, processors included. */
+  readonly durationMs: number;
+  readonly collectors: readonly CollectorRun[];
+}
+
+/** The step's context, and how collecting it went. */
+export interface CaptureRun {
+  readonly capture: StepCapture;
+  readonly report: CaptureReport;
+}
+
 interface TaskResult {
   readonly fragments: readonly AnyFragment[];
   readonly diagnostics: readonly Diagnostic[];
+  readonly run: CollectorRun;
 }
 
 const TIMED_OUT = Symbol('timed-out');
@@ -53,11 +78,8 @@ export class CaptureEngine {
     private readonly clock: Clock,
   ) {}
 
-  async run(
-    plan: CollectionPlan,
-    step: StepSubject,
-    context: CaptureContext,
-  ): Promise<StepCapture> {
+  async run(plan: CollectionPlan, step: StepSubject, context: CaptureContext): Promise<CaptureRun> {
+    const startedAt = this.clock.now();
     const tasks = plan.invocations.flatMap(({ collector, options }): Task[] =>
       collector.level === 'step'
         ? [{ level: 'step', collector, options }]
@@ -68,7 +90,14 @@ export class CaptureEngine {
       results.flatMap((result) => result.fragments),
       results.flatMap((result) => result.diagnostics),
     );
-    return (await runProcessors(this.processors, collected, context)).toCapture();
+    const capture = (await runProcessors(this.processors, collected, context)).toCapture();
+    return {
+      capture,
+      report: {
+        durationMs: this.clock.now() - startedAt,
+        collectors: results.map((result) => result.run),
+      },
+    };
   }
 
   private async execute(
@@ -80,18 +109,23 @@ export class CaptureEngine {
     const target: FragmentTarget =
       task.level === 'step' ? { level: 'step' } : { level: 'shape', shapeId: task.shape.id };
     const startedAt = this.clock.now();
-    const diagnose = (outcome: Diagnostic['outcome'], message: string): TaskResult => ({
-      fragments: [],
-      diagnostics: [
-        {
-          source: collector.id,
-          target,
-          outcome,
-          message,
-          durationMs: this.clock.now() - startedAt,
-        },
-      ],
+    const runOf = (outcome: CollectorRun['outcome'], fragments: number): CollectorRun => ({
+      collector: collector.id,
+      target,
+      outcome,
+      durationMs: this.clock.now() - startedAt,
+      fragments,
     });
+    const diagnose = (outcome: Diagnostic['outcome'], message: string): TaskResult => {
+      const run = runOf(outcome, 0);
+      return {
+        fragments: [],
+        diagnostics: [
+          { source: collector.id, target, outcome, message, durationMs: run.durationMs },
+        ],
+        run,
+      };
+    };
 
     const controller = new AbortController();
     const timeoutMs = this.policy.timeouts?.[collector.id] ?? this.policy.defaultTimeoutMs;
@@ -113,7 +147,14 @@ export class CaptureEngine {
 
       if (outcome === TIMED_OUT) return diagnose('timed-out', `Exceeded ${String(timeoutMs)} ms`);
       if (outcome.status === 'not-applicable') return diagnose('not-applicable', outcome.reason);
-      return this.accept(collector.produces, collector.priority, target, outcome.items, diagnose);
+      const accepted = this.accept(collector.produces, collector.priority, target, outcome.items);
+      return accepted.ok
+        ? {
+            fragments: accepted.value,
+            diagnostics: [],
+            run: runOf('collected', accepted.value.length),
+          }
+        : diagnose('invalid-output', accepted.error);
     } catch (cause) {
       return diagnose('failed', toAppError(cause).message);
     } finally {
@@ -126,11 +167,9 @@ export class CaptureEngine {
     defaultPriority: AnyFragment['priority'],
     target: FragmentTarget,
     items: Extract<CollectorOutcome<unknown>, { status: 'collected' }>['items'],
-    diagnose: (outcome: Diagnostic['outcome'], message: string) => TaskResult,
-  ): TaskResult {
+  ): Result<AnyFragment[], string> {
     const descriptor = this.catalog.get(kind);
-    if (descriptor === undefined)
-      return diagnose('invalid-output', `Unknown fragment kind "${kind}"`);
+    if (descriptor === undefined) return err(`Unknown fragment kind "${kind}"`);
     const fragments: AnyFragment[] = [];
     for (const item of items) {
       const parsed = this.catalog.parseFragment({
@@ -141,9 +180,9 @@ export class CaptureEngine {
         data: item.data,
         assets: item.assets ?? [],
       });
-      if (!parsed.ok) return diagnose('invalid-output', parsed.error.message);
+      if (!parsed.ok) return err(parsed.error.message);
       fragments.push(parsed.value);
     }
-    return { fragments, diagnostics: [] };
+    return ok(fragments);
   }
 }

@@ -36,7 +36,10 @@ const httpError = (response: Response, now: number): AppError => {
   const details = { status: response.status, retryAfterSec: retryAfterSec(response, now) };
   const { status } = response;
   if (status === 401 || status === 403) {
-    return appError('permission-denied', 'The receiver refused the access token', details);
+    return appError('permission-denied', 'The receiver refused the access token', {
+      ...details,
+      reason: 'token-refused',
+    });
   }
   if (status === 404) return appError('not-found', 'The receiver does not know this', details);
   if (status === 408 || status === 425 || status === 429 || status >= 500) {

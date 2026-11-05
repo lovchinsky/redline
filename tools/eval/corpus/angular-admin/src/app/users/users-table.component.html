@@ -1,0 +1,42 @@
+<section class="card">
+  <header class="card-header">
+    <h2>Members</h2>
+    <input
+      class="search"
+      type="search"
+      placeholder="Search by name or email"
+      [value]="query()"
+      (input)="query.set($any($event.target).value)"
+    />
+  </header>
+  <table class="users">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Role</th>
+        <th>Last active</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (user of visible(); track user.id) {
+        <tr>
+          <td>
+            <div class="name">{{ user.name }}</div>
+            <div class="email">{{ user.email }}</div>
+          </td>
+          <td><app-role-badge [role]="user.role" /></td>
+          <td>{{ user.lastActive }}</td>
+          <td class="row-actions">
+            <button class="btn" type="button" title="Remove from team">Remove</button>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <footer class="pagination">
+    <span>Showing {{ visible().length }} of {{ users.length }}</span>
+    <button class="btn" type="button" disabled>Previous</button>
+    <button class="btn" type="button" disabled>Next page</button>
+  </footer>
+</section>

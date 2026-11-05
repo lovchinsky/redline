@@ -1,5 +1,7 @@
 import { EventSubscriber, RpcClient, events, protocol } from '@redline/rpc';
 import { ZipBundleArchiver } from '../adapters/archive/zip-bundle-archiver';
+import { chromeMessages } from '../adapters/i18n/chrome-messages';
+import { MessageTranslator } from '../adapters/i18n/message-translator';
 import { DatabaseConnection, openDatabase } from '../adapters/idb/database';
 import { IdbLocalFiles } from '../adapters/idb/idb-local-files';
 import { RuntimeClientTransport } from '../adapters/messaging/runtime-client-transport';
@@ -22,6 +24,7 @@ export const createUiContainer = (scope: string): UiServices => {
     archiver: new ZipBundleArchiver(),
     hostAccess: browserHostAccess,
     navigation: browserNavigation,
+    i18n: new MessageTranslator(chromeMessages),
     ids: uuidIdGenerator,
     clock: { now: () => Date.now() },
   };

@@ -9,7 +9,7 @@ export interface TasksState {
   readonly active: readonly TaskSummary[];
   /** Finished on the receiver. */
   readonly history: readonly TaskSummary[];
-  readonly error: string | null;
+  readonly error: AppError | null;
 }
 
 export interface TaskActions {
@@ -45,7 +45,7 @@ export const useTasks = (services: UiServices): readonly [TasksState, TaskAction
             active: list.value.tasks.filter((task) => !finished(task)),
             history: list.value.tasks.filter(finished),
           }
-        : { ...s, loading: false, error: list.error.message },
+        : { ...s, loading: false, error: list.error },
     );
   }, [services]);
 
@@ -57,7 +57,7 @@ export const useTasks = (services: UiServices): readonly [TasksState, TaskAction
   const actions = useMemo((): TaskActions => {
     const { rpc } = services;
     const report = (result: Result<unknown, AppError>) => {
-      setState((s) => ({ ...s, error: result.ok ? null : result.error.message }));
+      setState((s) => ({ ...s, error: result.ok ? null : result.error }));
       return result.ok;
     };
     const run = (request: Promise<Result<unknown, AppError>>) => {

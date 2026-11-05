@@ -1,20 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { UI_TEXT, describeResolution } from './copy';
+import { translatorFor } from '../../adapters/i18n/testing/catalog-messages';
+import { describeResolution } from './copy';
 
 describe('overlay copy', () => {
-  it.each([
-    [1, '1 область'],
-    [2, '2 області'],
-    [5, '5 областей'],
-    [11, '11 областей'],
-    [21, '21 область'],
-  ])('pluralizes %i areas', (count, expected) => {
-    expect(UI_TEXT.shapesTitle(count)).toBe(expected);
-  });
-
   it('describes resolved regions', () => {
+    const t = translatorFor('uk');
     expect(
-      describeResolution({
+      describeResolution(t, {
         status: 'resolved',
         summary: {
           kind: 'elements',
@@ -28,10 +20,14 @@ describe('overlay copy', () => {
       }),
     ).toBe('div.card ×3, button.cta');
     expect(
-      describeResolution({
+      describeResolution(t, {
         status: 'resolved',
         summary: { kind: 'empty-space', groups: [], container: 'main', neighbors: [] },
       }),
     ).toBe('Порожнє місце в main');
+  });
+
+  it('speaks the catalog language', () => {
+    expect(describeResolution(translatorFor('en'), { status: 'empty' })).toBe('Nothing found');
   });
 });

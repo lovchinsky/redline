@@ -29,18 +29,28 @@ export const parseBindingPattern = (text: string): Result<BindingPattern, AppErr
   const match = PATTERN.exec(text.trim());
   const [, scheme, wildcard, rawHost, rawPort, rawPath] = match ?? [];
   if (scheme === undefined || rawHost === undefined) {
-    return err(appError('validation', 'Not a site pattern', { pattern: text }));
+    return err(
+      appError('validation', 'Not a site pattern', {
+        pattern: text,
+        reason: 'not-a-site-pattern',
+      }),
+    );
   }
   const protocol = scheme.toLowerCase() === 'https' ? 'https:' : 'http:';
   let host: string;
   try {
     host = new URL(`${protocol}//${rawHost}`).hostname;
   } catch {
-    return err(appError('validation', 'Not a valid host', { pattern: text }));
+    return err(
+      appError('validation', 'Not a valid host', { pattern: text, reason: 'invalid-host' }),
+    );
   }
   if (wildcard !== undefined && !host.includes('.')) {
     return err(
-      appError('validation', 'A wildcard needs a domain, e.g. *.acme.io', { pattern: text }),
+      appError('validation', 'A wildcard needs a domain, e.g. *.acme.io', {
+        pattern: text,
+        reason: 'wildcard-needs-domain',
+      }),
     );
   }
   const port = rawPort === undefined || rawPort === DEFAULT_PORTS[protocol] ? '' : rawPort;

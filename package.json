@@ -18,7 +18,10 @@
     "test:e2e": "pnpm --filter @redline/extension test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm format:check && pnpm lint && pnpm lint:boundaries:selftest && pnpm depcruise && pnpm typecheck && pnpm test"
+    "check": "pnpm format:check && pnpm lint && pnpm lint:boundaries:selftest && pnpm depcruise && pnpm typecheck && pnpm test",
+    "eval": "pnpm --filter @redline/eval eval",
+    "budgets": "node scripts/check-budgets.mjs",
+    "package": "pnpm --filter @redline/extension zip && node scripts/verify-store-package.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -27,6 +30,7 @@
     "eslint": "10.13.0",
     "eslint-import-resolver-typescript": "4.4.5",
     "eslint-plugin-boundaries": "7.2.0",
+    "fflate": "0.8.3",
     "globals": "17.13.0",
     "prettier": "3.9.10",
     "typescript": "5.9.3",

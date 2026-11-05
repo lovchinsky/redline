@@ -1,0 +1,521 @@
+{
+  "locale": {
+    "message": "uk"
+  },
+  "extName": {
+    "message": "Redline"
+  },
+  "extDescription": {
+    "message": "Обведіть область на сайті, опишіть правку — і відправте задачу агенту."
+  },
+  "commandStartCapture": {
+    "message": "Обвести область на сторінці"
+  },
+  "contextMenuCapture": {
+    "message": "Обвести область (Redline)"
+  },
+  "toolbarNeedsInput": {
+    "message": "Redline: агент чекає на відповідь ($1)"
+  },
+  "toolbarActive": {
+    "message": "Redline: задач у роботі — $1"
+  },
+  "unavailableBrowserPage": {
+    "message": "Redline не працює на службових сторінках браузера"
+  },
+  "unavailableWebStore": {
+    "message": "Браузер не дозволяє розширенням працювати в магазині розширень"
+  },
+  "unavailableScheme": {
+    "message": "Redline не працює на сторінках цього типу"
+  },
+  "unavailableNoAccess": {
+    "message": "Немає доступу до сторінки. Натисніть Alt+Shift+A ще раз на самій сторінці"
+  },
+  "noticeNeedsInput": {
+    "message": "Агент питає: $1"
+  },
+  "noticeResultReady": {
+    "message": "Результат готовий — натисніть, щоб відкрити"
+  },
+  "noticeRemoteFailed": {
+    "message": "Агент не впорався: $1"
+  },
+  "noticeDeliveryFailed": {
+    "message": "Отримувач не прийняв задачу: $1"
+  },
+  "overlayArmedHint": {
+    "message": "Обведіть область · клік — один елемент · Tab — вибір з клавіатури · Esc — вийти"
+  },
+  "overlayKeyboardHint": {
+    "message": "Tab / Shift+Tab — далі / назад · ↑ — зовнішній · ↓ — внутрішній · Enter — обрати · Esc — вийти"
+  },
+  "overlayKeyboardCurrent": {
+    "message": "Елемент: $1"
+  },
+  "chooseWithKeyboard": {
+    "message": "Вибрати з клавіатури"
+  },
+  "overlayLabel": {
+    "message": "Redline: опишіть правку"
+  },
+  "areaCount_one": {
+    "message": "$1 область"
+  },
+  "areaCount_few": {
+    "message": "$1 області"
+  },
+  "areaCount_many": {
+    "message": "$1 областей"
+  },
+  "areaCount_other": {
+    "message": "$1 області"
+  },
+  "removeLastShape": {
+    "message": "Прибрати останню область"
+  },
+  "commentLabel": {
+    "message": "Що змінити?"
+  },
+  "commentPlaceholder": {
+    "message": "Наприклад: зробити картки однакової висоти"
+  },
+  "saveStep": {
+    "message": "Зберегти крок"
+  },
+  "savingStep": {
+    "message": "Зберігаю…"
+  },
+  "problemCommentRequired": {
+    "message": "Опишіть, що потрібно змінити"
+  },
+  "problemResolutionPending": {
+    "message": "Зачекайте, область ще аналізується"
+  },
+  "problemEmptyShape": {
+    "message": "В одній з областей нічого не знайдено — приберіть її або обведіть ще раз"
+  },
+  "problemCommitFailed": {
+    "message": "Не вдалося зберегти крок. Спробуйте ще раз"
+  },
+  "resolutionPending": {
+    "message": "Визначаю, що обведено…"
+  },
+  "resolutionEmpty": {
+    "message": "Нічого не знайдено"
+  },
+  "regionInside": {
+    "message": "Усередині $1"
+  },
+  "regionEmptySpace": {
+    "message": "Порожнє місце в $1"
+  },
+  "cancel": {
+    "message": "Скасувати"
+  },
+  "save": {
+    "message": "Зберегти"
+  },
+  "loading": {
+    "message": "Завантажую…"
+  },
+  "sizeBytes": {
+    "message": "$1 Б"
+  },
+  "sizeKilobytes": {
+    "message": "$1 КБ"
+  },
+  "sizeMegabytes": {
+    "message": "$1 МБ"
+  },
+  "panelLabel": {
+    "message": "Задачі Redline"
+  },
+  "tabDraft": {
+    "message": "Чернетка"
+  },
+  "tabActive": {
+    "message": "В роботі"
+  },
+  "tabActiveCount": {
+    "message": "В роботі ($1)"
+  },
+  "tabHistory": {
+    "message": "Історія"
+  },
+  "draftLabel": {
+    "message": "Чернетка"
+  },
+  "newDraft": {
+    "message": "Нова чернетка"
+  },
+  "emptyDraft": {
+    "message": "Порожня чернетка"
+  },
+  "draftOption": {
+    "message": "$1 · $2"
+  },
+  "titleLabel": {
+    "message": "Назва"
+  },
+  "titlePlaceholder": {
+    "message": "Назва задачі (необов’язково)"
+  },
+  "deleteDraft": {
+    "message": "Видалити чернетку"
+  },
+  "confirmDelete": {
+    "message": "Так, видалити"
+  },
+  "noActiveDraft": {
+    "message": "Нова чернетка з’явиться з першим кроком."
+  },
+  "howToCapture": {
+    "message": "Відкрийте сторінку і натисніть Alt+Shift+A, щоб обвести область."
+  },
+  "stepsLabel": {
+    "message": "Кроки"
+  },
+  "stepTitle": {
+    "message": "Крок $1"
+  },
+  "stepCount_one": {
+    "message": "$1 крок"
+  },
+  "stepCount_few": {
+    "message": "$1 кроки"
+  },
+  "stepCount_many": {
+    "message": "$1 кроків"
+  },
+  "stepCount_other": {
+    "message": "$1 кроку"
+  },
+  "moveUp": {
+    "message": "Вище"
+  },
+  "moveDown": {
+    "message": "Нижче"
+  },
+  "edit": {
+    "message": "Змінити"
+  },
+  "removeStep": {
+    "message": "Видалити крок"
+  },
+  "stepCommentLabel": {
+    "message": "Коментар"
+  },
+  "stepScreenshot": {
+    "message": "Знімок кроку $1"
+  },
+  "previewTitle": {
+    "message": "Що піде агенту"
+  },
+  "preview": {
+    "message": "Переглянути пакет"
+  },
+  "previewing": {
+    "message": "Складаю пакет…"
+  },
+  "previewStale": {
+    "message": "Чернетка змінилась — складіть пакет ще раз."
+  },
+  "files": {
+    "message": "Файли"
+  },
+  "downloadZip": {
+    "message": "Завантажити .zip"
+  },
+  "sendTitle": {
+    "message": "Надіслати агенту"
+  },
+  "project": {
+    "message": "Проєкт"
+  },
+  "chooseProject": {
+    "message": "Оберіть проєкт"
+  },
+  "sendTo": {
+    "message": "Надіслати в «$1»"
+  },
+  "sending": {
+    "message": "Надсилаю…"
+  },
+  "bindHint": {
+    "message": "Сайт $1 запам’ятається для цього проєкту."
+  },
+  "projectConflict": {
+    "message": "Кроки належать до різних проєктів. Розділіть їх на окремі чернетки."
+  },
+  "noReceiver": {
+    "message": "Отримувача не налаштовано."
+  },
+  "openSettings": {
+    "message": "Налаштування"
+  },
+  "noTasks": {
+    "message": "Тут з’являться надіслані задачі."
+  },
+  "noHistory": {
+    "message": "Тут з’являться завершені задачі."
+  },
+  "retry": {
+    "message": "Спробувати зараз"
+  },
+  "retrySend": {
+    "message": "Надіслати ще раз"
+  },
+  "reopen": {
+    "message": "Повернути в чернетки"
+  },
+  "refresh": {
+    "message": "Оновити статус"
+  },
+  "deleteTask": {
+    "message": "Видалити"
+  },
+  "openResult": {
+    "message": "Відкрити результат"
+  },
+  "answerLabel": {
+    "message": "Ваша відповідь"
+  },
+  "answer": {
+    "message": "Відповісти"
+  },
+  "stateQueued": {
+    "message": "У черзі на відправку"
+  },
+  "stateRetryAt": {
+    "message": "Не вдалося: $1. Повтор о $2"
+  },
+  "stateFailed": {
+    "message": "Отримувач не прийняв задачу: $1"
+  },
+  "remoteQueued": {
+    "message": "Отримувач прийняв задачу"
+  },
+  "remoteWorking": {
+    "message": "Агент працює"
+  },
+  "remoteNeedsInput": {
+    "message": "Агент чекає на відповідь"
+  },
+  "remoteResultReady": {
+    "message": "Готово"
+  },
+  "remoteFailed": {
+    "message": "Агент не впорався: $1"
+  },
+  "remoteClosed": {
+    "message": "Закрито"
+  },
+  "optionsTitle": {
+    "message": "Налаштування Redline"
+  },
+  "receiverTitle": {
+    "message": "Отримувач"
+  },
+  "receiverHint": {
+    "message": "Сервіс, який перетворює задачі на зміни в коді. Redline надсилає йому пакет і показує статус."
+  },
+  "receiverUrl": {
+    "message": "Адреса"
+  },
+  "receiverToken": {
+    "message": "Токен доступу"
+  },
+  "tokenKept": {
+    "message": "Збережено — залиште порожнім, щоб не змінювати"
+  },
+  "tokenNone": {
+    "message": "Необов’язково"
+  },
+  "check": {
+    "message": "Перевірити"
+  },
+  "disconnect": {
+    "message": "Від’єднати"
+  },
+  "projectsFound": {
+    "message": "Отримувач на зв’язку, проєктів: $1"
+  },
+  "bindingsTitle": {
+    "message": "Сайти і проєкти"
+  },
+  "bindingsHint": {
+    "message": "Задачі з цих сайтів ідуть у вказаний проєкт. Шаблон: https://app.acme.io, https://*.acme.io або http://localhost:3000/admin."
+  },
+  "noBindings": {
+    "message": "Поки немає. Сайт запам’ятовується, коли ви вперше надсилаєте з нього задачу."
+  },
+  "site": {
+    "message": "Сайт"
+  },
+  "add": {
+    "message": "Додати"
+  },
+  "remove": {
+    "message": "Прибрати"
+  },
+  "removeBinding": {
+    "message": "Прибрати $1"
+  },
+  "permissionDenied": {
+    "message": "Доступ до сайту не надано — без нього Redline не зможе надсилати запити."
+  },
+  "diagnosticsTitle": {
+    "message": "Діагностика"
+  },
+  "diagnosticsHint": {
+    "message": "Як минав збір контексту на останніх захопленнях. Зберігається лише в цьому браузері, нікуди не надсилається."
+  },
+  "diagnosticsEmpty": {
+    "message": "Захоплень ще не було."
+  },
+  "diagnosticsExport": {
+    "message": "Експортувати JSON"
+  },
+  "diagnosticsClear": {
+    "message": "Очистити"
+  },
+  "diagnosticsCapture": {
+    "message": "$1 · $2 · $3 мс"
+  },
+  "diagnosticsCollector": {
+    "message": "Колектор"
+  },
+  "diagnosticsTarget": {
+    "message": "Ціль"
+  },
+  "diagnosticsOutcome": {
+    "message": "Результат"
+  },
+  "diagnosticsDuration": {
+    "message": "Час, мс"
+  },
+  "diagnosticsStep": {
+    "message": "крок"
+  },
+  "diagnosticsShape": {
+    "message": "область $1"
+  },
+  "outcomeCollected": {
+    "message": "зібрано"
+  },
+  "outcomeNotApplicable": {
+    "message": "не застосовно"
+  },
+  "outcomeFailed": {
+    "message": "помилка"
+  },
+  "outcomeTimedOut": {
+    "message": "перевищено час"
+  },
+  "outcomeInvalidOutput": {
+    "message": "некоректний результат"
+  },
+  "swTitle": {
+    "message": "Фоновий процес"
+  },
+  "swChecking": {
+    "message": "Перевіряю з’єднання…"
+  },
+  "swConnected": {
+    "message": "Підключено · v$1 · $2 мс"
+  },
+  "swUnreachable": {
+    "message": "Недоступний: $1"
+  },
+  "swPingEvents": {
+    "message": "Отримано відповідей:"
+  },
+  "swCheckAgain": {
+    "message": "Перевірити ще раз"
+  },
+  "errorValidation": {
+    "message": "Некоректні дані"
+  },
+  "errorNotFound": {
+    "message": "Не знайдено"
+  },
+  "errorConflict": {
+    "message": "Дія суперечить поточному стану"
+  },
+  "errorPermissionDenied": {
+    "message": "Доступ заборонено"
+  },
+  "errorRestrictedPage": {
+    "message": "Redline не працює на цій сторінці"
+  },
+  "errorReceiverUnavailable": {
+    "message": "Отримувач недоступний"
+  },
+  "errorNotConfigured": {
+    "message": "Отримувача не налаштовано"
+  },
+  "errorBridgeUnavailable": {
+    "message": "Сторінка не дає Redline прочитати свій стан"
+  },
+  "errorQuota": {
+    "message": "Бракує місця для зберігання"
+  },
+  "errorStorage": {
+    "message": "Помилка локального сховища"
+  },
+  "errorTimeout": {
+    "message": "Немає відповіді вчасно"
+  },
+  "errorTransport": {
+    "message": "Розширення не змогло зв’язатися з фоновим процесом"
+  },
+  "errorInternal": {
+    "message": "Щось пішло не так"
+  },
+  "errorWithDetail": {
+    "message": "$1 ($2)"
+  },
+  "errorNotAUrl": {
+    "message": "Це не веб-адреса"
+  },
+  "errorInsecureReceiver": {
+    "message": "Отримувач має працювати через https (http — лише на localhost)"
+  },
+  "errorReceiverUrlExtras": {
+    "message": "Адреса отримувача не може містити параметрів, фрагмента чи облікових даних"
+  },
+  "errorNotASitePattern": {
+    "message": "Це не шаблон сайту"
+  },
+  "errorInvalidHost": {
+    "message": "Некоректне ім’я хоста"
+  },
+  "errorWildcardNeedsDomain": {
+    "message": "Шаблон із * потребує домену, наприклад *.acme.io"
+  },
+  "errorProjectRequired": {
+    "message": "Оберіть проєкт для цієї задачі"
+  },
+  "errorBoundElsewhere": {
+    "message": "Ці сторінки прив’язані до проєкту $1"
+  },
+  "errorCommentRequired": {
+    "message": "Крок потребує коментаря"
+  },
+  "errorCommentTooLong": {
+    "message": "Коментар задовгий (не більше $1 символів)"
+  },
+  "errorTitleTooLong": {
+    "message": "Назва задовга (не більше $1 символів)"
+  },
+  "errorAnswerEmpty": {
+    "message": "Відповідь порожня"
+  },
+  "errorNotWaiting": {
+    "message": "Агент уже не чекає на цю відповідь"
+  },
+  "errorTokenRefused": {
+    "message": "Отримувач не прийняв токен доступу"
+  }
+}

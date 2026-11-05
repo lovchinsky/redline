@@ -496,3 +496,39 @@ describe('page runtime on bound sites', () => {
     expect(app.registered.at(-1)).toEqual([]);
   });
 });
+
+describe('diagnostics journal', () => {
+  const report = (page: string) => ({
+    page,
+    areas: 1,
+    durationMs: 42,
+    collectors: [
+      {
+        collector: 'anchors',
+        area: 1,
+        outcome: 'collected' as const,
+        durationMs: 3,
+        fragments: 1,
+      },
+    ],
+  });
+
+  it('keeps the most recent captures first, up to its capacity', async () => {
+    await Promise.all(
+      Array.from({ length: 55 }, (_, index) =>
+        app.rpc.call('diagnostics.record', report(`https://acme.io/${String(index)}`)),
+      ),
+    );
+    const { records } = value(await app.rpc.call('diagnostics.list', {}));
+    expect(records).toHaveLength(50);
+    expect(records[0]?.page).toBe('https://acme.io/54');
+    expect(records.at(-1)?.page).toBe('https://acme.io/5');
+    expect(new Set(records.map((entry) => entry.id)).size).toBe(50);
+  });
+
+  it('empties on request', async () => {
+    value(await app.rpc.call('diagnostics.record', report('https://acme.io/')));
+    value(await app.rpc.call('diagnostics.clear', {}));
+    expect(value(await app.rpc.call('diagnostics.list', {})).records).toEqual([]);
+  });
+});

@@ -10,7 +10,7 @@ export interface DraftsState {
   readonly activeId: TaskId | null;
   readonly draft: DraftView | null;
   /** The last failed action, until the next one succeeds. */
-  readonly error: string | null;
+  readonly error: AppError | null;
 }
 
 /** Requests to the service worker; results arrive as `drafts.changed`, failures as `error`. */
@@ -46,7 +46,7 @@ export const useDrafts = (services: UiServices): readonly [DraftsState, DraftAct
     const list = await services.rpc.call('drafts.list', {});
     if (reloadId !== latestReload.current) return;
     if (!list.ok) {
-      setState((s) => ({ ...s, loading: false, error: list.error.message }));
+      setState((s) => ({ ...s, loading: false, error: list.error }));
       return;
     }
     const { activeId, drafts } = list.value;
@@ -59,7 +59,7 @@ export const useDrafts = (services: UiServices): readonly [DraftsState, DraftAct
       drafts,
       activeId,
       draft: draft?.ok ? draft.value : null,
-      error: draft === null || draft.ok ? s.error : draft.error.message,
+      error: draft === null || draft.ok ? s.error : draft.error,
     }));
   }, [services]);
 
@@ -72,7 +72,7 @@ export const useDrafts = (services: UiServices): readonly [DraftsState, DraftAct
     const { rpc } = services;
     const run = (request: Promise<Result<unknown, AppError>>) => {
       void request.then((result) => {
-        setState((s) => ({ ...s, error: result.ok ? null : result.error.message }));
+        setState((s) => ({ ...s, error: result.ok ? null : result.error }));
       });
     };
     return {

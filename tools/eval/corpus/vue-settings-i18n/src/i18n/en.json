@@ -1,0 +1,22 @@
+{
+  "settings.title": "Account settings",
+  "nav.profile": "Profile",
+  "nav.notifications": "Notifications",
+  "nav.security": "Security",
+  "nav.danger": "Danger zone",
+  "profile.heading": "Public profile",
+  "profile.displayName": "Display name",
+  "profile.bio": "Short bio",
+  "profile.bioHint": "Shown on your author page. Markdown is not supported.",
+  "profile.save": "Save profile",
+  "notifications.heading": "Email notifications",
+  "notifications.comments": "Someone comments on my post",
+  "notifications.digest": "Weekly digest of popular posts",
+  "notifications.product": "Product news and offers",
+  "security.heading": "Two-factor authentication",
+  "security.enabled": "Enabled with an authenticator app",
+  "security.recovery": "Download recovery codes",
+  "danger.heading": "Delete account",
+  "danger.warning": "This permanently deletes your posts, drafts and subscribers.",
+  "danger.delete": "Delete my account"
+}

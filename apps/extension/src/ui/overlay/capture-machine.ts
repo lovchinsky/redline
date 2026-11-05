@@ -9,11 +9,14 @@ import { boundsOf, pathLength, simplifyPath, type Point, type Polygon } from '@r
  *   armed ──pointer-down──▶ drawing ──pointer-up──▶ composing ──submit──▶ committing ──▶ closed
  *     ▲  ◀──escape (no shapes)──┘ ▲   ◀──pointer-down (another shape)──┘      │
  *     └──────────escape───────────┴──────────────────────────────── commit-failed ─┘ (→ composing)
+ *
+ * Keyboard alternative to drawing: armed / composing ──keyboard-start──▶ picking
+ * ──element-picked──▶ composing; escape leaves picking without adding a shape.
  */
 
 export interface CapturedShape {
   readonly id: string;
-  readonly source: 'lasso' | 'click';
+  readonly source: 'lasso' | 'click' | 'keyboard';
   /** Viewport coordinates at the moment of capture. */
   readonly polygon: Polygon;
   /** Page scroll offset at the moment of capture, to keep the outline in place after scrolling. */
@@ -46,6 +49,7 @@ interface Base {
 export type CaptureState =
   | (Base & { readonly kind: 'armed' })
   | (Base & { readonly kind: 'drawing'; readonly stroke: readonly Point[]; readonly scroll: Point })
+  | (Base & { readonly kind: 'picking' })
   | (Base & { readonly kind: 'composing' })
   | (Base & { readonly kind: 'committing' })
   | { readonly kind: 'closed'; readonly outcome: 'cancelled' | 'committed' };
@@ -55,6 +59,9 @@ export type CaptureEvent =
   | { readonly type: 'pointer-move'; readonly point: Point }
   | { readonly type: 'pointer-up'; readonly point: Point }
   | { readonly type: 'pointer-cancel' }
+  | { readonly type: 'keyboard-start' }
+  /** The element chosen with the keyboard: its box, in viewport coordinates at `scroll`. */
+  | { readonly type: 'element-picked'; readonly box: Polygon; readonly scroll: Point }
   | {
       readonly type: 'shape-resolved';
       readonly shapeId: string;
@@ -127,9 +134,11 @@ export const transition = (
   switch (state.kind) {
     case 'armed':
     case 'composing':
-      return fromArmedOrComposing(state, event);
+      return fromArmedOrComposing(state, event, context);
     case 'drawing':
       return fromDrawing(state, event, context);
+    case 'picking':
+      return fromPicking(state, event, context);
     case 'committing':
       return fromCommitting(state, event);
     case 'closed':
@@ -140,11 +149,16 @@ export const transition = (
 const fromArmedOrComposing = (
   state: Extract<CaptureState, { kind: 'armed' | 'composing' }>,
   event: CaptureEvent,
+  { config }: MachineContext,
 ): Transition => {
   const base: Base = { shapes: state.shapes, draft: state.draft };
   switch (event.type) {
     case 'pointer-down':
       return stay({ kind: 'drawing', ...base, stroke: [event.point], scroll: event.scroll });
+    case 'keyboard-start':
+      return state.shapes.length < config.maxShapes
+        ? stay({ kind: 'picking', ...base })
+        : stay(state);
     case 'shape-resolved':
       return stay({ ...state, shapes: applyResolution(state.shapes, event) });
     case 'comment-changed':
@@ -178,17 +192,35 @@ const fromDrawing = (
     }
     case 'pointer-up': {
       if (state.shapes.length >= config.maxShapes) return stay(afterShapes(base));
-      const shape = toShape(ids.next(), [...state.stroke, event.point], state.scroll, config);
-      return {
-        state: {
-          kind: 'composing',
-          shapes: [...state.shapes, { shape, resolution: { status: 'pending' } }],
-          draft: { ...state.draft, problem: null },
-        },
-        effects: [{ type: 'resolve-shape', shape }],
-      };
+      return addShape(
+        base,
+        toShape(ids.next(), [...state.stroke, event.point], state.scroll, config),
+      );
     }
     case 'pointer-cancel':
+    case 'escape':
+      return stay(afterShapes(base));
+    case 'shape-resolved':
+      return stay({ ...state, shapes: applyResolution(state.shapes, event) });
+    default:
+      return stay(state);
+  }
+};
+
+const fromPicking = (
+  state: Extract<CaptureState, { kind: 'picking' }>,
+  event: CaptureEvent,
+  { ids }: MachineContext,
+): Transition => {
+  const base: Base = { shapes: state.shapes, draft: state.draft };
+  switch (event.type) {
+    case 'element-picked':
+      return addShape(base, {
+        id: ids.next(),
+        source: 'keyboard',
+        polygon: event.box,
+        scroll: event.scroll,
+      });
     case 'escape':
       return stay(afterShapes(base));
     case 'shape-resolved':
@@ -215,6 +247,16 @@ const fromCommitting = (
       return stay(state);
   }
 };
+
+/** A new shape is resolved before the step can be committed. */
+const addShape = (base: Base, shape: CapturedShape): Transition => ({
+  state: {
+    kind: 'composing',
+    shapes: [...base.shapes, { shape, resolution: { status: 'pending' } }],
+    draft: { ...base.draft, problem: null },
+  },
+  effects: [{ type: 'resolve-shape', shape }],
+});
 
 const toShape = (
   id: string,

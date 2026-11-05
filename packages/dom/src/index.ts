@@ -8,3 +8,4 @@ export * from './region/summary';
 export * from './region/representatives';
 export * from './serializer';
 export * from './privacy';
+export * from './traversal';

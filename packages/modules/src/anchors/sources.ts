@@ -1,4 +1,4 @@
-import { semanticPart } from '@redline/dom';
+import { authoredClassTokens } from '@redline/dom';
 import type { AnchorCandidate, AnchorSource } from './candidate';
 import type { AnchorKind } from './types';
 
@@ -65,10 +65,9 @@ export const textSource: AnchorSource = {
 export const classSource: AnchorSource = {
   id: 'classes',
   extract: (element) =>
-    Array.from(element.classList).flatMap((token) => {
-      const authored = semanticPart(token);
-      return authored === null ? [] : [candidate('class', authored, element, 'class', token)];
-    }),
+    authoredClassTokens(element).map(({ raw, authored }) =>
+      candidate('class', authored, element, 'class', raw),
+    ),
 };
 
 /** In-app link targets point at routes, which appear in router configs. */

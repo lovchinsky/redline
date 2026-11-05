@@ -5,4 +5,6 @@ import '../../ui/shared/styles.css';
 
 const root = document.getElementById('app');
 if (root === null) throw new Error('Options root element #app is missing');
-render(<OptionsApp services={createUiContainer('options')} />, root);
+const services = createUiContainer('options');
+document.documentElement.lang = services.i18n.locale;
+render(<OptionsApp services={services} />, root);

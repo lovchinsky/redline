@@ -24,15 +24,21 @@ export const normalizeReceiverUrl = (text: string): Result<string, AppError> => 
   try {
     url = new URL(text.trim());
   } catch {
-    return err(appError('validation', 'Not a URL'));
+    return err(appError('validation', 'Not a URL', { reason: 'not-a-url' }));
   }
   const secure =
     url.protocol === 'https:' || (url.protocol === 'http:' && LOCAL_HOSTS.has(url.hostname));
   if (!secure)
-    return err(appError('validation', 'The receiver must use https (http only on localhost)'));
+    return err(
+      appError('validation', 'The receiver must use https (http only on localhost)', {
+        reason: 'insecure-receiver',
+      }),
+    );
   if (url.search !== '' || url.hash !== '' || url.username !== '' || url.password !== '') {
     return err(
-      appError('validation', 'The receiver URL must not carry a query, fragment or credentials'),
+      appError('validation', 'The receiver URL must not carry a query, fragment or credentials', {
+        reason: 'receiver-url-extras',
+      }),
     );
   }
   return ok(`${url.origin}${url.pathname.replace(/\/+$/, '')}`);

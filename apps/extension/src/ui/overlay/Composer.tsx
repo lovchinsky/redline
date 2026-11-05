@@ -1,7 +1,8 @@
 import type { Point, Rect, Size } from '@redline/geometry';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { CaptureState } from './capture-machine';
-import { PROBLEM_MESSAGES, UI_TEXT, describeResolution } from './copy';
+import { useTranslator } from '../shared/i18n';
+import { PROBLEM_MESSAGES, describeResolution } from './copy';
 import { placePanel } from './placement';
 
 export type ComposerState = Extract<CaptureState, { kind: 'composing' | 'committing' }>;
@@ -13,6 +14,7 @@ export interface ComposerProps {
   readonly viewport: Size;
   readonly onCommentChange: (comment: string) => void;
   readonly onRemoveLastShape: () => void;
+  readonly onPickWithKeyboard: () => void;
   readonly onSubmit: () => void;
   readonly onCancel: () => void;
 }
@@ -23,9 +25,11 @@ export const Composer = ({
   viewport,
   onCommentChange,
   onRemoveLastShape,
+  onPickWithKeyboard,
   onSubmit,
   onCancel,
 }: ComposerProps) => {
+  const t = useTranslator();
   const panel = useRef<HTMLFormElement>(null);
   const comment = useRef<HTMLTextAreaElement>(null);
   const [position, setPosition] = useState<Point | null>(null);
@@ -63,30 +67,35 @@ export const Composer = ({
           ? undefined
           : { left: `${String(position.x)}px`, top: `${String(position.y)}px` }
       }
-      aria-label="Redline"
+      aria-label={t.text('overlayLabel')}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
       }}
     >
       <div class="composer-head">
-        <span>{UI_TEXT.shapesTitle(state.shapes.length)}</span>
-        <button type="button" class="link" onClick={onRemoveLastShape} disabled={committing}>
-          {UI_TEXT.removeLastShape}
-        </button>
+        <span>{t.count('areaCount', state.shapes.length)}</span>
+        <span class="head-actions">
+          <button type="button" class="link" onClick={onPickWithKeyboard} disabled={committing}>
+            {t.text('chooseWithKeyboard')}
+          </button>
+          <button type="button" class="link" onClick={onRemoveLastShape} disabled={committing}>
+            {t.text('removeLastShape')}
+          </button>
+        </span>
       </div>
       <ul class="shapes" data-testid="shape-summaries">
         {state.shapes.map((entry) => (
-          <li key={entry.shape.id}>{describeResolution(entry.resolution)}</li>
+          <li key={entry.shape.id}>{describeResolution(t, entry.resolution)}</li>
         ))}
       </ul>
       <label>
-        {UI_TEXT.commentLabel}
+        {t.text('commentLabel')}
         <textarea
           ref={comment}
           data-testid="comment"
           value={state.draft.comment}
-          placeholder={UI_TEXT.commentPlaceholder}
+          placeholder={t.text('commentPlaceholder')}
           disabled={committing}
           onInput={(event) => {
             onCommentChange(event.currentTarget.value);
@@ -96,15 +105,15 @@ export const Composer = ({
       </label>
       {state.draft.problem !== null && (
         <p class="problem" role="alert" data-testid="problem">
-          {PROBLEM_MESSAGES[state.draft.problem]}
+          {t.text(PROBLEM_MESSAGES[state.draft.problem])}
         </p>
       )}
       <div class="actions">
         <button type="button" onClick={onCancel} disabled={committing}>
-          {UI_TEXT.cancel}
+          {t.text('cancel')}
         </button>
         <button type="submit" class="primary" data-testid="submit" disabled={committing}>
-          {committing ? UI_TEXT.submitting : UI_TEXT.submit}
+          {committing ? t.text('savingStep') : t.text('saveStep')}
         </button>
       </div>
     </form>

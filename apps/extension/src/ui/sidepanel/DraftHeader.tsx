@@ -1,11 +1,13 @@
 import { TaskId } from '@redline/core';
 import type { DraftSummary, DraftView } from '@redline/rpc';
 import { useState } from 'preact/hooks';
-import { PANEL_TEXT } from './copy';
+import type { Translator } from '../../ports/i18n';
+import { useTranslator } from '../shared/i18n';
+import { titleOf } from './task-state';
 import type { DraftActions } from './use-drafts';
 
-const labelOf = (draft: DraftSummary): string =>
-  `${draft.title ?? draft.firstComment ?? PANEL_TEXT.emptyDraft} · ${PANEL_TEXT.stepCount(draft.stepCount)}`;
+const labelOf = (t: Translator, draft: DraftSummary): string =>
+  t.text('draftOption', titleOf(t, draft), t.count('stepCount', draft.stepCount));
 
 interface DraftHeaderProps {
   readonly drafts: readonly DraftSummary[];
@@ -15,13 +17,14 @@ interface DraftHeaderProps {
 
 /** Which draft new steps go to, its title, and creating or deleting drafts. */
 export const DraftHeader = ({ drafts, draft, actions }: DraftHeaderProps) => {
+  const t = useTranslator();
   const [confirming, setConfirming] = useState(false);
 
   return (
     <section class="card draft-header">
       <div class="row">
         <label class="grow">
-          <span class="label">{PANEL_TEXT.draftsLabel}</span>
+          <span class="label">{t.text('draftLabel')}</span>
           <select
             data-testid="draft-select"
             value={draft?.id ?? ''}
@@ -33,26 +36,26 @@ export const DraftHeader = ({ drafts, draft, actions }: DraftHeaderProps) => {
             {draft === null && <option value="">—</option>}
             {drafts.map((summary) => (
               <option key={summary.id} value={summary.id}>
-                {labelOf(summary)}
+                {labelOf(t, summary)}
               </option>
             ))}
           </select>
         </label>
         <button type="button" data-testid="new-draft" onClick={actions.create}>
-          {PANEL_TEXT.newDraft}
+          {t.text('newDraft')}
         </button>
       </div>
 
       {draft !== null && (
         <div class="row">
           <label class="grow">
-            <span class="label">{PANEL_TEXT.titleLabel}</span>
+            <span class="label">{t.text('titleLabel')}</span>
             <input
               key={draft.id}
               data-testid="draft-title"
               type="text"
               defaultValue={draft.title ?? ''}
-              placeholder={PANEL_TEXT.titlePlaceholder}
+              placeholder={t.text('titlePlaceholder')}
               onChange={(event) => {
                 actions.rename(draft.id, event.currentTarget.value);
               }}
@@ -68,7 +71,7 @@ export const DraftHeader = ({ drafts, draft, actions }: DraftHeaderProps) => {
                   actions.deleteDraft(draft.id);
                 }}
               >
-                {PANEL_TEXT.confirmDelete}
+                {t.text('confirmDelete')}
               </button>
               <button
                 type="button"
@@ -76,14 +79,14 @@ export const DraftHeader = ({ drafts, draft, actions }: DraftHeaderProps) => {
                   setConfirming(false);
                 }}
               >
-                {PANEL_TEXT.cancel}
+                {t.text('cancel')}
               </button>
             </>
           ) : (
             <button
               type="button"
-              aria-label={PANEL_TEXT.deleteDraft}
-              title={PANEL_TEXT.deleteDraft}
+              aria-label={t.text('deleteDraft')}
+              title={t.text('deleteDraft')}
               onClick={() => {
                 setConfirming(true);
               }}

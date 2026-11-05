@@ -24,7 +24,7 @@ export interface ViewportSnapshot {
 
 export interface ShapeSubject {
   readonly id: string;
-  readonly source: 'lasso' | 'click';
+  readonly source: 'lasso' | 'click' | 'keyboard';
   /** Outline in viewport CSS px of `snapshot`. */
   readonly polygon: Polygon;
   readonly region: ResolvedRegion;

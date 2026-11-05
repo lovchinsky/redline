@@ -1,24 +1,28 @@
 import type { CaptureUnavailableReason, Logger } from '@redline/core';
 import { browser } from 'wxt/browser';
 import type { CaptureUnavailableNotice } from '../../ports/capture';
+import type { MessageKey, Translator } from '../../ports/i18n';
 
-const MESSAGES: Record<CaptureUnavailableReason, string> = {
-  'browser-page': 'Redline не працює на службових сторінках браузера',
-  'web-store': 'Браузер не дозволяє розширенням працювати в магазині розширень',
-  'unsupported-scheme': 'Redline не працює на сторінках цього типу',
-  'no-access': 'Немає доступу до сторінки. Натисніть Alt+Shift+A ще раз на самій сторінці',
+const MESSAGES: Readonly<Record<CaptureUnavailableReason, MessageKey>> = {
+  'browser-page': 'unavailableBrowserPage',
+  'web-store': 'unavailableWebStore',
+  'unsupported-scheme': 'unavailableScheme',
+  'no-access': 'unavailableNoAccess',
 };
 
 /** Marks the toolbar icon of a tab with ✕ and explains the reason in its tooltip. */
 export class BadgeNotice implements CaptureUnavailableNotice {
-  constructor(private readonly logger: Logger) {}
+  constructor(
+    private readonly i18n: Translator,
+    private readonly logger: Logger,
+  ) {}
 
   async show(tabId: number, reason: CaptureUnavailableReason): Promise<void> {
     await this.apply('show', () =>
       Promise.all([
         browser.action.setBadgeBackgroundColor({ tabId, color: '#d93025' }),
         browser.action.setBadgeText({ tabId, text: '✕' }),
-        browser.action.setTitle({ tabId, title: MESSAGES[reason] }),
+        browser.action.setTitle({ tabId, title: this.i18n.text(MESSAGES[reason]) }),
       ]),
     );
   }

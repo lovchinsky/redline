@@ -1,0 +1,46 @@
+{
+  "framework": "react",
+  "styling": "css-modules",
+  "i18n": true,
+  "cases": [
+    {
+      "id": "cart-item",
+      "circle": "div:has(> div > p:text-is('Stoneware mug set'))",
+      "expect": [
+        "src/checkout/CartItem.tsx",
+        "src/checkout/CartItem.module.css",
+        "src/checkout/CheckoutPage.tsx"
+      ]
+    },
+    {
+      "id": "shipping",
+      "circle": "fieldset",
+      "expect": ["src/checkout/ShippingOptions.tsx", "src/checkout/ShippingOptions.module.css"]
+    },
+    {
+      "id": "payment",
+      "circle": "section:has(h2:text-is('Payment method'))",
+      "expect": ["src/checkout/PaymentMethods.tsx", "src/checkout/PaymentMethods.module.css"]
+    },
+    {
+      "id": "place-order",
+      "circle": "button:text-is('Place order')",
+      "expect": ["src/checkout/OrderSummary.tsx", "src/checkout/OrderSummary.module.css"]
+    },
+    {
+      "id": "summary-total",
+      "circle": "section:has(h2:text-is('Order summary')) dl",
+      "expect": ["src/checkout/OrderSummary.tsx", "src/checkout/OrderSummary.module.css"]
+    },
+    {
+      "id": "promo",
+      "circle": "form:has(#promo-code)",
+      "expect": ["src/checkout/PromoCodeForm.tsx", "src/checkout/PromoCodeForm.module.css"]
+    },
+    {
+      "id": "steps",
+      "circle": "ol",
+      "expect": ["src/checkout/StepIndicator.tsx", "src/checkout/StepIndicator.module.css"]
+    }
+  ]
+}

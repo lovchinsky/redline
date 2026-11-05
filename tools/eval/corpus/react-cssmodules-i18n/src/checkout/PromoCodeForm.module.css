@@ -1,0 +1,9 @@
+.promo {
+  display: grid;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}

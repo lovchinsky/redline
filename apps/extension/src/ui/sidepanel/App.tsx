@@ -1,72 +1,61 @@
 import { useState } from 'preact/hooks';
 import type { UiServices } from '../services';
-import { ConnectionStatus } from './ConnectionStatus';
-import { PANEL_TEXT } from './copy';
+import { ErrorAlert } from '../shared/ErrorAlert';
+import { TranslatorProvider, useTranslator } from '../shared/i18n';
+import { Tabs } from '../shared/Tabs';
 import { DraftsPanel } from './DraftsPanel';
 import { TasksPanel } from './TasksPanel';
 import { useTasks } from './use-tasks';
 
 type Tab = 'draft' | 'active' | 'history';
 
-export const App = ({ services }: { services: UiServices }) => {
+const Panel = ({ services }: { services: UiServices }) => {
+  const t = useTranslator();
   const [tab, setTab] = useState<Tab>('draft');
   const [tasks, actions] = useTasks(services);
-  const tabs: readonly { id: Tab; label: string }[] = [
-    { id: 'draft', label: PANEL_TEXT.tabDraft },
-    {
-      id: 'active',
-      label:
-        tasks.active.length === 0
-          ? PANEL_TEXT.tabActive
-          : `${PANEL_TEXT.tabActive} (${String(tasks.active.length)})`,
-    },
-    { id: 'history', label: PANEL_TEXT.tabHistory },
-  ];
+  const active = tasks.active.length;
 
   return (
     <main>
-      <header>
-        <h1>Redline</h1>
-        <nav class="tabs" role="tablist">
-          {tabs.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              data-testid={`tab-${id}`}
-              aria-selected={tab === id}
-              onClick={() => {
-                setTab(id);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-      </header>
-      {tasks.error !== null && (
-        <p role="alert" class="error">
-          {tasks.error}
-        </p>
-      )}
-      {tab === 'draft' && <DraftsPanel services={services} />}
-      {tab === 'active' && (
-        <TasksPanel
-          services={services}
-          tasks={tasks.active}
-          actions={actions}
-          empty={PANEL_TEXT.noTasks}
-        />
-      )}
-      {tab === 'history' && (
-        <TasksPanel
-          services={services}
-          tasks={tasks.history}
-          actions={actions}
-          empty={PANEL_TEXT.noHistory}
-        />
-      )}
-      <ConnectionStatus services={services} />
+      <h1>{t.text('extName')}</h1>
+      <Tabs
+        label={t.text('panelLabel')}
+        selected={tab}
+        onSelect={setTab}
+        tabs={[
+          { id: 'draft', label: t.text('tabDraft') },
+          {
+            id: 'active',
+            label: active === 0 ? t.text('tabActive') : t.text('tabActiveCount', t.number(active)),
+          },
+          { id: 'history', label: t.text('tabHistory') },
+        ]}
+      >
+        <ErrorAlert error={tasks.error} />
+        {tab === 'draft' && <DraftsPanel services={services} />}
+        {tab === 'active' && (
+          <TasksPanel
+            services={services}
+            tasks={tasks.active}
+            actions={actions}
+            empty={t.text('noTasks')}
+          />
+        )}
+        {tab === 'history' && (
+          <TasksPanel
+            services={services}
+            tasks={tasks.history}
+            actions={actions}
+            empty={t.text('noHistory')}
+          />
+        )}
+      </Tabs>
     </main>
   );
 };
+
+export const App = ({ services }: { services: UiServices }) => (
+  <TranslatorProvider translator={services.i18n}>
+    <Panel services={services} />
+  </TranslatorProvider>
+);

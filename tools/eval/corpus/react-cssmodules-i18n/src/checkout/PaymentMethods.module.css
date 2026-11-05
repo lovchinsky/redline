@@ -1,0 +1,16 @@
+.payment h2 {
+  margin: 0 0 12px;
+}
+
+.methods {
+  display: flex;
+  gap: 12px;
+}
+
+.method {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid #d7d3c8;
+  border-radius: 8px;
+  background: #fff;
+}

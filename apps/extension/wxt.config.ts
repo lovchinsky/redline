@@ -21,8 +21,10 @@ export default defineConfig({
   // Explicit imports only: dependencies stay visible to the boundary linter.
   imports: false,
   manifest: ({ mode }) => ({
-    name: 'Redline',
-    description: 'Обведи область на сайті, опиши правку — і відправ задачу агенту.',
+    // Texts come from public/_locales; English is the fallback for every other language.
+    name: '__MSG_extName__',
+    description: '__MSG_extDescription__',
+    default_locale: 'en',
     // activeTab + scripting: inject only into the tab the user invoked us on. No host access.
     permissions: [
       'sidePanel',
@@ -37,14 +39,16 @@ export default defineConfig({
     optional_host_permissions: OPTIONAL_HOST_PERMISSIONS,
     // e2e builds only: see E2E_HOST_PERMISSIONS.
     ...(mode === E2E_MODE ? { host_permissions: E2E_HOST_PERMISSIONS } : {}),
-    action: { default_title: 'Redline' },
+    action: { default_title: '__MSG_extName__' },
     commands: {
       'start-capture': {
         suggested_key: { default: 'Alt+Shift+A' },
-        description: 'Обвести область на сторінці',
+        description: '__MSG_commandStartCapture__',
       },
     },
   }),
+  // The Chrome Web Store upload: `pnpm --filter @redline/extension zip`.
+  zip: { artifactTemplate: 'redline-{{version}}-{{browser}}.zip' },
   vite: () => ({
     plugins: [preact()],
   }),

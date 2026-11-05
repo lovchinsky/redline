@@ -68,6 +68,22 @@
   backdrop-filter: blur(16px);
   pointer-events: none;
   white-space: nowrap;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
+.hint .cursor:empty {
+  display: none;
+}
+
+.hint .cursor {
+  color: var(--rl-muted);
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
 }
 
 .composer {
@@ -93,7 +109,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   font-weight: 600;
+}
+
+.head-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .shapes {

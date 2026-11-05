@@ -1,0 +1,34 @@
+{
+  "framework": "vue",
+  "styling": "scoped-css",
+  "i18n": true,
+  "cases": [
+    { "id": "nav", "circle": "nav.settings-nav", "expect": ["src/components/SettingsNav.vue"] },
+    {
+      "id": "profile-save",
+      "circle": "#profile button",
+      "expect": ["src/components/ProfileForm.vue"]
+    },
+    {
+      "id": "bio-field",
+      "circle": "label:has(textarea)",
+      "expect": ["src/components/ProfileForm.vue"]
+    },
+    {
+      "id": "toggles",
+      "circle": "ul.toggles",
+      "expect": ["src/components/NotificationToggles.vue"]
+    },
+    { "id": "two-factor", "circle": "#security", "expect": ["src/components/SecurityCard.vue"] },
+    {
+      "id": "delete-account",
+      "circle": "button.danger-button",
+      "expect": ["src/components/DangerZone.vue"]
+    },
+    {
+      "id": "danger-zone",
+      "circle": "section.danger-zone",
+      "expect": ["src/components/DangerZone.vue"]
+    }
+  ]
+}

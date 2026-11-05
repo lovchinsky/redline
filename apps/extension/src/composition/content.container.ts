@@ -1,6 +1,6 @@
 import { CaptureEngine, buildCollectionPlan } from '@redline/capture';
 import { FragmentCatalog, ok } from '@redline/core';
-import { DocumentDomQuery, EnclosureResolver } from '@redline/dom';
+import { DocumentDomQuery, ElementTraversal, EnclosureResolver } from '@redline/dom';
 import { collectors } from '@redline/modules/collectors';
 import { fragmentDescriptors } from '@redline/modules/descriptors';
 import { captureProfile } from '@redline/profiles';
@@ -9,10 +9,13 @@ import { RpcClient, RpcServer, protocol, tabProtocol } from '@redline/rpc';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { pageInfoOf } from '../adapters/capture/page-info';
 import {
+  RpcCaptureJournal,
   RpcImagePort,
   RpcStepCommitter,
   RpcViewportSnapshots,
 } from '../adapters/capture/rpc-capture-ports';
+import { chromeMessages } from '../adapters/i18n/chrome-messages';
+import { MessageTranslator } from '../adapters/i18n/message-translator';
 import { RuntimeClientTransport } from '../adapters/messaging/runtime-client-transport';
 import { RuntimeServerTransport } from '../adapters/messaging/runtime-server-transport';
 import { ConsoleLogger } from '../adapters/system/console-logger';
@@ -39,6 +42,7 @@ const isOverlay = (element: Element): boolean => element.localName === OverlayHo
  */
 export const startContentRuntime = (ctx: ContentScriptContext): void => {
   const logger = new ConsoleLogger('capture');
+  const i18n = new MessageTranslator(chromeMessages);
   const rpc = new RpcClient(protocol, new RuntimeClientTransport(), uuidIdGenerator);
   const dom = new DocumentDomQuery(document, isOverlay);
   const snapshots = new RpcViewportSnapshots(rpc, window, dom);
@@ -67,6 +71,7 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
       log: logger.child('collect'),
     }),
     committer: new RpcStepCommitter(rpc),
+    journal: new RpcCaptureJournal(rpc, logger.child('journal')),
     logger: logger.child('record'),
   });
 
@@ -79,6 +84,8 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
         host: OverlayHost.mount(document, overlayCss),
         dom,
         resolver: new EnclosureResolver(dom),
+        traversal: new ElementTraversal(dom, document.body),
+        i18n,
         ids: uuidIdGenerator,
         logger: logger.child('session'),
         snapshots,

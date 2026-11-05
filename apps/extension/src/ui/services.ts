@@ -2,6 +2,7 @@ import type { Clock, IdGenerator } from '@redline/core';
 import type { AppEvents, AppProtocol, EventSubscriber, RpcClient } from '@redline/rpc';
 import type { HostAccess, Navigation } from '../ports/delivery';
 import type { BundleArchiver, LocalFiles } from '../ports/drafts';
+import type { Translator } from '../ports/i18n';
 
 /** Everything UI code may use. Provided by a composition root; UI never touches adapters. */
 export interface UiServices {
@@ -12,6 +13,7 @@ export interface UiServices {
   readonly archiver: BundleArchiver;
   readonly hostAccess: HostAccess;
   readonly navigation: Navigation;
+  readonly i18n: Translator;
   readonly ids: IdGenerator;
   readonly clock: Clock;
 }

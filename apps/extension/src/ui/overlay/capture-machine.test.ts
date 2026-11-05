@@ -203,4 +203,47 @@ describe('capture state machine', () => {
       DEFAULT_MACHINE_CONFIG.maxShapes,
     );
   });
+
+  describe('keyboard picking', () => {
+    const box = [
+      { x: 0, y: 0 },
+      { x: 50, y: 0 },
+      { x: 50, y: 20 },
+      { x: 0, y: 20 },
+    ];
+    const pick: CaptureEvent[] = [
+      { type: 'keyboard-start' },
+      { type: 'element-picked', box, scroll },
+    ];
+
+    it('turns the chosen element into a shape, like a drawn one', () => {
+      const { state, effects } = run(pick);
+      expect(state.kind).toBe('composing');
+      const shape = { id: 'shape-1', source: 'keyboard', polygon: box, scroll };
+      expect(state.kind === 'composing' ? state.shapes.map((entry) => entry.shape) : []).toEqual([
+        shape,
+      ]);
+      expect(effects).toEqual([{ type: 'resolve-shape', shape }]);
+    });
+
+    it('adds further elements from the composer and keeps the comment', () => {
+      const { state } = run([...lasso, ...fillDraft, ...pick]);
+      expect(state.kind === 'composing' ? state.shapes.map((e) => e.shape.source) : []).toEqual([
+        'lasso',
+        'keyboard',
+      ]);
+      expect(state.kind === 'composing' ? state.draft.comment : '').toContain('equal height');
+    });
+
+    it('leaves picking on escape without adding anything', () => {
+      expect(run([{ type: 'keyboard-start' }, { type: 'escape' }]).state.kind).toBe('armed');
+      const back = run([...lasso, { type: 'keyboard-start' }, { type: 'escape' }]).state;
+      expect(back.kind === 'composing' ? back.shapes : []).toHaveLength(1);
+    });
+
+    it('ignores pointer input while picking', () => {
+      const { state } = run([{ type: 'keyboard-start' }, ...lasso]);
+      expect(state.kind).toBe('picking');
+    });
+  });
 });

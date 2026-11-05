@@ -2,7 +2,7 @@ import type { TaskId } from '@redline/core';
 import type { StepView } from '@redline/rpc';
 import { useState } from 'preact/hooks';
 import type { LocalFiles } from '../../ports/drafts';
-import { PANEL_TEXT } from './copy';
+import { useTranslator } from '../shared/i18n';
 import { LocalImage } from './LocalImage';
 import type { DraftActions } from './use-drafts';
 
@@ -16,9 +16,10 @@ interface StepCardProps {
 }
 
 export const StepCard = ({ taskId, step, position, count, actions, files }: StepCardProps) => {
+  const t = useTranslator();
   const [draft, setDraft] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const title = PANEL_TEXT.stepTitle(position + 1);
+  const title = t.text('stepTitle', t.number(position + 1));
 
   const save = () => {
     if (draft !== null && draft.trim() !== step.comment) {
@@ -50,7 +51,7 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
           </p>
         ) : (
           <textarea
-            aria-label={PANEL_TEXT.commentLabel}
+            aria-label={t.text('stepCommentLabel')}
             value={draft}
             rows={3}
             onInput={(event) => {
@@ -70,17 +71,17 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
                 setDraft(step.comment);
               }}
             >
-              {PANEL_TEXT.edit}
+              {t.text('edit')}
             </button>
           ) : (
             <button type="button" disabled={draft.trim() === ''} onClick={save}>
-              {PANEL_TEXT.save}
+              {t.text('save')}
             </button>
           )}
           <button
             type="button"
-            aria-label={PANEL_TEXT.moveUp}
-            title={PANEL_TEXT.moveUp}
+            aria-label={t.text('moveUp')}
+            title={t.text('moveUp')}
             disabled={position === 0}
             onClick={() => {
               actions.moveStep(taskId, step.id, position - 1);
@@ -90,8 +91,8 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
           </button>
           <button
             type="button"
-            aria-label={PANEL_TEXT.moveDown}
-            title={PANEL_TEXT.moveDown}
+            aria-label={t.text('moveDown')}
+            title={t.text('moveDown')}
             disabled={position === count - 1}
             onClick={() => {
               actions.moveStep(taskId, step.id, position + 1);
@@ -108,7 +109,7 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
                   actions.removeStep(taskId, step.id);
                 }}
               >
-                {PANEL_TEXT.removeStep}
+                {t.text('removeStep')}
               </button>
               <button
                 type="button"
@@ -116,14 +117,14 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
                   setConfirming(false);
                 }}
               >
-                {PANEL_TEXT.cancel}
+                {t.text('cancel')}
               </button>
             </>
           ) : (
             <button
               type="button"
-              aria-label={PANEL_TEXT.removeStep}
-              title={PANEL_TEXT.removeStep}
+              aria-label={t.text('removeStep')}
+              title={t.text('removeStep')}
               onClick={() => {
                 setConfirming(true);
               }}

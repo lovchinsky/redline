@@ -312,3 +312,43 @@ button.primary {
   border-bottom: 1px solid var(--rl-border);
   text-align: left;
 }
+
+.runs {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.runs th,
+.runs td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--rl-border);
+  text-align: left;
+}
+
+.runs .number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.runs tr[data-outcome='failed'],
+.runs tr[data-outcome='timed-out'],
+.runs tr[data-outcome='invalid-output'] {
+  color: var(--rl-danger);
+}
+
+.capture-record {
+  padding: 6px 0;
+  border-top: 1px solid var(--rl-border);
+}
+
+.capture-record summary {
+  cursor: pointer;
+}
+
+/* One visible focus indicator for every control, in both colour schemes. */
+:focus-visible {
+  outline: 2px solid var(--rl-accent);
+  outline-offset: 2px;
+}

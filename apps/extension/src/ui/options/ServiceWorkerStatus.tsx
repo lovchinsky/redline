@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
+import { describeError } from '../shared/errors';
+import { useTranslator } from '../shared/i18n';
 
 type Status =
   | { kind: 'checking' }
   | { kind: 'connected'; version: string; roundTripMs: number }
   | { kind: 'unreachable'; message: string };
 
-export const ConnectionStatus = ({ services }: { services: UiServices }) => {
+/** Whether the background process answers, its version, and the round trip of a ping. */
+export const ServiceWorkerStatus = ({ services }: { services: UiServices }) => {
+  const t = useTranslator();
   const [status, setStatus] = useState<Status>({ kind: 'checking' });
   const [pings, setPings] = useState(0);
 
@@ -21,9 +25,9 @@ export const ConnectionStatus = ({ services }: { services: UiServices }) => {
             version: result.value.version,
             roundTripMs: services.clock.now() - startedAt,
           }
-        : { kind: 'unreachable', message: result.error.message },
+        : { kind: 'unreachable', message: describeError(t, result.error) },
     );
-  }, [services]);
+  }, [services, t]);
 
   useEffect(
     () =>
@@ -38,20 +42,20 @@ export const ConnectionStatus = ({ services }: { services: UiServices }) => {
   }, [ping]);
 
   return (
-    <section class="card" aria-live="polite">
-      <h2>Service worker</h2>
+    <div aria-live="polite">
+      <h3>{t.text('swTitle')}</h3>
       <p data-testid="sw-status" data-status={status.kind}>
-        {status.kind === 'checking' && 'Перевіряю з’єднання…'}
+        {status.kind === 'checking' && t.text('swChecking')}
         {status.kind === 'connected' &&
-          `Підключено · v${status.version} · ${String(status.roundTripMs)} мс`}
-        {status.kind === 'unreachable' && `Недоступний: ${status.message}`}
+          t.text('swConnected', status.version, t.number(status.roundTripMs))}
+        {status.kind === 'unreachable' && t.text('swUnreachable', status.message)}
       </p>
       <p class="muted">
-        Подій system.pinged отримано: <span data-testid="ping-events">{pings}</span>
+        {t.text('swPingEvents')} <span data-testid="ping-events">{pings}</span>
       </p>
       <button type="button" data-testid="ping" onClick={() => void ping()}>
-        Перевірити ще раз
+        {t.text('swCheckAgain')}
       </button>
-    </section>
+    </div>
   );
 };

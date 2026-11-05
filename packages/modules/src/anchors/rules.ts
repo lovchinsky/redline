@@ -84,7 +84,7 @@ export const uniquenessRule: AnchorRule = {
 };
 
 const UTILITY_CLASS =
-  /^(?:[a-z]+:)*-?(?:p[xytrbl]?|m[xytrbl]?|w|h|min-[wh]|max-[wh]|gap(?:-[xy])?|space-[xy]|text|font|leading|tracking|bg|border(?:-[xytrbl])?|rounded(?:-[a-z]+)?|shadow|opacity|z|top|left|right|bottom|inset|grid-cols|grid-rows|col-span|row-span|order|basis|grow|shrink|items|justify|content|self|place-[a-z]+|overflow(?:-[xy])?|duration|ease|transition|translate-[xy]|scale|rotate)(?:-[\w./[\]%#]+)?$|^(?:flex|grid|block|inline|inline-block|inline-flex|hidden|contents|relative|absolute|fixed|sticky|static|truncate|underline|uppercase|lowercase|capitalize|italic|container|sr-only|shrink-0|grow-0|flex-1|flex-col|flex-row|flex-wrap)$/;
+  /^(?:[a-z]+:)*-?(?:p[xytrbl]?|m[xytrbl]?|w|h|min-[wh]|max-[wh]|gap(?:-[xy])?|space-[xy]|text|font|leading|tracking|bg|border(?:-[xytrbl])?|rounded(?:-[a-z]+)?|shadow|opacity|z|top|left|right|bottom|inset|grid-cols|grid-rows|col-span|row-span|order|basis|grow|shrink|items|justify|content|self|place-[a-z]+|overflow(?:-[xy])?|duration|ease|transition|translate-[xy]|scale|rotate)(?:-[\w./[\]%#]+)*$|^(?:flex|grid|block|inline|inline-block|inline-flex|hidden|contents|relative|absolute|fixed|sticky|static|truncate|underline|uppercase|lowercase|capitalize|italic|container|sr-only|shrink-0|grow-0|flex-1|flex-col|flex-row|flex-wrap)$/;
 
 /** Utility classes (Tailwind and similar) describe styling, not a component; they match everywhere. */
 export const utilityClassRule: AnchorRule = {

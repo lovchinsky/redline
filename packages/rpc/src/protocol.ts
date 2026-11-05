@@ -140,6 +140,32 @@ export const receiverViewSchema = z.object({
 });
 export type ReceiverView = z.infer<typeof receiverViewSchema>;
 
+export const collectorRunSchema = z.object({
+  collector: z.string(),
+  /** 1-based number of the area; `null` for collectors that run once per step. */
+  area: z.nullable(z.int().check(z.positive())),
+  outcome: z.enum(['collected', 'not-applicable', 'failed', 'timed-out', 'invalid-output']),
+  durationMs: z.number().check(z.nonnegative()),
+  fragments: z.int().check(z.nonnegative()),
+});
+
+/** How collecting context for one step went, as the page reports it. */
+export const captureReportSchema = z.object({
+  /** Origin and path of the page, without query or fragment. */
+  page: z.string(),
+  areas: z.int().check(z.positive()),
+  durationMs: z.number().check(z.nonnegative()),
+  collectors: z.readonly(z.array(collectorRunSchema)),
+});
+export type CaptureReportInput = z.infer<typeof captureReportSchema>;
+
+/** A journal entry: the report, stamped by the service worker. */
+export const captureRecordSchema = z.extend(captureReportSchema, {
+  id: z.string(),
+  at: z.number(),
+});
+export type CaptureRecord = z.infer<typeof captureRecordSchema>;
+
 /** Every request the service worker serves. Single source of truth for all contexts. */
 export const protocol = defineProtocol({
   'system.ping': {
@@ -264,6 +290,14 @@ export const protocol = defineProtocol({
     response: z.object({ pattern: z.string() }),
   },
   'bindings.remove': { request: z.object({ pattern: z.string() }), response: empty },
+  /** Adds a capture to the local Diagnostics journal. Content scripts only. */
+  'diagnostics.record': { request: captureReportSchema, response: empty },
+  /** The journal, most recent first. */
+  'diagnostics.list': {
+    request: empty,
+    response: z.object({ records: z.readonly(z.array(captureRecordSchema)) }),
+  },
+  'diagnostics.clear': { request: empty, response: empty },
 });
 
 /** Every request a tab's content script serves. Sent by the service worker. */
@@ -281,6 +315,7 @@ export const events = defineEvents({
   'tasks.changed': z.object({ taskId: TaskId, activeId: z.nullable(TaskId) }),
   /** Receiver settings or bindings changed. */
   'settings.changed': z.object({}),
+  'diagnostics.changed': z.object({}),
 });
 
 export type AppProtocol = typeof protocol;

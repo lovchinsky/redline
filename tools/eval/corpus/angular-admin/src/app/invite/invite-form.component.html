@@ -1,0 +1,16 @@
+<form class="invite" (submit)="$event.preventDefault()">
+  <h2>Invite a teammate</h2>
+  <p class="hint">They will get an email with a link to join Acme.</p>
+  <label>
+    Work email
+    <input type="email" name="inviteEmail" placeholder="name@company.com" />
+  </label>
+  <label>
+    Role
+    <select name="inviteRole">
+      <option>Member</option>
+      <option>Admin</option>
+    </select>
+  </label>
+  <button class="btn btn-primary" type="submit" data-test="send-invite">Send invite</button>
+</form>

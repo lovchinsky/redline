@@ -5,4 +5,6 @@ import '../../ui/shared/styles.css';
 
 const root = document.getElementById('app');
 if (root === null) throw new Error('Side panel root element #app is missing');
-render(<App services={createUiContainer('sidepanel')} />, root);
+const services = createUiContainer('sidepanel');
+document.documentElement.lang = services.i18n.locale;
+render(<App services={services} />, root);

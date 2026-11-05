@@ -1,15 +1,19 @@
+import type { AppError } from '@redline/core';
 import type { ReceiverView } from '@redline/rpc';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
-import { OPTIONS_TEXT } from './copy';
+import { describeError } from '../shared/errors';
+import { useTranslator } from '../shared/i18n';
 
 type Feedback =
   | { readonly kind: 'none' }
   | { readonly kind: 'ok'; readonly text: string }
-  | { readonly kind: 'error'; readonly text: string };
+  | { readonly kind: 'error'; readonly error: AppError }
+  | { readonly kind: 'denied' };
 
 /** The receiver's address and token. The token is write-only: the page never reads it back. */
 export const ReceiverForm = ({ services }: { services: UiServices }) => {
+  const t = useTranslator();
   const [stored, setStored] = useState<ReceiverView | null>(null);
   const [url, setUrl] = useState('');
   const [token, setToken] = useState('');
@@ -18,7 +22,7 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
   const load = useCallback(async () => {
     const receiver = await services.rpc.call('receiver.get', {});
     if (!receiver.ok) {
-      setFeedback({ kind: 'error', text: receiver.error.message });
+      setFeedback({ kind: 'error', error: receiver.error });
       return;
     }
     setStored(receiver.value.receiver);
@@ -38,7 +42,7 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
       // Invalid URLs are reported by the service worker below.
     }
     if (origin !== null && !(await services.hostAccess.request([`${origin}/*`]))) {
-      setFeedback({ kind: 'error', text: OPTIONS_TEXT.permissionDenied });
+      setFeedback({ kind: 'denied' });
       return;
     }
     const saved = await services.rpc.call(
@@ -46,7 +50,7 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
       token === '' ? { baseUrl: url } : { baseUrl: url, token },
     );
     if (!saved.ok) {
-      setFeedback({ kind: 'error', text: saved.error.message });
+      setFeedback({ kind: 'error', error: saved.error });
       return;
     }
     setToken('');
@@ -58,14 +62,14 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
     const projects = await services.rpc.call('projects.list', {});
     setFeedback(
       projects.ok
-        ? { kind: 'ok', text: OPTIONS_TEXT.projectsFound(projects.value.projects.length) }
-        : { kind: 'error', text: projects.error.message },
+        ? { kind: 'ok', text: t.text('projectsFound', t.number(projects.value.projects.length)) }
+        : { kind: 'error', error: projects.error },
     );
   };
 
   const clear = async () => {
     const cleared = await services.rpc.call('receiver.clear', {});
-    if (!cleared.ok) setFeedback({ kind: 'error', text: cleared.error.message });
+    if (!cleared.ok) setFeedback({ kind: 'error', error: cleared.error });
     else {
       setFeedback({ kind: 'none' });
       await load();
@@ -74,8 +78,8 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
 
   return (
     <section class="card">
-      <h2>{OPTIONS_TEXT.receiverTitle}</h2>
-      <p class="muted">{OPTIONS_TEXT.receiverHint}</p>
+      <h2>{t.text('receiverTitle')}</h2>
+      <p class="muted">{t.text('receiverHint')}</p>
       <form
         class="form"
         onSubmit={(event) => {
@@ -84,28 +88,26 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
         }}
       >
         <label>
-          <span class="label">{OPTIONS_TEXT.url}</span>
+          <span class="label">{t.text('receiverUrl')}</span>
           <input
             data-testid="receiver-url"
             type="url"
             required
             value={url}
-            placeholder={OPTIONS_TEXT.urlPlaceholder}
+            placeholder="https://receiver.example.com"
             onInput={(event) => {
               setUrl(event.currentTarget.value);
             }}
           />
         </label>
         <label>
-          <span class="label">{OPTIONS_TEXT.token}</span>
+          <span class="label">{t.text('receiverToken')}</span>
           <input
             data-testid="receiver-token"
             type="password"
             autocomplete="off"
             value={token}
-            placeholder={
-              stored?.hasToken === true ? OPTIONS_TEXT.tokenKept : OPTIONS_TEXT.tokenNone
-            }
+            placeholder={stored?.hasToken === true ? t.text('tokenKept') : t.text('tokenNone')}
             onInput={(event) => {
               setToken(event.currentTarget.value);
             }}
@@ -113,15 +115,15 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
         </label>
         <div class="actions">
           <button type="submit" class="primary" data-testid="receiver-save">
-            {OPTIONS_TEXT.save}
+            {t.text('save')}
           </button>
           {stored !== null && (
             <>
               <button type="button" onClick={() => void check()}>
-                {OPTIONS_TEXT.check}
+                {t.text('check')}
               </button>
               <button type="button" class="danger" onClick={() => void clear()}>
-                {OPTIONS_TEXT.clear}
+                {t.text('disconnect')}
               </button>
             </>
           )}
@@ -129,11 +131,15 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
       </form>
       {feedback.kind !== 'none' && (
         <p
-          role={feedback.kind === 'error' ? 'alert' : 'status'}
-          class={feedback.kind === 'error' ? 'error' : 'muted'}
+          role={feedback.kind === 'ok' ? 'status' : 'alert'}
+          class={feedback.kind === 'ok' ? 'muted' : 'error'}
           data-testid="receiver-feedback"
         >
-          {feedback.text}
+          {feedback.kind === 'ok'
+            ? feedback.text
+            : feedback.kind === 'denied'
+              ? t.text('permissionDenied')
+              : describeError(t, feedback.error)}
         </p>
       )}
     </section>

@@ -1,0 +1,37 @@
+.summary {
+  padding: 20px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+}
+
+.lines {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.lines dd {
+  margin: 0;
+  text-align: right;
+}
+
+.total {
+  font-weight: 700;
+}
+
+.placeOrder {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: #3d6b4f;
+  color: #fff;
+  font-size: 16px;
+}
+
+.secure {
+  color: #777;
+  font-size: 13px;
+}

@@ -99,14 +99,25 @@ export class SubmitTask {
         const sites = sitesOf(task.value, all.value);
         const target = targetOf(sites);
         if (target.conflict) {
-          return err(appError('conflict', 'The steps belong to different projects'));
+          return err(
+            appError('conflict', 'The steps belong to different projects', {
+              reason: 'projects-differ',
+            }),
+          );
         }
         const chosen = project ?? target.project;
-        if (chosen === null) return err(appError('validation', 'Choose a project for this task'));
+        if (chosen === null)
+          return err(
+            appError('validation', 'Choose a project for this task', {
+              reason: 'project-required',
+            }),
+          );
         if (target.project !== null && target.project.id !== chosen.id) {
           return err(
             appError('conflict', `These pages are bound to ${target.project.name}`, {
               projectId: target.project.id,
+              projectName: target.project.name,
+              reason: 'bound-elsewhere',
             }),
           );
         }
