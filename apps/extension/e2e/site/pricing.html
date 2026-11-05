@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pricing — fixture</title>
+    <style>
+      body {
+        margin: 0;
+        font: 16px/1.4 sans-serif;
+      }
+      header {
+        padding: 16px 32px;
+        border-bottom: 1px solid #ddd;
+      }
+      .plans {
+        display: flex;
+        gap: 24px;
+        padding: 32px;
+      }
+      .card {
+        width: 220px;
+        height: 180px;
+        padding: 16px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+      }
+      .card h3 {
+        margin: 0 0 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav><a href="#">Home</a> · <a href="#">Pricing</a></nav>
+    </header>
+    <main>
+      <section class="plans">
+        <article class="card" data-testid="plan-card">
+          <h3>Basic</h3>
+          <p>$9</p>
+        </article>
+        <article class="card" data-testid="plan-card">
+          <h3>Pro</h3>
+          <p>$29</p>
+        </article>
+        <article class="card" data-testid="plan-card">
+          <h3>Team</h3>
+          <p>$99</p>
+        </article>
+        <article class="card" data-testid="enterprise-card">
+          <h3>Enterprise</h3>
+          <p>Call us</p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

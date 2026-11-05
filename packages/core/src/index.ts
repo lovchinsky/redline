@@ -6,3 +6,5 @@ export type * from './ports/id-generator';
 export type * from './ports/clock';
 export type * from './ports/logger';
 export * from './ports/asset-store';
+export * from './domain/capture-policy';
+export * from './domain/intent';

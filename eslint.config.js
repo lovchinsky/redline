@@ -23,6 +23,7 @@ const elements = [
   { type: 'rpc', pattern: 'packages/rpc' },
   { type: 'ext-entrypoint', pattern: 'apps/extension/src/entrypoints' },
   { type: 'ext-composition', pattern: 'apps/extension/src/composition' },
+  { type: 'ext-ports', pattern: 'apps/extension/src/ports' },
   { type: 'ext-application', pattern: 'apps/extension/src/application' },
   { type: 'ext-adapter', pattern: 'apps/extension/src/adapters' },
   { type: 'ext-ui', pattern: 'apps/extension/src/ui' },
@@ -56,15 +57,20 @@ const dependencyPolicies = [
   { from: { element: { type: 'profiles' } }, allow: to(['profiles', 'core']) },
   { from: { element: { type: 'page-runtime' } }, allow: to(['page-runtime', 'contract']) },
   { from: { element: { type: 'rpc' } }, allow: to(['rpc', 'core']) },
+  // Ports are the application's contracts with the platform: adapters implement them.
+  { from: { element: { type: 'ext-ports' } }, allow: to(['ext-ports', 'core', 'rpc']) },
   {
     from: { element: { type: 'ext-application' } },
-    allow: to(['ext-application', 'core', 'rpc', 'contract']),
+    allow: to(['ext-application', 'ext-ports', 'core', 'rpc', 'contract']),
   },
   {
     from: { element: { type: 'ext-adapter' } },
-    allow: to(['ext-adapter', 'core', 'rpc', 'contract']),
+    allow: to(['ext-adapter', 'ext-ports', 'core', 'rpc', 'contract']),
   },
-  { from: { element: { type: 'ext-ui' } }, allow: to(['ext-ui', 'core', 'rpc']) },
+  {
+    from: { element: { type: 'ext-ui' } },
+    allow: to(['ext-ui', 'core', 'rpc', 'geometry', 'dom']),
+  },
   {
     from: { element: { type: 'ext-composition' } },
     allow: to(elements.map((element) => element.type).filter((type) => type !== 'ext-entrypoint')),
@@ -140,7 +146,7 @@ export default defineConfig(
   },
   {
     // Only adapters and composition roots may talk to extension APIs.
-    files: ['apps/extension/src/{application,ui}/**/*.{ts,tsx}'],
+    files: ['apps/extension/src/{application,ports,ui}/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',

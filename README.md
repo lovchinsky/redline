@@ -7,19 +7,28 @@
 
 ## Структура
 
-| Шлях                             | Роль                                                                    |
-| -------------------------------- | ----------------------------------------------------------------------- |
-| `packages/core`                  | Result, AppError, ids, схеми, порти. Без браузерних API                 |
-| `packages/contract`              | Контракт з отримувачем: `bundle.v1`, `receiver-api.v1`                  |
-| `packages/rpc`                   | Типізований RPC і події між контекстами розширення, протокол застосунку |
-| `apps/extension/src/adapters`    | Єдине місце, де живуть `wxt/browser`, IndexedDB, console                |
-| `apps/extension/src/application` | Обробники сценаріїв; залежать лише від портів                           |
-| `apps/extension/src/composition` | Composition roots: збирають систему з адаптерів                         |
-| `apps/extension/src/ui`          | Preact UI; отримує сервіси від composition root                         |
-| `apps/extension/src/entrypoints` | Точки входу WXT: лише запускають composition root                       |
+| Шлях                             | Роль                                                                          |
+| -------------------------------- | ----------------------------------------------------------------------------- |
+| `packages/core`                  | Result, AppError, ids, схеми, порти. Без браузерних API                       |
+| `packages/contract`              | Контракт з отримувачем: `bundle.v1`, `receiver-api.v1`                        |
+| `packages/rpc`                   | Типізований RPC і події між контекстами розширення, протокол застосунку       |
+| `packages/geometry`              | Полігони, спрощення й згладжування ліній, вибірка точок, покриття             |
+| `packages/dom`                   | Запити до DOM з урахуванням shadow DOM, `EnclosureResolver`: що саме обведено |
+| `apps/extension/src/ports`       | Контракти, які сценарії вимагають від платформи; реалізуються адаптерами      |
+| `apps/extension/src/adapters`    | Єдине місце, де живуть `wxt/browser`, IndexedDB, console                      |
+| `apps/extension/src/application` | Обробники сценаріїв; залежать лише від портів                                 |
+| `apps/extension/src/composition` | Composition roots: збирають систему з адаптерів                               |
+| `apps/extension/src/ui`          | Preact UI; отримує сервіси від composition root                               |
+| `apps/extension/src/entrypoints` | Точки входу WXT: лише запускають composition root                             |
 
 Межі між шарами перевіряють ESLint (`eslint-plugin-boundaries`) і dependency-cruiser.
 `pnpm lint:boundaries:selftest` доводить, що правила справді спрацьовують на порушеннях.
+
+## Як користуватись
+
+`Alt+Shift+A` (або «Обвести область» у контекстному меню) на будь-якій сторінці вмикає обведення.
+Обведіть одну чи кілька областей або клікніть по елементу, опишіть правку, оберіть тип і натисніть
+Enter. `Esc` скасовує крок, повторний `Esc` виходить з режиму.
 
 ## Команди
 

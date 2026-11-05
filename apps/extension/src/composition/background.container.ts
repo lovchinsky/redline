@@ -1,10 +1,19 @@
 import { EventPublisher, RpcServer, events, protocol, type Unsubscribe } from '@redline/rpc';
-import { browser } from 'wxt/browser';
+import { browser, type Browser } from 'wxt/browser';
+import { BadgeNotice } from '../adapters/capture/badge-notice';
+import { scriptingInjector } from '../adapters/capture/scripting-injector';
+import { RpcTabCaptureClient } from '../adapters/capture/tab-capture-client';
 import { RuntimeEventSink } from '../adapters/messaging/runtime-events';
 import { RuntimeServerTransport } from '../adapters/messaging/runtime-server-transport';
 import { ConsoleLogger } from '../adapters/system/console-logger';
 import { systemClock } from '../adapters/system/system-clock';
+import { uuidIdGenerator } from '../adapters/system/uuid-id-generator';
+import { createCaptureHandlers } from '../application/capture/capture-handlers';
+import { StartCapture } from '../application/capture/start-capture';
 import { createSystemHandlers } from '../application/system/system-handlers';
+
+/** Manifest command and context menu item that start capture on the current page. */
+export const START_CAPTURE = 'start-capture';
 
 /**
  * Composition root of the service worker: the only place that knows concrete adapters.
@@ -14,6 +23,14 @@ export const createBackgroundContainer = () => {
   const logger = new ConsoleLogger('background');
   const version = browser.runtime.getManifest().version;
   const publisher = new EventPublisher(events, new RuntimeEventSink(logger.child('events')));
+  const notice = new BadgeNotice(logger.child('notice'));
+
+  const startCapture = new StartCapture({
+    injector: scriptingInjector,
+    tabs: new RpcTabCaptureClient(uuidIdGenerator),
+    notice,
+    logger: logger.child('capture'),
+  });
 
   const server = new RpcServer(
     protocol,
@@ -24,20 +41,57 @@ export const createBackgroundContainer = () => {
         events: publisher,
         logger: logger.child('system'),
       }),
+      ...createCaptureHandlers(startCapture),
     },
     logger.child('rpc'),
   );
 
+  /** User gestures (shortcut, context menu) grant activeTab for the tab they target. */
+  const startCaptureFromGesture = (tab: Browser.tabs.Tab | undefined): void => {
+    if (tab?.id === undefined) return;
+    void startCapture.execute({ tabId: tab.id, url: tab.url });
+  };
+
   return {
     start(): Unsubscribe {
       const stopServer = server.listen(new RuntimeServerTransport());
+
+      const onCommand = (command: string, tab?: Browser.tabs.Tab) => {
+        if (command === START_CAPTURE) startCaptureFromGesture(tab);
+      };
+      const onMenuClick = (info: Browser.contextMenus.OnClickData, tab?: Browser.tabs.Tab) => {
+        if (info.menuItemId === START_CAPTURE) startCaptureFromGesture(tab);
+      };
+      const onInstalled = () => {
+        browser.contextMenus.create({
+          id: START_CAPTURE,
+          title: 'Обвести область (Redline)',
+          contexts: ['page', 'selection', 'link', 'image'],
+        });
+      };
+      // A notice explains why capture failed on one page; it should not outlive that page.
+      const onTabUpdated = (tabId: number, change: Browser.tabs.OnUpdatedInfo) => {
+        if (change.status === 'loading') void notice.clear(tabId);
+      };
+
+      browser.commands.onCommand.addListener(onCommand);
+      browser.contextMenus.onClicked.addListener(onMenuClick);
+      browser.runtime.onInstalled.addListener(onInstalled);
+      browser.tabs.onUpdated.addListener(onTabUpdated);
       browser.sidePanel
         .setPanelBehavior({ openPanelOnActionClick: true })
         .catch((cause: unknown) => {
           logger.error('Could not enable the side panel on action click', { cause: String(cause) });
         });
       logger.info('Service worker started', { version });
-      return stopServer;
+
+      return () => {
+        stopServer();
+        browser.commands.onCommand.removeListener(onCommand);
+        browser.contextMenus.onClicked.removeListener(onMenuClick);
+        browser.runtime.onInstalled.removeListener(onInstalled);
+        browser.tabs.onUpdated.removeListener(onTabUpdated);
+      };
     },
   };
 };

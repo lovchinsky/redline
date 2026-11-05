@@ -21,6 +21,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # DOM packages are tested in a real Chromium (Vitest browser mode).
+      - run: pnpm --filter @redline/dom exec playwright install --with-deps chromium
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm lint:boundaries:selftest

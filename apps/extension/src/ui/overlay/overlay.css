@@ -1,0 +1,218 @@
+:host {
+  --rl-surface: rgb(255 255 255 / 0.92);
+  --rl-text: #1b1d21;
+  --rl-muted: #5c6370;
+  --rl-border: rgb(0 0 0 / 0.08);
+  --rl-accent: #4a5cf0;
+  --rl-accent-text: #ffffff;
+  --rl-chip: rgb(0 0 0 / 0.05);
+  --rl-danger: #c5221f;
+  --rl-shadow: 0 12px 40px rgb(0 0 0 / 0.18), 0 2px 8px rgb(0 0 0 / 0.08);
+  color-scheme: light dark;
+  font:
+    13px/1.45 system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    --rl-surface: rgb(30 32 38 / 0.92);
+    --rl-text: #e8eaee;
+    --rl-muted: #9aa1ad;
+    --rl-border: rgb(255 255 255 / 0.1);
+    --rl-accent: #8b98ff;
+    --rl-accent-text: #11131a;
+    --rl-chip: rgb(255 255 255 / 0.08);
+    --rl-danger: #ff8a80;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.canvas[data-drawing='true'] {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.hint,
+.composer {
+  /* The host resets every inherited property (all: initial), so panels set their own type. */
+  font:
+    13px/1.45 system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+
+.hint {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--rl-surface);
+  color: var(--rl-text);
+  box-shadow: var(--rl-shadow);
+  backdrop-filter: blur(16px);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.composer {
+  position: fixed;
+  width: 340px;
+  padding: 14px;
+  border: 1px solid var(--rl-border);
+  border-radius: 14px;
+  background: var(--rl-surface);
+  color: var(--rl-text);
+  box-shadow: var(--rl-shadow);
+  backdrop-filter: blur(20px);
+  pointer-events: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.composer[data-placed='false'] {
+  visibility: hidden;
+}
+
+.composer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.shapes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  color: var(--rl-muted);
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+.shapes li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+  font-weight: 500;
+}
+
+textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--rl-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+textarea:focus-visible,
+button:focus-visible,
+.chip:has(input:focus-visible) {
+  outline: 2px solid var(--rl-accent);
+  outline-offset: 1px;
+}
+
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+legend {
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.chip {
+  position: relative;
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--rl-chip);
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chip:has(input:checked) {
+  background: var(--rl-accent);
+  color: var(--rl-accent-text);
+}
+
+.problem {
+  margin: 0;
+  color: var(--rl-danger);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+button {
+  padding: 6px 12px;
+  border: 1px solid var(--rl-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  border-color: var(--rl-accent);
+  background: var(--rl-accent);
+  color: var(--rl-accent-text);
+}
+
+button.link {
+  padding: 2px 6px;
+  border: 0;
+  color: var(--rl-muted);
+  font-weight: 400;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

@@ -9,11 +9,13 @@
     "zip": "wxt zip",
     "postinstall": "wxt prepare",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p e2e/tsconfig.json",
-    "test:e2e": "wxt build && playwright test"
+    "test:e2e": "wxt build && wxt build --mode e2e && playwright test"
   },
   "dependencies": {
     "@redline/contract": "workspace:*",
     "@redline/core": "workspace:*",
+    "@redline/dom": "workspace:*",
+    "@redline/geometry": "workspace:*",
     "@redline/rpc": "workspace:*",
     "idb": "8.0.4",
     "preact": "10.29.8",
