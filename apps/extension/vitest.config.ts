@@ -6,6 +6,8 @@ export default defineProject({
   test: {
     name: 'extension',
     include: ['src/**/*.test.ts'],
+    // Those need a real page: see `vitest.browser.config.ts`.
+    exclude: ['src/**/*.browser.test.ts'],
     environment: 'node',
     // Installs IndexedDB globals (IDBRequest, IDBKeyRange, …); tests swap in a fresh IDBFactory.
     setupFiles: ['fake-indexeddb/auto'],
