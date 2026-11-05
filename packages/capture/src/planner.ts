@@ -1,14 +1,13 @@
-import { parseWith, type Intent } from '@redline/core';
+import { parseWith } from '@redline/core';
 import type { ErasedCollector } from './collector';
 
 /** A collector id, or an id with options for it. */
 export type PlanEntry = string | readonly [collectorId: string, options: unknown];
 
-export interface ProfileDefinition {
+/** Which collectors run for every step, with their options. Declarative configuration. */
+export interface CaptureProfile {
   readonly collectors: readonly PlanEntry[];
 }
-
-export type Profiles = Readonly<Record<Intent, ProfileDefinition>>;
 
 export interface PlannedInvocation {
   readonly collector: ErasedCollector;
@@ -16,7 +15,6 @@ export interface PlannedInvocation {
 }
 
 export interface CollectionPlan {
-  readonly intent: Intent;
   readonly invocations: readonly PlannedInvocation[];
 }
 
@@ -25,52 +23,36 @@ export class PlanConfigError extends Error {
 }
 
 /**
- * Turns intent profiles into ready-to-run plans. Every profile is resolved and its options
- * validated up front, so a misconfigured profile fails at start-up, not during a capture.
+ * Resolves a profile into a ready-to-run plan. Every collector id is looked up and its options
+ * validated here, so a misconfigured profile fails at start-up, not during a capture.
  */
-export class CollectionPlanner {
-  private readonly plans: ReadonlyMap<Intent, CollectionPlan>;
-
-  constructor(collectors: readonly ErasedCollector[], profiles: Profiles) {
-    const byId = new Map<string, ErasedCollector>();
-    for (const collector of collectors) {
-      if (byId.has(collector.id))
-        throw new PlanConfigError(`Collector "${collector.id}" is registered twice`);
-      byId.set(collector.id, collector);
+export const buildCollectionPlan = (
+  collectors: readonly ErasedCollector[],
+  profile: CaptureProfile,
+): CollectionPlan => {
+  const byId = new Map<string, ErasedCollector>();
+  for (const collector of collectors) {
+    if (byId.has(collector.id)) {
+      throw new PlanConfigError(`Collector "${collector.id}" is registered twice`);
     }
-
-    const plans = new Map<Intent, CollectionPlan>();
-    for (const [intent, profile] of Object.entries(profiles) as [Intent, ProfileDefinition][]) {
-      plans.set(intent, {
-        intent,
-        invocations: profile.collectors.map((entry) => resolve(byId, intent, entry)),
-      });
+    byId.set(collector.id, collector);
+  }
+  const seen = new Set<string>();
+  const invocations = profile.collectors.map((entry): PlannedInvocation => {
+    const [id, rawOptions] = typeof entry === 'string' ? [entry, undefined] : entry;
+    const collector = byId.get(id);
+    if (collector === undefined) {
+      throw new PlanConfigError(`The profile uses unknown collector "${id}"`);
     }
-    this.plans = plans;
-  }
-
-  plan(intent: Intent): CollectionPlan {
-    const plan = this.plans.get(intent);
-    if (plan === undefined) throw new PlanConfigError(`No profile for intent "${intent}"`);
-    return plan;
-  }
-}
-
-const resolve = (
-  byId: ReadonlyMap<string, ErasedCollector>,
-  intent: Intent,
-  entry: PlanEntry,
-): PlannedInvocation => {
-  const [id, rawOptions] = typeof entry === 'string' ? [entry, undefined] : entry;
-  const collector = byId.get(id);
-  if (collector === undefined) {
-    throw new PlanConfigError(`Profile "${intent}" uses unknown collector "${id}"`);
-  }
-  const options = parseWith(collector.optionsSchema, rawOptions);
-  if (!options.ok) {
-    throw new PlanConfigError(
-      `Profile "${intent}" has invalid options for "${id}": ${JSON.stringify(options.error.details)}`,
-    );
-  }
-  return { collector, options: options.value };
+    if (seen.has(id)) throw new PlanConfigError(`The profile lists "${id}" twice`);
+    seen.add(id);
+    const options = parseWith(collector.optionsSchema, rawOptions);
+    if (!options.ok) {
+      throw new PlanConfigError(
+        `The profile has invalid options for "${id}": ${JSON.stringify(options.error.details)}`,
+      );
+    }
+    return { collector, options: options.value };
+  });
+  return { invocations };
 };

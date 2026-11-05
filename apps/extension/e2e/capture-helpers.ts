@@ -70,7 +70,7 @@ export const readStore = <T>(serviceWorker: Worker, store: string) =>
 export const captureStep = async (
   page: Page,
   extensionPage: Page,
-  step: { readonly around: string; readonly intent: string; readonly comment: string },
+  step: { readonly around: string; readonly comment: string },
 ) => {
   await page.bringToFront();
   const response = await startCapture(extensionPage, page.url());
@@ -104,7 +104,6 @@ export const captureStep = async (
   // Type into the comment field itself rather than wherever focus happens to be.
   await probe.click('comment');
   await page.keyboard.type(step.comment);
-  await probe.click(`intent-${step.intent}`);
   await probe.click('submit');
   await expect(page.locator('redline-overlay')).toHaveCount(0);
 };

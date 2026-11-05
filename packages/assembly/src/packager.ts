@@ -13,7 +13,6 @@ import {
   parseWith,
   type AppError,
   type AssetId,
-  type Intent,
   type Result,
 } from '@redline/core';
 import type { RenderedContext } from './renderer';
@@ -22,7 +21,6 @@ export interface PackageStep {
   readonly id: string;
   readonly url: string;
   readonly routePattern: string;
-  readonly intent: Intent;
   readonly comment: string;
   readonly viewport: Viewport;
   readonly shapeIds: readonly string[];

@@ -7,7 +7,6 @@ import {
   bindingSchema,
   taskStateSchema,
   assetRefSchema,
-  intentSchema,
   pageRefSchema,
   stepCaptureEnvelopeSchema,
   viewportSchema,
@@ -46,7 +45,6 @@ const imageSchema = z.object({
 export const stepRecordSchema = z.object({
   url: z.url(),
   title: z.string(),
-  intent: intentSchema,
   comment: z.string().check(z.minLength(1), z.maxLength(MAX_COMMENT_LENGTH)),
   viewport: viewportSchema,
   shapeIds: z.readonly(z.array(z.string().check(z.minLength(1))).check(z.minLength(1))),
@@ -75,7 +73,6 @@ export type DraftSummary = z.infer<typeof draftSummarySchema>;
 
 export const stepViewSchema = z.object({
   id: StepId,
-  intent: intentSchema,
   comment: z.string(),
   page: pageRefSchema,
   areaCount: z.int().check(z.positive()),

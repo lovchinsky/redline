@@ -88,7 +88,6 @@ const input: RenderInput = {
   steps: [
     {
       id: 'step-a',
-      intent: 'layout',
       comment: 'Cards must have equal height\nand the badge goes right',
       shapeIds: ['s1', 's2'],
       references: [],
@@ -108,7 +107,6 @@ const input: RenderInput = {
     },
     {
       id: 'step-b',
-      intent: 'text',
       comment: 'Fix the typo',
       shapeIds: ['s3'],
       references: [],
@@ -152,7 +150,6 @@ describe('references', () => {
         ...input.steps,
         {
           id: 'step-c',
-          intent: 'layout',
           comment: 'Same cards on the second page',
           shapeIds: ['s4'],
           fragments: [],
@@ -180,7 +177,6 @@ describe('references', () => {
       steps: [
         {
           id: 'only',
-          intent: 'text',
           comment: 'x',
           shapeIds: [],
           fragments: [],
@@ -207,7 +203,6 @@ describe('budget', () => {
     steps: [
       {
         id: 'step-a',
-        intent: 'layout',
         comment: 'Fix it',
         shapeIds: ['s1'],
         references: [],
@@ -230,7 +225,7 @@ describe('budget', () => {
   };
 
   it('keeps critical and higher-priority blocks, moving the rest to more-context.md', async () => {
-    const rendered = renderer({ summaryTokens: () => 60 }, perChar).render(budgeted);
+    const rendered = renderer({ summaryTokensPerStep: 60 }, perChar).render(budgeted);
     await expect(rendered.markdown).toMatchFileSnapshot('./__golden__/budgeted.md');
     const more = rendered.files.find((file) => file.path === 'more-context.md');
     expect(more?.owner).toBeNull();
@@ -240,7 +235,7 @@ describe('budget', () => {
   });
 
   it('never drops critical blocks, even over budget', () => {
-    const rendered = renderer({ summaryTokens: () => 0 }, perChar).render(budgeted);
+    const rendered = renderer({ summaryTokensPerStep: 0 }, perChar).render(budgeted);
     expect(rendered.markdown).toContain('**Page:** /pricing');
     expect(rendered.markdown).not.toContain('/key');
   });
@@ -251,15 +246,15 @@ describe('budget', () => {
     expect(rendered.markdown).not.toContain('more-context.md');
   });
 
-  it('gives every step its own budget', () => {
+  it('gives every step its own budget, so an early step cannot crowd out a later one', () => {
     const [only] = budgeted.steps;
     if (only === undefined) throw new Error('Fixture has a step');
-    const twice: RenderInput = { steps: [only, { ...only, id: 'step-b', intent: 'text' }] };
-    const policy: BudgetPolicy = { summaryTokens: (intent) => (intent === 'text' ? 0 : 1000) };
-    const { markdown } = renderer(policy, perChar).render(twice);
+    const twice: RenderInput = { steps: [only, { ...only, id: 'step-b' }] };
+    // Each step needs about 40 tokens for what it keeps; together they would exceed 60.
+    const { markdown } = renderer({ summaryTokensPerStep: 60 }, perChar).render(twice);
     const [first = '', second = ''] = markdown.split('## Step 2');
     expect(first).toContain('**Page:** /key');
-    expect(second).not.toContain('**Page:** /key');
+    expect(second).toContain('**Page:** /key');
   });
 });
 
@@ -269,7 +264,6 @@ describe('Packager', () => {
     id: step.id,
     url: 'https://acme.io/pricing',
     routePattern: '/pricing',
-    intent: step.intent,
     comment: step.comment,
     viewport: { width: 1280, height: 800, devicePixelRatio: 2, scrollX: 0, scrollY: 0 },
     shapeIds: step.shapeIds,

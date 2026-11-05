@@ -1,6 +1,6 @@
 # Redline task
 
-## Step 1 · Layout
+## Step 1
 
 > Make the three plan cards equal height
 
@@ -38,7 +38,7 @@
 
 **DOM of `section[data-testid=plans]`:** [details/step-1/area-1-dom.html](details/step-1/area-1-dom.html) — circled elements carry `data-redline="selected"`.
 
-## Step 2 · Text
+## Step 2
 
 > Rename "Most popular" to "Best value"
 
@@ -60,3 +60,14 @@ _Page: same as Step 1._
 - class `badge` on `span.badge`
 - class `card` on `article[data-testid=plan-card]`
 - class `Card_root` on `article[data-testid=plan-card]`
+
+**Layout of `article[data-testid=plan-card]`:** `display: block; overflow: hidden`
+
+| # | Child | Box (x, y, w×h) | Circled |
+| --- | --- | --- | --- |
+| 1 | `h3` | 17, 17, 186×28 |  |
+| 2 | `span.badge` | 17, 53, 186×20 | yes |
+| 3 | `p.price` | 17, 73, 186×24 |  |
+| 4 | `button` | 17, 105, 62×32 |  |
+
+**DOM of `article[data-testid=plan-card]`:** [details/step-2/area-1-dom.html](details/step-2/area-1-dom.html) — circled elements carry `data-redline="selected"`.

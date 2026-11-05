@@ -69,7 +69,6 @@ export class AssemblyEngine {
     const rendered = this.deps.renderer.render({
       steps: task.steps.map((step, index) => ({
         id: step.id,
-        intent: step.intent,
         comment: step.comment,
         shapeIds: step.shapeIds,
         fragments: processed[index]?.fragments.fragments ?? [],
@@ -85,7 +84,6 @@ export class AssemblyEngine {
         id: step.id,
         url: step.page.url,
         routePattern: step.page.routePattern,
-        intent: step.intent,
         comment: step.comment,
         viewport: step.viewport,
         shapeIds: step.shapeIds,

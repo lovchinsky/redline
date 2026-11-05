@@ -1,4 +1,3 @@
-import type { Intent } from '@redline/core';
 import type { ResolvedRegion } from '@redline/dom';
 import type { Point, Polygon, Rect, Size } from '@redline/geometry';
 import type { AssetRef } from '@redline/core';
@@ -35,7 +34,6 @@ export interface ShapeSubject {
 
 /** Everything known about a step at commit time. Holds live elements: content script only. */
 export interface StepSubject {
-  readonly intent: Intent;
   readonly comment: string;
   readonly shapes: readonly ShapeSubject[];
 }

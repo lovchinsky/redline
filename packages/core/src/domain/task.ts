@@ -3,7 +3,6 @@ import { appError, type AppError } from '../shared/errors';
 import { idSchema } from '../shared/ids';
 import { err, ok, type Result } from '../shared/result';
 import { ProjectId } from './binding';
-import { intentSchema } from './intent';
 import { remoteStatusSchema } from './remote-status';
 
 export const TaskId = idSchema().brand<'TaskId'>();
@@ -39,7 +38,6 @@ export const stepSchema = z.readonly(
     id: StepId,
     page: pageRefSchema,
     viewport: viewportSchema,
-    intent: intentSchema,
     comment: z.string().check(z.minLength(1), z.maxLength(MAX_COMMENT_LENGTH)),
     shapeIds: z.readonly(z.array(idSchema()).check(z.minLength(1))),
     captureId: CaptureId,

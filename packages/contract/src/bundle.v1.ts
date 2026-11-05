@@ -3,9 +3,6 @@ import * as z from 'zod/mini';
 export const BUNDLE_SCHEMA_VERSION = 1;
 export const BUNDLE_ENTRY = 'context.md';
 
-export const intentSchema = z.enum(['text', 'style', 'layout', 'bug', 'new-element']);
-export type Intent = z.infer<typeof intentSchema>;
-
 /** Relative POSIX path inside the bundle: no leading slash, no `..` segments. */
 export const bundlePathSchema = z
   .string()
@@ -41,7 +38,6 @@ export const bundleStepSchema = z.object({
   id: z.string().check(z.minLength(1)),
   url: z.url(),
   routePattern: z.string(),
-  intent: intentSchema,
   comment: z.string(),
   viewport: viewportSchema,
   shapes: z.array(bundleShapeSchema).check(z.minLength(1)),

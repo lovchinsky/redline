@@ -1,9 +1,4 @@
-import {
-  CaptureEngine,
-  CollectionPlanner,
-  type ErasedCollector,
-  type Profiles,
-} from '@redline/capture';
+import { CaptureEngine, buildCollectionPlan, type ErasedCollector } from '@redline/capture';
 import { FragmentCatalog, FragmentSet, type AnyFragment } from '@redline/core';
 import { describe, expect, it } from 'vitest';
 import { createAnchorsCollector } from './anchors/collector';
@@ -15,27 +10,15 @@ import { screenshotFragment } from './screenshot/descriptor';
 
 const catalog = new FragmentCatalog(fragmentDescriptors);
 
-const only = (ids: string[]): Profiles => ({
-  text: { collectors: ids },
-  style: { collectors: ids },
-  layout: { collectors: ids },
-  bug: { collectors: ids },
-  'new-element': { collectors: ids },
-});
-
 const collect = async (
   id: string,
-  shapes: Parameters<typeof stepOf>[2],
+  shapes: Parameters<typeof stepOf>[1],
   images = new FakeImages(),
   available: readonly ErasedCollector[] = collectors,
 ) => {
-  const planner = new CollectionPlanner(available, only([id]));
+  const plan = buildCollectionPlan(available, { collectors: [id] });
   const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: 2000 }, { now: () => 0 });
-  const capture = await engine.run(
-    planner.plan('layout'),
-    stepOf('layout', 'x', shapes),
-    captureContext(images),
-  );
+  const capture = await engine.run(plan, stepOf('x', shapes), captureContext(images));
   return FragmentSet.fromCapture(capture);
 };
 

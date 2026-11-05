@@ -5,7 +5,6 @@ import {
   type FragmentCatalog,
   type FragmentReference,
   type FragmentTarget,
-  type Intent,
   type Priority,
   type Section,
 } from '@redline/core';
@@ -13,7 +12,6 @@ import { BundlePaths, type RenderedFile } from './paths';
 
 export interface RenderStep {
   readonly id: string;
-  readonly intent: Intent;
   readonly comment: string;
   readonly shapeIds: readonly string[];
   readonly fragments: readonly FragmentBase[];
@@ -39,7 +37,6 @@ export interface PresentedArea {
 
 export interface PresentedStep {
   readonly index: number;
-  readonly intent: Intent;
   readonly comment: string;
   /** Step-level blocks (page facts), shown before the areas. */
   readonly blocks: readonly PresentedBlock[];
@@ -135,7 +132,6 @@ export const present = (catalog: FragmentCatalog, input: RenderInput): Presentat
     const index = position + 1;
     return {
       index,
-      intent: step.intent,
       comment: step.comment,
       blocks: presentTarget(step, index, { level: 'step' }, null),
       areas: step.shapeIds.map((shapeId, areaPosition) => ({

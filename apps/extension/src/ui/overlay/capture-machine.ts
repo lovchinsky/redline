@@ -1,4 +1,4 @@
-import type { IdGenerator, Intent } from '@redline/core';
+import type { IdGenerator } from '@redline/core';
 import type { RegionSummary } from '@redline/dom';
 import { boundsOf, pathLength, simplifyPath, type Point, type Polygon } from '@redline/geometry';
 
@@ -31,11 +31,10 @@ export interface ShapeEntry {
 }
 
 export type DraftProblem =
-  'comment-required' | 'intent-required' | 'resolution-pending' | 'empty-shape' | 'commit-failed';
+  'comment-required' | 'resolution-pending' | 'empty-shape' | 'commit-failed';
 
 export interface Draft {
   readonly comment: string;
-  readonly intent: Intent | null;
   readonly problem: DraftProblem | null;
 }
 
@@ -64,7 +63,6 @@ export type CaptureEvent =
       readonly summary: RegionSummary | null;
     }
   | { readonly type: 'comment-changed'; readonly comment: string }
-  | { readonly type: 'intent-selected'; readonly intent: Intent }
   | { readonly type: 'remove-last-shape' }
   | { readonly type: 'submit' }
   | { readonly type: 'escape' }
@@ -74,7 +72,6 @@ export type CaptureEvent =
 export interface CaptureSubmission {
   readonly shapes: readonly CapturedShape[];
   readonly comment: string;
-  readonly intent: Intent;
 }
 
 export type CaptureEffect =
@@ -109,7 +106,7 @@ export interface Transition {
   readonly effects: readonly CaptureEffect[];
 }
 
-export const EMPTY_DRAFT: Draft = { comment: '', intent: null, problem: null };
+export const EMPTY_DRAFT: Draft = { comment: '', problem: null };
 
 export const initialCaptureState = (): CaptureState => ({
   kind: 'armed',
@@ -152,8 +149,6 @@ const fromArmedOrComposing = (
       return stay({ ...state, shapes: applyResolution(state.shapes, event) });
     case 'comment-changed':
       return stay({ ...state, draft: { ...state.draft, comment: event.comment, problem: null } });
-    case 'intent-selected':
-      return stay({ ...state, draft: { ...state.draft, intent: event.intent, problem: null } });
     case 'remove-last-shape':
       return stay(afterShapes({ ...base, shapes: state.shapes.slice(0, -1) }));
     case 'submit':
@@ -258,16 +253,12 @@ const problemOf = (state: Base): DraftProblem | null => {
     return 'resolution-pending';
   if (state.shapes.some((entry) => entry.resolution.status === 'empty')) return 'empty-shape';
   if (state.draft.comment.trim() === '') return 'comment-required';
-  if (state.draft.intent === null) return 'intent-required';
   return null;
 };
 
 const submit = (state: Extract<CaptureState, { kind: 'composing' }>): Transition => {
   const problem = problemOf(state);
-  const { intent } = state.draft;
-  if (problem !== null || intent === null) {
-    return stay({ ...state, draft: { ...state.draft, problem: problem ?? 'intent-required' } });
-  }
+  if (problem !== null) return stay({ ...state, draft: { ...state.draft, problem } });
   return {
     state: { kind: 'committing', shapes: state.shapes, draft: { ...state.draft, problem: null } },
     effects: [
@@ -276,7 +267,6 @@ const submit = (state: Extract<CaptureState, { kind: 'composing' }>): Transition
         submission: {
           shapes: state.shapes.map((entry) => entry.shape),
           comment: state.draft.comment.trim(),
-          intent,
         },
       },
     ],

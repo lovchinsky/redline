@@ -7,7 +7,6 @@ export type * from './ports/clock';
 export type * from './ports/logger';
 export * from './ports/asset-store';
 export * from './domain/capture-policy';
-export * from './domain/intent';
 export * from './domain/route';
 export * from './domain/task';
 export * from './domain/binding';

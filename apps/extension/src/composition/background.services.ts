@@ -8,7 +8,7 @@ import {
 } from '@redline/core';
 import { fragmentDescriptors } from '@redline/modules/descriptors';
 import { dedupeProcessor } from '@redline/processors';
-import { summaryTokens } from '@redline/profiles';
+import { SUMMARY_TOKENS_PER_STEP } from '@redline/profiles';
 import { EventPublisher, events, type EventSink } from '@redline/rpc';
 import { IdbActiveDraftStore } from '../adapters/idb/idb-active-draft-store';
 import { IdbAssetStore } from '../adapters/idb/idb-asset-store';
@@ -130,7 +130,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     engine: new AssemblyEngine({
       processors: [dedupeProcessor],
       renderer: new MarkdownContextRenderer(catalog, {
-        budget: { summaryTokens: (intent) => summaryTokens[intent] },
+        budget: { summaryTokensPerStep: SUMMARY_TOKENS_PER_STEP },
       }),
       packager: new Packager(assets),
     }),

@@ -29,7 +29,6 @@ const draft = (): Task =>
         id: StepId.parse('s1'),
         page: { url: 'https://acme.io/', routePattern: '/', title: 'Home' },
         viewport: { width: 800, height: 600, devicePixelRatio: 1, scrollX: 0, scrollY: 0 },
-        intent: 'text',
         comment: 'Fix',
         shapeIds: ['a'],
         captureId: CaptureId.parse('c1'),

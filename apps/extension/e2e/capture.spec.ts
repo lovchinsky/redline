@@ -13,7 +13,7 @@ interface StoredCapture {
 }
 
 interface StoredTask {
-  steps: { intent: string; comment: string; captureId: string }[];
+  steps: { comment: string; captureId: string }[];
 }
 
 /** Pixel size of a stored image asset, decoded in the service worker. */
@@ -67,7 +67,6 @@ test('circling cards collects context and adds the step to a draft with real scr
   await expect.poll(() => probe.text('shape-summaries')).toBe('article[data-testid=plan-card] ×3');
 
   await page.keyboard.type('Make the cards equal height');
-  await probe.click('intent-layout');
   await probe.click('submit');
 
   await expect(page.locator('redline-overlay')).toHaveCount(0);
@@ -76,7 +75,7 @@ test('circling cards collects context and adds the step to a draft with real scr
     .toBe(true);
 
   const [task] = await readStore<StoredTask>(serviceWorker, 'tasks');
-  expect(task?.steps).toMatchObject([{ intent: 'layout', comment: 'Make the cards equal height' }]);
+  expect(task?.steps).toMatchObject([{ comment: 'Make the cards equal height' }]);
   const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
     (record) => record.id === task?.steps[0]?.captureId,
   );

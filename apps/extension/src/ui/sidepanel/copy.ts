@@ -13,7 +13,7 @@ export const PANEL_TEXT = {
   cancel: 'Скасувати',
   noActiveDraft: 'Нова чернетка з’явиться з першим кроком.',
   howToCapture: 'Відкрийте сторінку і натисніть Alt+Shift+A, щоб обвести область.',
-  stepTitle: (index: number, intent: string) => `Крок ${String(index)} · ${intent}`,
+  stepTitle: (index: number) => `Крок ${String(index)}`,
   stepCount: (count: number) => `${String(count)} ${plural(count, STEP_FORMS)}`,
   moveUp: 'Вище',
   moveDown: 'Нижче',

@@ -62,7 +62,6 @@ export class CommitStep {
         title: record.title,
       },
       viewport: record.viewport,
-      intent: record.intent,
       comment: record.comment,
       shapeIds: record.shapeIds,
       captureId,

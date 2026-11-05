@@ -5,7 +5,7 @@ import {
   UNLIMITED_BUDGET,
   type RenderStep,
 } from '@redline/assembly';
-import { CaptureEngine, CollectionPlanner, type StepSubject } from '@redline/capture';
+import { CaptureEngine, buildCollectionPlan, type StepSubject } from '@redline/capture';
 import {
   CaptureId,
   FragmentCatalog,
@@ -18,7 +18,7 @@ import {
   type Task,
 } from '@redline/core';
 import { dedupeProcessor } from '@redline/processors';
-import { profiles, summaryTokens } from '@redline/profiles';
+import { SUMMARY_TOKENS_PER_STEP, captureProfile } from '@redline/profiles';
 import { describe, expect, it } from 'vitest';
 import { collectors } from './collectors';
 import { fragmentDescriptors } from './descriptors';
@@ -26,13 +26,12 @@ import { FakeImages, captureContext, get, shapeAround, stepOf } from './testing/
 import { mountPricing } from './testing/pricing';
 
 const catalog = new FragmentCatalog(fragmentDescriptors);
-const planner = new CollectionPlanner(collectors, profiles);
+const plan = buildCollectionPlan(collectors, captureProfile);
 const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: 2000 }, { now: () => 0 });
 const renderer = new MarkdownContextRenderer(catalog, { budget: UNLIMITED_BUDGET });
 
 const renderStep = (step: StepSubject, capture: StepCapture): RenderStep => ({
   id: 'step-1',
-  intent: step.intent,
   comment: step.comment,
   shapeIds: step.shapes.map((shape) => shape.id),
   fragments: capture.fragments,
@@ -43,11 +42,9 @@ describe('context.md, end to end (golden)', () => {
   it('pricing cards circled for a layout change', async () => {
     mountPricing();
     const cards = Array.from(document.querySelectorAll('[data-testid="plan-card"]'));
-    const step = stepOf('layout', 'Make the three plan cards equal height', [
-      shapeAround('shape-1', cards),
-    ]);
+    const step = stepOf('Make the three plan cards equal height', [shapeAround('shape-1', cards)]);
 
-    const capture = await engine.run(planner.plan('layout'), step, captureContext());
+    const capture = await engine.run(plan, step, captureContext());
     const rendered = renderer.render({ steps: [renderStep(step, capture)] });
 
     expect(capture.diagnostics).toEqual([]);
@@ -60,11 +57,11 @@ describe('context.md, end to end (golden)', () => {
   it('a single card circled to change its text', async () => {
     mountPricing();
     const images = new FakeImages();
-    const step = stepOf('text', 'Rename "Most popular" to "Best value"', [
+    const step = stepOf('Rename "Most popular" to "Best value"', [
       shapeAround('shape-1', [get('.badge')]),
     ]);
 
-    const capture = await engine.run(planner.plan('text'), step, captureContext(images));
+    const capture = await engine.run(plan, step, captureContext(images));
     const rendered = renderer.render({ steps: [renderStep(step, capture)] });
 
     expect(capture.diagnostics).toEqual([]);
@@ -77,18 +74,15 @@ describe('context.md, end to end (golden)', () => {
     const images = new FakeImages();
     const cards = Array.from(document.querySelectorAll('[data-testid="plan-card"]'));
     const subjects = [
-      stepOf('layout', 'Make the three plan cards equal height', [shapeAround('a', cards)]),
-      stepOf('text', 'Rename "Most popular" to "Best value"', [shapeAround('b', [get('.badge')])]),
+      stepOf('Make the three plan cards equal height', [shapeAround('a', cards)]),
+      stepOf('Rename "Most popular" to "Best value"', [shapeAround('b', [get('.badge')])]),
     ];
 
     let task: Task = createDraft(TaskId.parse('task-1'), 0);
     const captures = new Map<string, StepCapture>();
     for (const [index, subject] of subjects.entries()) {
       const captureId = CaptureId.parse(`capture-${String(index + 1)}`);
-      captures.set(
-        captureId,
-        await engine.run(planner.plan(subject.intent), subject, captureContext(images)),
-      );
+      captures.set(captureId, await engine.run(plan, subject, captureContext(images)));
       const added = addStep(
         task,
         {
@@ -99,7 +93,6 @@ describe('context.md, end to end (golden)', () => {
             title: 'Pricing — Acme',
           },
           viewport: { width: 1280, height: 800, devicePixelRatio: 2, scrollX: 0, scrollY: 0 },
-          intent: subject.intent,
           comment: subject.comment,
           shapeIds: subject.shapes.map((shape) => shape.id),
           captureId,
@@ -114,7 +107,7 @@ describe('context.md, end to end (golden)', () => {
     const assembly = new AssemblyEngine({
       processors: [dedupeProcessor],
       renderer: new MarkdownContextRenderer(catalog, {
-        budget: { summaryTokens: (intent) => summaryTokens[intent] },
+        budget: { summaryTokensPerStep: SUMMARY_TOKENS_PER_STEP },
       }),
       packager: new Packager({ get: () => Promise.resolve(ok(new Blob(['img']))) }),
     });

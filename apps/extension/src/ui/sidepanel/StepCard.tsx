@@ -2,7 +2,6 @@ import type { TaskId } from '@redline/core';
 import type { StepView } from '@redline/rpc';
 import { useState } from 'preact/hooks';
 import type { LocalFiles } from '../../ports/drafts';
-import { INTENT_LABELS } from '../shared/copy';
 import { PANEL_TEXT } from './copy';
 import { LocalImage } from './LocalImage';
 import type { DraftActions } from './use-drafts';
@@ -19,7 +18,7 @@ interface StepCardProps {
 export const StepCard = ({ taskId, step, position, count, actions, files }: StepCardProps) => {
   const [draft, setDraft] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const title = PANEL_TEXT.stepTitle(position + 1, INTENT_LABELS[step.intent]);
+  const title = PANEL_TEXT.stepTitle(position + 1);
 
   const save = () => {
     if (draft !== null && draft.trim() !== step.comment) {

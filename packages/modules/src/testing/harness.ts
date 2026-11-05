@@ -5,7 +5,7 @@ import type {
   ShapeSubject,
   StepSubject,
 } from '@redline/capture';
-import type { AssetId, Intent, Logger } from '@redline/core';
+import type { AssetId, Logger } from '@redline/core';
 import { DocumentDomQuery, EnclosureResolver } from '@redline/dom';
 import { boundsOf, roundedLassoPolygon, type Polygon } from '@redline/geometry';
 
@@ -103,12 +103,7 @@ export const shapeAround = (id: string, elements: readonly Element[]): ShapeSubj
   };
 };
 
-export const stepOf = (
-  intent: Intent,
-  comment: string,
-  shapes: readonly ShapeSubject[],
-): StepSubject => ({
-  intent,
+export const stepOf = (comment: string, shapes: readonly ShapeSubject[]): StepSubject => ({
   comment,
   shapes,
 });

@@ -1,4 +1,3 @@
-import type { Intent } from '@redline/core';
 import type { Rect, Size } from '@redline/geometry';
 import type { CaptureState } from './capture-machine';
 import { Composer } from './Composer';
@@ -9,7 +8,6 @@ export interface OverlayViewProps {
   readonly anchor: Rect | null;
   readonly viewport: Size;
   readonly onCommentChange: (comment: string) => void;
-  readonly onIntentSelect: (intent: Intent) => void;
   readonly onRemoveLastShape: () => void;
   readonly onSubmit: () => void;
   readonly onCancel: () => void;

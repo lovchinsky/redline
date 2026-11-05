@@ -1,14 +1,4 @@
-import type { Intent } from '@redline/core';
-
 /** Text shared by every UI surface, ready to move to chrome.i18n. */
-
-export const INTENT_LABELS: Readonly<Record<Intent, string>> = {
-  text: 'Текст',
-  style: 'Стиль',
-  layout: 'Розміщення',
-  bug: 'Баг',
-  'new-element': 'Новий елемент',
-};
 
 const pluralRules = new Intl.PluralRules('uk');
 

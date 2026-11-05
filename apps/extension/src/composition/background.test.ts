@@ -47,7 +47,6 @@ const unused = () => Promise.reject(new Error('not used in these tests'));
 const record = (comment: string, url = 'https://acme.io/orders/42'): StepRecord => ({
   url,
   title: 'Orders',
-  intent: 'layout',
   comment,
   viewport: { width: 1280, height: 800, devicePixelRatio: 1, scrollX: 0, scrollY: 0 },
   shapeIds: ['shape-1'],

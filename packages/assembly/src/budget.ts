@@ -1,4 +1,4 @@
-import { PRIORITIES, SECTIONS, type Intent } from '@redline/core';
+import { PRIORITIES, SECTIONS } from '@redline/core';
 import type { PresentedBlock, Presentation, PresentedStep } from './presentation';
 
 /** Estimates how many model tokens a text costs. */
@@ -11,12 +11,12 @@ export const approximateTokens: TokenEstimator = {
   estimate: (text) => Math.ceil(text.length / 4),
 };
 
-/** How many tokens a step's summary in `context.md` may take. */
+/** How many tokens one step's summary in `context.md` may take. */
 export interface BudgetPolicy {
-  summaryTokens(intent: Intent): number;
+  readonly summaryTokensPerStep: number;
 }
 
-export const UNLIMITED_BUDGET: BudgetPolicy = { summaryTokens: () => Number.POSITIVE_INFINITY };
+export const UNLIMITED_BUDGET: BudgetPolicy = { summaryTokensPerStep: Number.POSITIVE_INFINITY };
 
 /** Blocks that did not fit their step's budget; they move to `more-context.md`. */
 export interface Allocation {
@@ -55,7 +55,7 @@ export const allocate = (
           SECTIONS.indexOf(a.block.section) - SECTIONS.indexOf(b.block.section) ||
           a.position - b.position,
       );
-    const budget = policy.summaryTokens(step.intent);
+    const budget = policy.summaryTokensPerStep;
     for (const { block } of optional) {
       const blockCost = cost(block);
       if (spent + blockCost <= budget) spent += blockCost;

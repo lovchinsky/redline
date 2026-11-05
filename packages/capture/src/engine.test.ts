@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import * as z from 'zod/mini';
 import type { CaptureContext, ErasedCollector } from './collector';
 import { CaptureEngine } from './engine';
-import { CollectionPlanner, PlanConfigError, type Profiles } from './planner';
+import { PlanConfigError, buildCollectionPlan, type CaptureProfile } from './planner';
 import type { ShapeSubject, StepSubject } from './subject';
 
 const descriptor = (kind: string): ErasedFragmentDescriptor => ({
@@ -56,7 +56,7 @@ const shape = (id: string): ShapeSubject => ({
   },
 });
 
-const step: StepSubject = { intent: 'layout', comment: 'x', shapes: [shape('s1'), shape('s2')] };
+const step: StepSubject = { comment: 'x', shapes: [shape('s1'), shape('s2')] };
 
 const shapeCollector = (
   id: string,
@@ -83,18 +83,12 @@ const stepCollector = (
   collect,
 });
 
-const profiles = (ids: string[]): Profiles => ({
-  text: { collectors: ids },
-  style: { collectors: ids },
-  layout: { collectors: ids },
-  bug: { collectors: ids },
-  'new-element': { collectors: ids },
-});
+const profile = (ids: string[]): CaptureProfile => ({ collectors: ids });
 
 const run = async (collectors: ErasedCollector[], timeoutMs = 200) => {
-  const planner = new CollectionPlanner(collectors, profiles(collectors.map((c) => c.id)));
+  const plan = buildCollectionPlan(collectors, profile(collectors.map((c) => c.id)));
   const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: timeoutMs }, { now: () => 0 });
-  return engine.run(planner.plan('layout'), step, context);
+  return engine.run(plan, step, context);
 };
 
 describe('CaptureEngine', () => {
@@ -201,7 +195,7 @@ describe('CaptureEngine', () => {
   });
 });
 
-describe('CollectionPlanner', () => {
+describe('buildCollectionPlan', () => {
   const echo = shapeCollector('echo', () =>
     Promise.resolve({ status: 'not-applicable', reason: '' }),
   );
@@ -212,24 +206,24 @@ describe('CollectionPlanner', () => {
   };
 
   it('resolves options for every profile entry', () => {
-    const planner = new CollectionPlanner([echo, limited], {
-      ...profiles(['echo']),
-      layout: { collectors: ['echo', ['limited', { limit: 3 }]] },
+    const plan = buildCollectionPlan([echo, limited], {
+      collectors: ['echo', ['limited', { limit: 3 }]],
     });
-    expect(planner.plan('layout').invocations.map((i) => [i.collector.id, i.options])).toEqual([
+    expect(plan.invocations.map((i) => [i.collector.id, i.options])).toEqual([
       ['echo', undefined],
       ['limited', { limit: 3 }],
     ]);
   });
 
   it.each([
-    ['an unknown collector', [echo], profiles(['nope'])],
-    ['invalid options', [echo, limited], profiles(['limited'])],
-    ['a duplicated collector id', [echo, echo], profiles(['echo'])],
-  ] as [string, ErasedCollector[], Profiles][])(
-    'fails at construction on %s',
+    ['an unknown collector', [echo], profile(['nope'])],
+    ['invalid options', [echo, limited], profile(['limited'])],
+    ['a duplicated collector id', [echo, echo], profile(['echo'])],
+    ['a collector listed twice', [echo], profile(['echo', 'echo'])],
+  ] as [string, ErasedCollector[], CaptureProfile][])(
+    'fails at start-up on %s',
     (_, collectors, config) => {
-      expect(() => new CollectionPlanner(collectors, config)).toThrow(PlanConfigError);
+      expect(() => buildCollectionPlan(collectors, config)).toThrow(PlanConfigError);
     },
   );
 });

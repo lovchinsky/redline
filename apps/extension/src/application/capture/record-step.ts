@@ -1,14 +1,10 @@
-import type {
-  CaptureContext,
-  CaptureEngine,
-  CollectionPlanner,
-  StepSubject,
-} from '@redline/capture';
+import type { CaptureContext, CaptureEngine, CollectionPlan, StepSubject } from '@redline/capture';
 import type { AppError, Logger, Result } from '@redline/core';
 import type { CommittedStep, StepCommitter } from '../../ports/capture';
 
 export interface RecordStepDeps {
-  readonly planner: CollectionPlanner;
+  /** The same plan for every step: what to change is in the comment, not in the context. */
+  readonly plan: CollectionPlan;
   readonly engine: CaptureEngine;
   /** Built at commit time, so page facts (scroll, title) are current. */
   readonly context: () => CaptureContext;
@@ -21,9 +17,9 @@ export class RecordStep {
   constructor(private readonly deps: RecordStepDeps) {}
 
   async execute(step: StepSubject): Promise<Result<CommittedStep, AppError>> {
-    const { planner, engine, committer, logger } = this.deps;
+    const { plan, engine, committer, logger } = this.deps;
     const context = this.deps.context();
-    const capture = await engine.run(planner.plan(step.intent), step, context);
+    const capture = await engine.run(plan, step, context);
     for (const diagnostic of capture.diagnostics) {
       logger.debug('Collector diagnostic', { ...diagnostic });
     }
@@ -33,7 +29,6 @@ export class RecordStep {
       {
         url: page.url,
         title: page.title,
-        intent: step.intent,
         comment: step.comment,
         viewport: {
           width: page.viewport.width,

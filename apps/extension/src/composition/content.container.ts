@@ -1,9 +1,9 @@
-import { CaptureEngine, CollectionPlanner } from '@redline/capture';
+import { CaptureEngine, buildCollectionPlan } from '@redline/capture';
 import { FragmentCatalog, ok } from '@redline/core';
 import { DocumentDomQuery, EnclosureResolver } from '@redline/dom';
 import { collectors } from '@redline/modules/collectors';
 import { fragmentDescriptors } from '@redline/modules/descriptors';
-import { profiles } from '@redline/profiles';
+import { captureProfile } from '@redline/profiles';
 import { RpcClient, RpcServer, protocol, tabProtocol } from '@redline/rpc';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { pageInfoOf } from '../adapters/capture/page-info';
@@ -41,7 +41,7 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
   const snapshots = new RpcViewportSnapshots(rpc, window, dom);
 
   const recordStep = new RecordStep({
-    planner: new CollectionPlanner(collectors, profiles),
+    plan: buildCollectionPlan(collectors, captureProfile),
     engine: new CaptureEngine(
       new FragmentCatalog(fragmentDescriptors),
       [],

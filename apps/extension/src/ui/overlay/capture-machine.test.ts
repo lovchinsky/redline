@@ -49,7 +49,6 @@ const resolved = (polygon = [{ x: 0, y: 0 }]): CaptureEvent => ({
 });
 const fillDraft: CaptureEvent[] = [
   { type: 'comment-changed', comment: '  Make the cards equal height  ' },
-  { type: 'intent-selected', intent: 'layout' },
 ];
 
 describe('capture state machine', () => {
@@ -117,14 +116,13 @@ describe('capture state machine', () => {
       expect(state.kind).toBe('committing');
       expect(effects.at(-1)).toMatchObject({
         type: 'commit',
-        submission: { comment: 'Make the cards equal height', intent: 'layout' },
+        submission: { comment: 'Make the cards equal height' },
       });
     });
 
     it.each([
       [[...lasso, ...fillDraft], 'resolution-pending'],
-      [[...lasso, resolved(), { type: 'intent-selected', intent: 'layout' }], 'comment-required'],
-      [[...lasso, resolved(), { type: 'comment-changed', comment: 'x' }], 'intent-required'],
+      [[...lasso, resolved(), { type: 'comment-changed', comment: '   ' }], 'comment-required'],
       [
         [
           ...lasso,

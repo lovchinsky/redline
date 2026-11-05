@@ -1,29 +1,19 @@
-import type { Profiles } from '@redline/capture';
-import type { Intent } from '@redline/core';
-
-/** Collected for every step: where it happened, what was circled, how it looked, how to find it. */
-const ESSENTIALS = ['page-meta', 'region', 'screenshot', 'anchors'] as const;
+import type { CaptureProfile } from '@redline/capture';
 
 /**
- * Which context each intent needs. Declarative policy only: collectors do not know about
- * intents, and the planner validates this table against the registered collectors at start-up.
+ * What every step collects: where it happened, what was circled, how it looked, how to find it
+ * in the code, how it is laid out, and its markup. The user's comment says what to change; the
+ * context does not depend on it, so nothing is missing when a request turns out broader.
+ *
+ * Declarative policy only: collectors know nothing about it, and the plan built from it is
+ * validated against the registered collectors at start-up.
  */
-export const profiles: Profiles = {
-  text: { collectors: [...ESSENTIALS] },
-  style: { collectors: [...ESSENTIALS, 'layout'] },
-  layout: { collectors: [...ESSENTIALS, 'layout', 'dom-snapshot'] },
-  bug: { collectors: [...ESSENTIALS, 'dom-snapshot'] },
-  'new-element': { collectors: [...ESSENTIALS, 'layout', 'dom-snapshot'] },
+export const captureProfile: CaptureProfile = {
+  collectors: ['page-meta', 'region', 'screenshot', 'anchors', 'layout', 'dom-snapshot'],
 };
 
 /**
- * Token budget of one step's summary in `context.md`, by intent. Context over the budget is
- * not lost: it moves to `more-context.md`. Intents that need structure get more room.
+ * Token budget of one step's summary in `context.md`. Context over it is not lost: it moves
+ * to `more-context.md`, ordered by priority.
  */
-export const summaryTokens: Readonly<Record<Intent, number>> = {
-  text: 900,
-  style: 1400,
-  layout: 1600,
-  bug: 1600,
-  'new-element': 1400,
-};
+export const SUMMARY_TOKENS_PER_STEP = 1600;

@@ -28,7 +28,6 @@ const draftOneStep = async (context: BrowserContext, panel: Page, comment: strin
   await page.goto(`${SITE_ORIGIN}/pricing.html`);
   await captureStep(page, panel, {
     around: '[data-testid="plan-card"]',
-    intent: 'layout',
     comment,
   });
   // One tab per page URL: capture finds its tab by URL.

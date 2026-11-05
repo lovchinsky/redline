@@ -66,7 +66,6 @@ export class GetDraft {
     const capture = await this.deps.captures.load(step.captureId);
     return {
       id: step.id,
-      intent: step.intent,
       comment: step.comment,
       page: step.page,
       areaCount: step.shapeIds.length,

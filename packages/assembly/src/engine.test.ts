@@ -53,7 +53,6 @@ const taskWith = (count: number): Task => {
         id: StepId.parse(`step-${String(n)}`),
         page: { url: 'https://acme.io/', routePattern: '/', title: 'Home' },
         viewport: { width: 800, height: 600, devicePixelRatio: 1, scrollX: 0, scrollY: 0 },
-        intent: 'text',
         comment: `Step ${String(n)}`,
         shapeIds: ['shape'],
         captureId: CaptureId.parse(`capture-${String(n)}`),

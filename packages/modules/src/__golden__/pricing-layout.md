@@ -1,6 +1,6 @@
 # Redline task
 
-## Step 1 · Layout
+## Step 1
 
 > Make the three plan cards equal height
 

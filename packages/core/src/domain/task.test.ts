@@ -19,7 +19,6 @@ const step = (id: string, comment = `Comment ${id}`): Step => ({
   id: StepId.parse(id),
   page: { url: 'https://acme.io/pricing', routePattern: '/pricing', title: 'Pricing' },
   viewport: { width: 1280, height: 800, devicePixelRatio: 2, scrollX: 0, scrollY: 0 },
-  intent: 'layout',
   comment,
   shapeIds: ['shape-1'],
   captureId: CaptureId.parse(`capture-${id}`),
@@ -101,6 +100,12 @@ describe('Task', () => {
     expect(named.title).toBe('Pricing fixes');
     expect(value(renameTask(named, 'Pricing fixes', 4))).toBe(named);
     expect(value(renameTask(named, '', 5)).title).toBeNull();
+  });
+
+  it('reads tasks stored before steps dropped their intent', () => {
+    const task = draftWith('a');
+    const stored = { ...task, steps: task.steps.map((s) => ({ ...s, intent: 'layout' })) };
+    expect(taskSchema.parse(stored)).toEqual(task);
   });
 
   it('never mutates the task it was given', () => {

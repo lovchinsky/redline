@@ -230,7 +230,6 @@ export class CaptureSession {
     }
     const result = await this.deps.commit({
       comment: submission.comment,
-      intent: submission.intent,
       shapes,
     });
     if (!result.ok) this.deps.logger.error('Committing the step failed', { ...result.error });
@@ -359,9 +358,6 @@ export class CaptureSession {
         viewport={{ width: view.innerWidth, height: view.innerHeight }}
         onCommentChange={(comment) => {
           this.dispatch({ type: 'comment-changed', comment });
-        }}
-        onIntentSelect={(intent) => {
-          this.dispatch({ type: 'intent-selected', intent });
         }}
         onRemoveLastShape={() => {
           this.dispatch({ type: 'remove-last-shape' });

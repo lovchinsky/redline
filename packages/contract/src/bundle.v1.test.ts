@@ -13,7 +13,6 @@ const validManifest = (): BundleManifest => ({
       id: 'step-1',
       url: 'https://staging.acme.io/pricing',
       routePattern: '/pricing',
-      intent: 'layout',
       comment: 'Cards must have equal height',
       viewport: { width: 1440, height: 900, devicePixelRatio: 2, scrollX: 0, scrollY: 120 },
       shapes: [{ id: 'shape-1', files: ['step1_crop.png'] }],

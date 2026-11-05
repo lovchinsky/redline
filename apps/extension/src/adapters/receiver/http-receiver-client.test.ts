@@ -31,7 +31,6 @@ const delivery = (): Delivery => {
             id: 's1',
             url: 'https://acme.io/',
             routePattern: '/',
-            intent: 'text',
             comment: 'Fix',
             viewport: { width: 800, height: 600, devicePixelRatio: 1, scrollX: 0, scrollY: 0 },
             shapes: [{ id: 'a', files: [] }],

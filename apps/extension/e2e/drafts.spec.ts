@@ -63,19 +63,16 @@ test('a draft of three steps on two pages survives a browser restart', async () 
   await pricing.goto(`${SITE_ORIGIN}/pricing.html`);
   await captureStep(pricing, panel, {
     around: '[data-testid="plan-card"]',
-    intent: 'layout',
     comment: 'Make the cards equal height',
   });
   await captureStep(pricing, panel, {
     around: '[data-testid="enterprise-card"]',
-    intent: 'text',
     comment: 'Rename Enterprise to Business',
   });
   const orders = await context.newPage();
   await orders.goto(`${SITE_ORIGIN}/orders.html`);
   await captureStep(orders, panel, {
     around: '[data-testid="export"]',
-    intent: 'style',
     comment: 'Make Export the primary button',
   });
 
@@ -104,12 +101,10 @@ test('editing a draft in the side panel, and a preview that is exactly what is s
   await pricing.goto(`${SITE_ORIGIN}/pricing.html`);
   await captureStep(pricing, panel, {
     around: '[data-testid="plan-card"]',
-    intent: 'layout',
     comment: 'Make the cards equal height',
   });
   await captureStep(pricing, panel, {
     around: '[data-testid="enterprise-card"]',
-    intent: 'text',
     comment: 'Rename Enterprise',
   });
 
@@ -134,8 +129,8 @@ test('editing a draft in the side panel, and a preview that is exactly what is s
 
   await panel.getByTestId('assemble').click();
   const context_md = panel.getByTestId('bundle-context');
-  await expect(context_md).toContainText('## Step 1 · Text');
-  await expect(context_md).toContainText('> Rename Enterprise to Business');
+  // The reordered step comes first; headings carry no type of change any more.
+  await expect(context_md).toContainText('## Step 1 > Rename Enterprise to Business');
   // Both steps are on one page: the second one points to the first instead of repeating it.
   await expect(context_md).toContainText('_Page: same as Step 1._');
 
@@ -165,7 +160,6 @@ test('new drafts collect new steps; deleting the active one clears it', async ({
   await pricing.goto(`${SITE_ORIGIN}/pricing.html`);
   await captureStep(pricing, panel, {
     around: '[data-testid="enterprise-card"]',
-    intent: 'text',
     comment: 'First',
   });
 
@@ -174,7 +168,6 @@ test('new drafts collect new steps; deleting the active one clears it', async ({
   await expect(panel.getByTestId('empty-draft')).toBeVisible();
   await captureStep(pricing, panel, {
     around: '[data-testid="enterprise-card"]',
-    intent: 'text',
     comment: 'Second',
   });
 

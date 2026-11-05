@@ -6,7 +6,6 @@ import type { DraftProblem, ShapeResolution } from './capture-machine';
 
 export const PROBLEM_MESSAGES: Record<DraftProblem, string> = {
   'comment-required': 'Опишіть, що потрібно змінити',
-  'intent-required': 'Оберіть тип правки',
   'resolution-pending': 'Зачекайте, область ще аналізується',
   'empty-shape': 'В одній з областей нічого не знайдено — приберіть її або обведіть ще раз',
   'commit-failed': 'Не вдалося зберегти крок. Спробуйте ще раз',
@@ -40,7 +39,6 @@ export const UI_TEXT = {
   armedHint: 'Обведіть область · клік — один елемент · Esc — вийти',
   commentLabel: 'Що змінити?',
   commentPlaceholder: 'Наприклад: зробити картки однакової висоти',
-  intentLabel: 'Тип правки',
   removeLastShape: 'Прибрати останню область',
   cancel: 'Скасувати',
   submit: 'Зберегти крок',

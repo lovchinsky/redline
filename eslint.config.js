@@ -62,7 +62,7 @@ const dependencyPolicies = [
   { from: { element: { type: 'capture' } }, allow: to(['capture', 'core', 'dom', 'geometry']) },
   { from: { element: { type: 'processor' } }, allow: to(['processor', 'core']) },
   { from: { element: { type: 'assembly' } }, allow: to(['assembly', 'core', 'contract']) },
-  { from: { element: { type: 'profiles' } }, allow: to(['profiles', 'capture', 'core']) },
+  { from: { element: { type: 'profiles' } }, allow: to(['profiles', 'capture']) },
   { from: { element: { type: 'page-runtime' } }, allow: to(['page-runtime', 'contract']) },
   { from: { element: { type: 'rpc' } }, allow: to(['rpc', 'core']) },
   // Ports are the application's contracts with the platform: adapters implement them.

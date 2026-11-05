@@ -1,17 +1,8 @@
-import type { Intent } from '@redline/core';
 import type { Allocation } from './budget';
 import type { PresentedBlock, Presentation } from './presentation';
 
 /** Bundle path of the file that holds blocks the summary budget left out. */
 export const MORE_CONTEXT_PATH = 'more-context.md';
-
-const INTENT_TITLES: Readonly<Record<Intent, string>> = {
-  text: 'Text',
-  style: 'Style',
-  layout: 'Layout',
-  bug: 'Bug',
-  'new-element': 'New element',
-};
 
 const quote = (text: string): string =>
   text
@@ -40,7 +31,7 @@ export const compose = (presentation: Presentation, allocation: Allocation): Com
   const more: string[] = ['# Redline task · more context'];
 
   for (const step of presentation.steps) {
-    const heading = `## Step ${String(step.index)} · ${INTENT_TITLES[step.intent]}`;
+    const heading = `## Step ${String(step.index)}`;
     summary.push(heading, quote(step.comment), ...kept(step.blocks));
     const stepMore: string[] = [...moved(step.blocks)];
 

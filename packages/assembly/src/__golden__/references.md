@@ -1,6 +1,6 @@
 # Redline task
 
-## Step 1 · Layout
+## Step 1
 
 > Cards must have equal height
 > and the badge goes right
@@ -23,7 +23,7 @@
 
 [DOM](details/step-1/area-2-dom.html)
 
-## Step 2 · Text
+## Step 2
 
 > Fix the typo
 
@@ -33,7 +33,7 @@
 
 [DOM](details/step-2/area-1-dom.html)
 
-## Step 3 · Layout
+## Step 3
 
 > Same cards on the second page
 
