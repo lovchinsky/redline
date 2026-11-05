@@ -1,6 +1,6 @@
 # Redline
 
-Project rules live in `README.md` (section «Правила»). The full specification is linked there.
+Project rules live in `README.md` (section “Rules”).
 
 ## Final State, Not History
 

@@ -1,80 +1,141 @@
 # Redline
 
-Розширення для Chrome: обводиш область на сайті, пишеш коментар — задача з компактним
-контекстом іде отримувачу, який перетворює її на зміну в коді.
+A Chrome extension for asking a coding agent to change a website. Circle an area on any page,
+say what should change, and Redline sends the request with compact context — screenshots,
+anchors that find the code, layout, styles, components, errors — to a receiver that turns it
+into a code change.
 
-Повна специфікація: [Redline — технічна специфікація розширення](https://claude.ai/artifact/CMBqno6diCwyvCitJiBD24).
+Redline knows nothing about repositories, branches or agents. It talks to one generic HTTP
+API, the receiver, which maps projects to code and runs the agent. Target sites need no build
+plugins, attributes or scripts.
 
-## Структура
+## Using it
 
-| Шлях                             | Роль                                                                                              |
-| -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `packages/core`                  | Result, AppError, ids, схеми, порти, домен (`Draft`, `Task`, доставка, прив'язки). Без браузера   |
-| `packages/contract`              | Контракт з отримувачем: `bundle.v1`, `receiver-api.v1`                                            |
-| `packages/rpc`                   | Типізований RPC і події між контекстами розширення, протокол застосунку                           |
-| `packages/geometry`              | Полігони, спрощення й згладжування ліній, вибірка точок, покриття                                 |
-| `packages/dom`                   | Запити до DOM з урахуванням shadow DOM, `EnclosureResolver`: що саме обведено                     |
-| `packages/capture`               | Рушій збору контексту: контракт колектора, профілі → план, ізоляція і таймаути                    |
-| `packages/modules`               | Модулі контексту: `descriptors` (схема + presenter, будь-де) і `collectors` (лише в сторінці)     |
-| `packages/page-runtime`          | Скрипт у MAIN world сторінки, окремий бандл: компоненти React/Vue/Svelte/Angular, помилки, запити |
-| `packages/profiles`              | Який контекст збирати для кожного типу правки                                                     |
-| `packages/processors`            | `redaction` (маскування особистих даних у кроці), `dedupe` (повтори між кроками → посилання)      |
-| `packages/assembly`              | Збирання пакета: presenters → бюджет токенів → `context.md` + `more-context.md` → `bundle.v1`     |
-| `tools/mock-receiver`            | Отримувач за `receiver-api.v1` у пам'яті: для e2e і щоб спробувати розширення без сервера         |
-| `apps/extension/src/ports`       | Контракти, які сценарії вимагають від платформи; реалізуються адаптерами                          |
-| `apps/extension/src/adapters`    | Єдине місце, де живуть `wxt/browser`, IndexedDB, console                                          |
-| `apps/extension/src/application` | Обробники сценаріїв; залежать лише від портів                                                     |
-| `apps/extension/src/composition` | Composition roots: збирають систему з адаптерів                                                   |
-| `apps/extension/src/ui`          | Preact UI; отримує сервіси від composition root                                                   |
-| `apps/extension/src/entrypoints` | Точки входу WXT: лише запускають composition root                                                 |
+1. **Capture.** Press `Alt+Shift+A` (or choose “Circle an area (Redline)” in the context menu). Circle one
+   or more areas, or click an element; `Tab` picks elements with the keyboard instead. Describe
+   the change and press `Enter` (`Shift+Enter` for a new line). `Esc` cancels the step, a second
+   `Esc` leaves capture.
+2. **Draft.** Every step goes to the active draft, which can span several pages. The side panel
+   (click the toolbar icon) lists its steps: rename the draft, edit, reorder or remove steps,
+   switch drafts or start a new one. “Preview” shows exactly the files that will be sent.
+3. **Send.** “Send to the agent” delivers the draft. The first time a site is sent, you pick its
+   project; the site is remembered after that. Offline, the task waits in an outbox and is sent
+   later, never twice.
+4. **Follow.** The “In progress” tab shows where each task is, the agent’s questions (answer
+   them in place) and a link to the result. The toolbar badge counts tasks in progress and
+   turns orange when the agent asks something.
 
-Межі між шарами перевіряють ESLint (`eslint-plugin-boundaries`) і dependency-cruiser.
-`pnpm lint:boundaries:selftest` доводить, що правила справді спрацьовують на порушеннях.
+The receiver’s address and token, site bindings and capture diagnostics live on the
+extension’s options page.
 
-## Як користуватись
+## Getting started
 
-`Alt+Shift+A` (або «Обвести область» у контекстному меню) на будь-якій сторінці вмикає обведення.
-Обведіть одну чи кілька областей або клікніть по елементу, опишіть правку і натисніть
-Enter. `Esc` скасовує крок, повторний `Esc` виходить з режиму.
+Requires Node.js 22+ and pnpm 10.
 
-Кожен збережений крок потрапляє в активну чернетку; перша чернетка створюється автоматично.
-У side panel (клік по іконці розширення) видно кроки чернетки: їх можна перейменувати, змінити
-коментар, переставити чи видалити, перемкнутися на іншу чернетку або почати нову. «Переглянути
-пакет» складає заморожений пакет і показує `context.md` і всі файли — саме цей пакет піде
-отримувачу.
+```bash
+pnpm install
+pnpm dev
+```
 
-«Надіслати агенту» відправляє чернетку отримувачу. Для нового сайту один раз обирається проєкт
-— далі сайт запам'ятовується. Без мережі задача чекає в черзі й відправляється пізніше, без
-дублікатів. Вкладка «В роботі» показує статус, питання агента (на них можна відповісти) і
-посилання на результат. Адреса отримувача і список прив'язок — на сторінці налаштувань
-розширення.
+`pnpm dev` starts Chrome with the extension and hot reload. For a regular build:
 
-Спробувати без справжнього отримувача:
+```bash
+pnpm build
+```
+
+then load `apps/extension/.output/chrome-mv3` via `chrome://extensions` → Developer mode →
+Load unpacked.
+
+To try it without a real receiver, start the mock receiver:
 
 ```bash
 pnpm --filter @redline/mock-receiver start
 ```
 
-і вказати `http://127.0.0.1:8787` у налаштуваннях (проєкт «Acme Web»).
+and set `http://127.0.0.1:8787` as the receiver on the options page; it offers one project,
+“Acme Web”.
 
-## Команди
+## The receiver
+
+The contract lives in `packages/contract` (`receiver-api.v1`, `bundle.v1`) and is all a
+receiver needs to implement:
+
+| Request                            | Purpose                                                     |
+| ---------------------------------- | ----------------------------------------------------------- |
+| `GET /v1/projects`                 | Projects a site can be bound to                             |
+| `POST /v1/tasks`                   | Multipart: `manifest`, `projectId` and every bundle file    |
+| `GET /v1/tasks/:remoteId`          | Status: queued, working, needs-input, result-ready, failed… |
+| `POST /v1/tasks/:remoteId/replies` | The user’s answer to the agent’s question                   |
+
+Requests carry `Authorization: Bearer <token>` when a token is set. `POST /v1/tasks` carries an
+`Idempotency-Key`: a repeated key returns the task it already created. Every task response says
+how soon the task may be asked again (`pollAfterSec`).
+
+A bundle is `manifest.json` plus `context.md` (the summary an agent reads first, within a token
+budget per step), `more-context.md` (what did not fit), screenshots under `assets/` and detail
+files under `details/`. Every file is listed in the manifest with its SHA-256.
+
+## Privacy
+
+Captured context stays on the device until the user sends it, and only to the receiver they
+configured. Input values are never read, password and card fields are masked on screenshots,
+and all collected text passes redaction of emails, card numbers, phone numbers, tokens and
+secret URL parameters. There is no telemetry. See
+[docs/store/privacy-policy.md](docs/store/privacy-policy.md).
+
+## Repository
+
+| Path                             | Role                                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------- |
+| `packages/core`                  | Domain (`Draft`, `Task`, delivery, bindings), pipeline primitives, `Result`; no browser |
+| `packages/contract`              | Receiver contract: `receiver-api.v1`, `bundle.v1`                                       |
+| `packages/rpc`                   | Typed RPC and events between extension contexts; the protocol, one module per feature   |
+| `packages/geometry`              | Polygons, line simplification and smoothing, sampling                                   |
+| `packages/dom`                   | Shadow-DOM-aware queries; `EnclosureResolver`: what exactly was circled                 |
+| `packages/capture`               | Capture engine: collector contract, plan from a profile, isolation and timeouts         |
+| `packages/modules`               | Context modules: descriptors (schema, presenter) and collectors (page only)             |
+| `packages/processors`            | `redaction` of each step, `dedupe` of repeats across steps                              |
+| `packages/profiles`              | What every step collects, and the token budget of a step                                |
+| `packages/pipeline`              | Capture and assembly as the extension ships them; golden tests of `context.md`          |
+| `packages/assembly`              | Bundle assembly: presenters → token budget → `context.md`, `more-context.md` → bundle   |
+| `packages/page-runtime`          | Page-world script: React, Vue, Svelte and Angular components, errors, failed requests   |
+| `apps/extension/src/ports`       | What use cases need from the platform                                                   |
+| `apps/extension/src/adapters`    | The only place for `wxt/browser`, IndexedDB, storage, HTTP                              |
+| `apps/extension/src/application` | Use cases; they depend on ports only                                                    |
+| `apps/extension/src/composition` | Composition roots that assemble the system from adapters                                |
+| `apps/extension/src/ui`          | Preact UI: overlay, side panel, options                                                 |
+| `apps/extension/src/entrypoints` | WXT entry points; they only start a composition root                                    |
+| `tools/mock-receiver`            | In-memory receiver implementing `receiver-api.v1`, for e2e tests and trying things out  |
+| `tools/eval`                     | Anchor quality on a corpus of real-world apps; gates CI                                 |
+
+ESLint (`eslint-plugin-boundaries`) and dependency-cruiser enforce the boundaries between
+layers and packages; their self-tests prove the rules fire on violations.
+
+## Development
 
 ```bash
-pnpm install
-pnpm dev          # розширення з hot reload
-pnpm build        # збірка в apps/extension/.output/chrome-mv3
-pnpm check        # формат, lint, межі, типи, unit-тести
-pnpm test:e2e     # збірка + Playwright з завантаженим розширенням
+pnpm check      # format, lint, boundaries, dependency rules, types, unit tests
+pnpm test:e2e   # build + Playwright with the extension loaded
+pnpm eval       # anchor quality across the corpus
+pnpm budgets    # size budgets of the scripts injected into pages
+pnpm package    # Chrome Web Store zip, verified
 ```
 
-## Правила
+CI runs all of these. The store package is the exact build the e2e tests ran on.
 
-- Нова залежність між шарами — спершу правило в `eslint.config.js`, потім код.
-- Міграції IndexedDB лише додаються (`apps/extension/src/adapters/idb/schema.ts`).
-- Новий тип контексту — це нова папка в `packages/modules/src` (типи, descriptor, collector) і рядок
-  у `descriptors.ts`, `collectors.ts` та потрібних профілях. Golden-тести показують, як зміниться `context.md`.
-- Нове RPC-повідомлення описується в модулі своєї функції в `packages/rpc/src/protocol/`, який
-  збирає `protocol/index.ts`; обробник обов'язковий на рівні типів.
-- Документація, специфікація і коментарі описують систему такою, якою вона є: без «раніше / тепер /
-  замість старого», без історії міграцій і змін у прозі. Обґрунтування — властивість рішення в
-  теперішньому часі, а не порівняння із заміненим. Історія живе в git.
+## Rules
+
+- A new dependency between layers starts as a rule in `eslint.config.js`, then the code.
+- IndexedDB migrations are append-only (`apps/extension/src/adapters/idb/schema.ts`).
+- A new kind of context is a new folder in `packages/modules/src` (types, descriptor, collector)
+  plus a line in `descriptors.ts`, `collectors.ts` and the profile. Golden tests show how
+  `context.md` changes.
+- A new RPC method goes into its feature’s module in `packages/rpc/src/protocol/`; the type
+  system requires its handler.
+- Documentation, specifications and comments describe the system as it is: no “previously /
+  used to be / changed from”, no migration narratives, no changelog in prose. Rationale is a
+  present-tense property of the design. History lives in git.
+
+## License
+
+[MIT](LICENSE)
