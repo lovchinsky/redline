@@ -94,3 +94,8 @@ export interface PageRuntimeRegistration {
 export interface GrantedHosts {
   includes(matchPattern: string): Promise<boolean>;
 }
+
+/** The keyboard shortcut that starts capture; `null` when the user has none set. */
+export interface CaptureShortcut {
+  current(): Promise<string | null>;
+}

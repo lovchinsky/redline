@@ -1,4 +1,7 @@
+import { Settings } from 'lucide-preact';
 import { useState } from 'preact/hooks';
+import { IconButton } from '../kit/Button';
+import { Logo } from '../kit/Logo';
 import type { UiServices } from '../services';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { TranslatorProvider, useTranslator } from '../shared/i18n';
@@ -13,21 +16,28 @@ const Panel = ({ services }: { services: UiServices }) => {
   const t = useTranslator();
   const [tab, setTab] = useState<Tab>('draft');
   const [tasks, actions] = useTasks(services);
-  const active = tasks.active.length;
 
   return (
-    <main>
-      <h1>{t.text('extName')}</h1>
+    <main class="panel">
+      <header class="panel-header">
+        <h1 class="brand">
+          <Logo />
+          {t.text('extName')}
+        </h1>
+        <IconButton
+          label={t.text('openSettings')}
+          onClick={() => void services.navigation.openSettings()}
+        >
+          <Settings size={16} />
+        </IconButton>
+      </header>
       <Tabs
         label={t.text('panelLabel')}
         selected={tab}
         onSelect={setTab}
         tabs={[
           { id: 'draft', label: t.text('tabDraft') },
-          {
-            id: 'active',
-            label: active === 0 ? t.text('tabActive') : t.text('tabActiveCount', t.number(active)),
-          },
+          { id: 'active', label: t.text('tabActive'), count: tasks.active.length },
           { id: 'history', label: t.text('tabHistory') },
         ]}
       >

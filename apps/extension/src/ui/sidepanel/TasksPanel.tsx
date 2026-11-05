@@ -1,4 +1,5 @@
 import type { TaskSummary } from '@redline/rpc';
+import { Inbox } from 'lucide-preact';
 import type { UiServices } from '../services';
 import { TaskCard } from './TaskCard';
 import type { TaskActions } from './use-tasks';
@@ -15,11 +16,18 @@ export const TasksPanel = ({
   empty: string;
 }) =>
   tasks.length === 0 ? (
-    <p class="muted">{empty}</p>
+    <div class="panel-content">
+      <div class="empty compact">
+        <Inbox size={28} class="empty-icon" aria-hidden="true" />
+        <p class="muted">{empty}</p>
+      </div>
+    </div>
   ) : (
-    <ul class="tasks">
-      {tasks.map((task) => (
-        <TaskCard key={task.id} task={task} actions={actions} services={services} />
-      ))}
-    </ul>
+    <div class="panel-content">
+      <ul class="tasks">
+        {tasks.map((task) => (
+          <TaskCard key={task.id} task={task} actions={actions} services={services} />
+        ))}
+      </ul>
+    </div>
   );

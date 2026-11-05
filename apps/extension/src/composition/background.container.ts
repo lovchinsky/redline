@@ -18,15 +18,13 @@ import { RuntimeEventSink } from '../adapters/messaging/runtime-events';
 import { RuntimeServerTransport } from '../adapters/messaging/runtime-server-transport';
 import { AlarmWakeUps, WAKE_UP_ALARMS } from '../adapters/platform/alarm-wake-ups';
 import { ChromeNotifier, NOTIFICATION_PREFIX } from '../adapters/platform/chrome-notifier';
+import { START_CAPTURE } from '../adapters/platform/commands';
 import { ToolbarActivity } from '../adapters/platform/toolbar-activity';
 import { ConsoleLogger } from '../adapters/system/console-logger';
 import { systemClock } from '../adapters/system/system-clock';
 import { uuidIdGenerator } from '../adapters/system/uuid-id-generator';
 import type { Translator } from '../ports/i18n';
 import { createBackgroundServices, type BackgroundPlatform } from './background.services';
-
-/** Manifest command and context menu item that start capture on the current page. */
-export const START_CAPTURE = 'start-capture';
 
 /** `tabs.captureVisibleTab` allows two calls per second; keep a margin. */
 const CAPTURE_INTERVAL_MS = 550;

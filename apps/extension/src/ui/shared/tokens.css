@@ -1,0 +1,88 @@
+/*
+ * Design tokens shared by every surface: extension pages (:root) and the overlay's shadow
+ * root (:host). Red is the brand: the mark, focus and the lasso. Actions stay neutral, so a
+ * primary button never reads as a destructive one.
+ */
+:root,
+:host {
+  --rl-font:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --rl-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+  --rl-bg: #ffffff;
+  --rl-bg-subtle: #f8f8fa;
+  --rl-surface: #ffffff;
+  --rl-hover: #f1f2f4;
+  --rl-active: #e8e9ec;
+  --rl-border: #e5e6ea;
+  --rl-border-strong: #d1d4d9;
+  --rl-text: #17181c;
+  --rl-text-muted: #5f636b;
+  --rl-text-faint: #6b6f77;
+
+  --rl-brand: #e5484d;
+  --rl-brand-text: #c62a2f;
+  --rl-brand-soft: #fdecec;
+
+  --rl-primary-bg: #17181c;
+  --rl-primary-hover: #33353b;
+  --rl-primary-fg: #ffffff;
+
+  --rl-danger: #c62a2f;
+  --rl-danger-soft: #fdecec;
+  --rl-success: #1d7a4f;
+  --rl-success-soft: #e5f5ec;
+  --rl-warning: #a85300;
+  --rl-warning-soft: #fff2e0;
+  --rl-info: #0b63b5;
+  --rl-info-soft: #e7f2fd;
+
+  --rl-radius-sm: 6px;
+  --rl-radius: 8px;
+  --rl-radius-lg: 12px;
+  --rl-shadow-sm: 0 1px 2px rgb(16 18 24 / 0.06);
+  --rl-shadow-md: 0 4px 12px rgb(16 18 24 / 0.08), 0 1px 3px rgb(16 18 24 / 0.06);
+  --rl-shadow-lg: 0 16px 40px rgb(16 18 24 / 0.16), 0 2px 6px rgb(16 18 24 / 0.08);
+  --rl-focus: 0 0 0 2px var(--rl-bg), 0 0 0 4px rgb(229 72 77 / 0.55);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root,
+  :host {
+    --rl-bg: #111113;
+    --rl-bg-subtle: #161618;
+    --rl-surface: #1b1c1f;
+    --rl-hover: #24252a;
+    --rl-active: #2c2e33;
+    --rl-border: #2c2e33;
+    --rl-border-strong: #3d4047;
+    --rl-text: #ecedef;
+    --rl-text-muted: #a4a7af;
+    --rl-text-faint: #8a8d96;
+
+    --rl-brand: #ec5d5e;
+    --rl-brand-text: #ff9592;
+    --rl-brand-soft: #3a1718;
+
+    --rl-primary-bg: #ecedef;
+    --rl-primary-hover: #ffffff;
+    --rl-primary-fg: #111113;
+
+    --rl-danger: #ff8d8a;
+    --rl-danger-soft: #3a1718;
+    --rl-success: #4cc38a;
+    --rl-success-soft: #13291e;
+    --rl-warning: #ffa94d;
+    --rl-warning-soft: #33200a;
+    --rl-info: #70b8ff;
+    --rl-info-soft: #0f2540;
+
+    --rl-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --rl-shadow-md: 0 4px 12px rgb(0 0 0 / 0.45);
+    --rl-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.55);
+
+    color-scheme: dark;
+  }
+}

@@ -1,34 +1,20 @@
-:host {
-  --rl-surface: rgb(255 255 255 / 0.92);
-  --rl-text: #1b1d21;
-  --rl-muted: #5c6370;
-  --rl-border: rgb(0 0 0 / 0.08);
-  --rl-accent: #4a5cf0;
-  --rl-accent-text: #ffffff;
-  --rl-danger: #c5221f;
-  --rl-shadow: 0 12px 40px rgb(0 0 0 / 0.18), 0 2px 8px rgb(0 0 0 / 0.08);
-  color-scheme: light dark;
-  font:
-    13px/1.45 system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
-}
+/* The overlay's own layout; tokens and components come from tokens.css and kit.css. */
 
-@media (prefers-color-scheme: dark) {
-  :host {
-    --rl-surface: rgb(30 32 38 / 0.92);
-    --rl-text: #e8eaee;
-    --rl-muted: #9aa1ad;
-    --rl-border: rgb(255 255 255 / 0.1);
-    --rl-accent: #8b98ff;
-    --rl-accent-text: #11131a;
-    --rl-danger: #ff8a80;
-  }
+/* The host resets every inherited property (all: initial), so the panels set their own type. */
+.hint,
+.composer {
+  font: 13px/1.5 var(--rl-font);
+  color: var(--rl-text);
+  text-align: left;
 }
 
 * {
   box-sizing: border-box;
+}
+
+p,
+ul {
+  margin: 0;
 }
 
 .canvas {
@@ -45,60 +31,66 @@
   cursor: crosshair;
 }
 
-.hint,
-.composer {
-  /* The host resets every inherited property (all: initial), so panels set their own type. */
-  font:
-    13px/1.45 system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
-}
-
+/* The pill at the top: what to do now. Dark on any page, so it never blends in. */
 .hint {
   position: fixed;
   top: 16px;
   left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: var(--rl-surface);
-  color: var(--rl-text);
-  box-shadow: var(--rl-shadow);
-  backdrop-filter: blur(16px);
-  pointer-events: none;
-  white-space: nowrap;
   display: grid;
   justify-items: center;
   gap: 2px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgb(23 24 28 / 0.92);
+  color: #f4f4f6;
+  box-shadow: var(--rl-shadow-lg);
+  font-size: 12.5px;
+  font-weight: 500;
+  backdrop-filter: blur(16px);
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.hint-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hint-line::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rl-brand);
+  box-shadow: 0 0 0 3px rgb(229 72 77 / 0.3);
+}
+
+.hint .cursor {
+  color: #b9bbc2;
+  font: 12px/1.4 var(--rl-mono);
 }
 
 .hint .cursor:empty {
   display: none;
 }
 
-.hint .cursor {
-  color: var(--rl-muted);
-  font:
-    12px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-}
-
+/* The composer: what was circled and what to change. */
 .composer {
   position: fixed;
-  width: 340px;
-  padding: 14px;
-  border: 1px solid var(--rl-border);
-  border-radius: 14px;
-  background: var(--rl-surface);
-  color: var(--rl-text);
-  box-shadow: var(--rl-shadow);
-  backdrop-filter: blur(20px);
-  pointer-events: auto;
   display: grid;
+  /* One column no wider than the panel: long summaries truncate instead of stretching it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
+  width: 384px;
+  padding: 12px;
+  border: 1px solid var(--rl-border);
+  border-radius: var(--rl-radius-lg);
+  background: var(--rl-surface);
+  box-shadow: var(--rl-shadow-lg);
+  pointer-events: auto;
 }
 
 .composer[data-placed='false'] {
@@ -108,95 +100,62 @@
 .composer-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+}
+
+.composer-count {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
 }
 
-.head-actions {
+.composer-count svg {
+  color: var(--rl-brand);
+}
+
+.composer-tools {
   display: flex;
-  gap: 10px;
+  margin-right: -4px;
 }
 
 .shapes {
-  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   padding: 0;
   list-style: none;
-  display: grid;
-  gap: 2px;
-  color: var(--rl-muted);
-  font:
-    12px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
 }
 
 .shapes li {
+  max-width: 100%;
   overflow: hidden;
+  padding: 2px 8px;
+  border-radius: var(--rl-radius-sm);
+  background: var(--rl-hover);
+  color: var(--rl-text-muted);
+  font: 11.5px/1.5 var(--rl-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-label {
-  display: grid;
-  gap: 4px;
-  font-weight: 500;
+.composer .textarea {
+  min-height: 76px;
 }
 
-textarea {
-  width: 100%;
-  min-height: 72px;
-  resize: vertical;
-  padding: 8px 10px;
-  border: 1px solid var(--rl-border);
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-
-textarea:focus-visible,
-button:focus-visible {
-  outline: 2px solid var(--rl-accent);
-  outline-offset: 1px;
-}
-
-.problem {
-  margin: 0;
-  color: var(--rl-danger);
-}
-
-.actions {
+.composer-foot {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 8px;
 }
 
-button {
-  padding: 6px 12px;
-  border: 1px solid var(--rl-border);
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-button.primary {
-  border-color: var(--rl-accent);
-  background: var(--rl-accent);
-  color: var(--rl-accent-text);
-}
-
-button.link {
-  padding: 2px 6px;
-  border: 0;
-  color: var(--rl-muted);
-  font-weight: 400;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: default;
+.composer-keys {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--rl-text-faint);
+  font-size: 11.5px;
 }

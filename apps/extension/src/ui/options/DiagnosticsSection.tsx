@@ -3,10 +3,14 @@ import type { CaptureRecord } from '@redline/rpc';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { MessageKey, Translator } from '../../ports/i18n';
 import type { UiServices } from '../services';
+import { ChevronRight, Download } from 'lucide-preact';
+import { Badge } from '../kit/Badge';
+import { Button } from '../kit/Button';
 import { downloadBlob } from '../shared/download';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { useTranslator } from '../shared/i18n';
 import { ServiceWorkerStatus } from './ServiceWorkerStatus';
+import { SettingsSection } from './SettingsSection';
 
 type Outcome = CaptureRecord['collectors'][number]['outcome'];
 
@@ -28,13 +32,13 @@ const CaptureEntry = ({ record }: { record: CaptureRecord }) => {
   return (
     <details class="capture-record" data-testid="capture-record">
       <summary>
-        {t.text(
-          'diagnosticsCapture',
-          t.dateTime(record.at),
-          record.page,
-          milliseconds(t, record.durationMs),
-        )}
-        {problems > 0 && <span class="badge error"> {t.text('outcomeFailed')}</span>}
+        <ChevronRight size={14} class="disclosure" aria-hidden="true" />
+        <span class="record-time">{t.dateTime(record.at)}</span>
+        <code class="record-page">{record.page}</code>
+        {problems > 0 && <Badge tone="danger">{t.text('outcomeFailed')}</Badge>}
+        <span class="record-duration">
+          {t.text('milliseconds', milliseconds(t, record.durationMs))}
+        </span>
       </summary>
       <table class="runs">
         <thead>
@@ -102,30 +106,41 @@ export const DiagnosticsSection = ({ services }: { services: UiServices }) => {
   };
 
   return (
-    <section class="card" aria-labelledby="diagnostics-title">
-      <h2 id="diagnostics-title">{t.text('diagnosticsTitle')}</h2>
-      <p class="muted">{t.text('diagnosticsHint')}</p>
+    <SettingsSection
+      id="diagnostics"
+      title={t.text('diagnosticsTitle')}
+      description={t.text('diagnosticsHint')}
+      actions={
+        records.length > 0 && (
+          <>
+            <Button
+              size="sm"
+              data-testid="export-diagnostics"
+              icon={<Download size={14} aria-hidden="true" />}
+              onClick={exportJson}
+            >
+              {t.text('diagnosticsExport')}
+            </Button>
+            <Button size="sm" variant="danger" onClick={() => void clear()}>
+              {t.text('diagnosticsClear')}
+            </Button>
+          </>
+        )
+      }
+    >
       {records.length === 0 ? (
-        <p class="muted" data-testid="no-records">
+        <p class="list-empty" data-testid="no-records">
           {t.text('diagnosticsEmpty')}
         </p>
       ) : (
-        <>
-          <div class="actions">
-            <button type="button" data-testid="export-diagnostics" onClick={exportJson}>
-              {t.text('diagnosticsExport')}
-            </button>
-            <button type="button" class="danger" onClick={() => void clear()}>
-              {t.text('diagnosticsClear')}
-            </button>
-          </div>
+        <div class="list">
           {records.map((record) => (
             <CaptureEntry key={record.id} record={record} />
           ))}
-        </>
+        </div>
       )}
       <ErrorAlert error={error} />
       <ServiceWorkerStatus services={services} />
-    </section>
+    </SettingsSection>
   );
 };

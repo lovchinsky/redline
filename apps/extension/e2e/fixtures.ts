@@ -43,12 +43,17 @@ const SPECIAL_ROUTES: Readonly<
  * profile; pass a directory to keep the profile across launches (a browser restart).
  * Tests read Ukrainian text unless they choose another browser language.
  */
-export const launchExtension = async (userDataDir = '', locale = 'uk'): Promise<BrowserContext> => {
+export const launchExtension = async (
+  userDataDir = '',
+  locale = 'uk',
+  deviceScaleFactor = 1,
+): Promise<BrowserContext> => {
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: 'chromium',
     // The browser's UI language picks the extension's catalog (`_locales`); on Linux Chromium
     // takes it from the environment, `locale` sets the page language to match.
     locale,
+    deviceScaleFactor,
     env: { ...process.env, LANGUAGE: locale.replace('-', '_') },
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });

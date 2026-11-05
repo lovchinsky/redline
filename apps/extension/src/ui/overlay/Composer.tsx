@@ -1,6 +1,8 @@
 import type { Point, Rect, Size } from '@redline/geometry';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { CaptureState } from './capture-machine';
+import { Keyboard, LassoSelect, Undo2 } from 'lucide-preact';
+import { Button, IconButton } from '../kit/Button';
 import { useTranslator } from '../shared/i18n';
 import { PROBLEM_MESSAGES, describeResolution } from './copy';
 import { placePanel } from './placement';
@@ -74,14 +76,25 @@ export const Composer = ({
       }}
     >
       <div class="composer-head">
-        <span>{t.count('areaCount', state.shapes.length)}</span>
-        <span class="head-actions">
-          <button type="button" class="link" onClick={onPickWithKeyboard} disabled={committing}>
-            {t.text('chooseWithKeyboard')}
-          </button>
-          <button type="button" class="link" onClick={onRemoveLastShape} disabled={committing}>
-            {t.text('removeLastShape')}
-          </button>
+        <span class="composer-count">
+          <LassoSelect size={15} aria-hidden="true" />
+          {t.count('areaCount', state.shapes.length)}
+        </span>
+        <span class="composer-tools">
+          <IconButton
+            label={t.text('chooseWithKeyboard')}
+            onClick={onPickWithKeyboard}
+            disabled={committing}
+          >
+            <Keyboard size={15} />
+          </IconButton>
+          <IconButton
+            label={t.text('removeLastShape')}
+            onClick={onRemoveLastShape}
+            disabled={committing}
+          >
+            <Undo2 size={15} />
+          </IconButton>
         </span>
       </div>
       <ul class="shapes" data-testid="shape-summaries">
@@ -89,32 +102,40 @@ export const Composer = ({
           <li key={entry.shape.id}>{describeResolution(t, entry.resolution)}</li>
         ))}
       </ul>
-      <label>
-        {t.text('commentLabel')}
-        <textarea
-          ref={comment}
-          data-testid="comment"
-          value={state.draft.comment}
-          placeholder={t.text('commentPlaceholder')}
-          disabled={committing}
-          onInput={(event) => {
-            onCommentChange(event.currentTarget.value);
-          }}
-          onKeyDown={onKeyDown}
-        />
-      </label>
+      <textarea
+        ref={comment}
+        class="textarea"
+        data-testid="comment"
+        aria-label={t.text('commentLabel')}
+        value={state.draft.comment}
+        placeholder={t.text('commentPlaceholder')}
+        disabled={committing}
+        onInput={(event) => {
+          onCommentChange(event.currentTarget.value);
+        }}
+        onKeyDown={onKeyDown}
+      />
       {state.draft.problem !== null && (
-        <p class="problem" role="alert" data-testid="problem">
+        <p class="alert" role="alert" data-testid="problem">
           {t.text(PROBLEM_MESSAGES[state.draft.problem])}
         </p>
       )}
-      <div class="actions">
-        <button type="button" onClick={onCancel} disabled={committing}>
+      <div class="composer-foot">
+        <span class="composer-keys" aria-hidden="true">
+          {t.text('composerKeys')}
+        </span>
+        <Button size="sm" variant="ghost" onClick={onCancel} disabled={committing}>
           {t.text('cancel')}
-        </button>
-        <button type="submit" class="primary" data-testid="submit" disabled={committing}>
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          variant="primary"
+          data-testid="submit"
+          disabled={committing}
+        >
           {committing ? t.text('savingStep') : t.text('saveStep')}
-        </button>
+        </Button>
       </div>
     </form>
   );

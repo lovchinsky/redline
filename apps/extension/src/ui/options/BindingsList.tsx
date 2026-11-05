@@ -2,8 +2,11 @@ import { hostPermissionOf, parseBindingPattern, type AppError, type Binding } fr
 import type { ProjectRef } from '@redline/rpc';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
+import { Globe, Plus, Trash } from 'lucide-preact';
+import { Button, IconButton } from '../kit/Button';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { useTranslator } from '../shared/i18n';
+import { SettingsSection } from './SettingsSection';
 
 /** Site patterns and the projects they send to; adding one asks for access to that site. */
 export const BindingsList = ({ services }: { services: UiServices }) => {
@@ -51,54 +54,45 @@ export const BindingsList = ({ services }: { services: UiServices }) => {
   };
 
   return (
-    <section class="card">
-      <h2>{t.text('bindingsTitle')}</h2>
-      <p class="muted">{t.text('bindingsHint')}</p>
+    <SettingsSection
+      id="bindings"
+      title={t.text('bindingsTitle')}
+      description={t.text('bindingsHint')}
+    >
       {bindings.length === 0 ? (
-        <p class="muted" data-testid="no-bindings">
+        <p class="list-empty" data-testid="no-bindings">
           {t.text('noBindings')}
         </p>
       ) : (
-        <table class="bindings">
-          <thead>
-            <tr>
-              <th>{t.text('site')}</th>
-              <th>{t.text('project')}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {bindings.map((binding) => (
-              <tr key={binding.pattern} data-testid="binding">
-                <td>
-                  <code>{binding.pattern}</code>
-                </td>
-                <td>{binding.projectName}</td>
-                <td>
-                  <button
-                    type="button"
-                    aria-label={t.text('removeBinding', binding.pattern)}
-                    onClick={() => void remove(binding.pattern)}
-                  >
-                    {t.text('remove')}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ul class="list" aria-label={t.text('bindingsTitle')}>
+          {bindings.map((binding) => (
+            <li key={binding.pattern} class="list-row" data-testid="binding">
+              <Globe size={14} class="faint" aria-hidden="true" />
+              <code class="grow">{binding.pattern}</code>
+              <span class="muted">{binding.projectName}</span>
+              <IconButton
+                label={t.text('removeBinding', binding.pattern)}
+                danger
+                onClick={() => void remove(binding.pattern)}
+              >
+                <Trash size={14} />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
       )}
       {projects.length > 0 && (
         <form
-          class="row"
+          class="inline-form"
           onSubmit={(event) => {
             event.preventDefault();
             void add();
           }}
         >
-          <label class="grow">
-            <span class="label">{t.text('site')}</span>
+          <label class="field grow">
+            <span class="field-label">{t.text('site')}</span>
             <input
+              class="input"
               type="text"
               value={pattern}
               placeholder="https://app.acme.io"
@@ -107,9 +101,10 @@ export const BindingsList = ({ services }: { services: UiServices }) => {
               }}
             />
           </label>
-          <label>
-            <span class="label">{t.text('project')}</span>
+          <label class="field">
+            <span class="field-label">{t.text('project')}</span>
             <select
+              class="select"
               value={projectId}
               onChange={(event) => {
                 setProjectId(event.currentTarget.value);
@@ -123,12 +118,16 @@ export const BindingsList = ({ services }: { services: UiServices }) => {
               ))}
             </select>
           </label>
-          <button type="submit" disabled={pattern.trim() === '' || projectId === ''}>
+          <Button
+            type="submit"
+            icon={<Plus size={14} aria-hidden="true" />}
+            disabled={pattern.trim() === '' || projectId === ''}
+          >
             {t.text('add')}
-          </button>
+          </Button>
         </form>
       )}
       <ErrorAlert error={error} />
-    </section>
+    </SettingsSection>
   );
 };

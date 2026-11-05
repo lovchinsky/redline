@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
+import { Button } from '../kit/Button';
 import { describeError } from '../shared/errors';
 import { useTranslator } from '../shared/i18n';
 
@@ -42,20 +43,24 @@ export const ServiceWorkerStatus = ({ services }: { services: UiServices }) => {
   }, [ping]);
 
   return (
-    <div aria-live="polite">
-      <h3>{t.text('swTitle')}</h3>
-      <p data-testid="sw-status" data-status={status.kind}>
-        {status.kind === 'checking' && t.text('swChecking')}
-        {status.kind === 'connected' &&
-          t.text('swConnected', status.version, t.number(status.roundTripMs))}
-        {status.kind === 'unreachable' && t.text('swUnreachable', status.message)}
-      </p>
-      <p class="muted">
-        {t.text('swPingEvents')} <span data-testid="ping-events">{pings}</span>
-      </p>
-      <button type="button" data-testid="ping" onClick={() => void ping()}>
+    <div class="sw-status" aria-live="polite">
+      <span class="status-dot" data-status={status.kind} aria-hidden="true" />
+      <span class="grow">
+        <span class="muted">{t.text('swTitle')}: </span>
+        <span data-testid="sw-status" data-status={status.kind}>
+          {status.kind === 'checking' && t.text('swChecking')}
+          {status.kind === 'connected' &&
+            t.text('swConnected', status.version, t.number(status.roundTripMs))}
+          {status.kind === 'unreachable' && t.text('swUnreachable', status.message)}
+        </span>
+        <span class="faint">
+          {' · '}
+          {t.text('swPingEvents')} <span data-testid="ping-events">{pings}</span>
+        </span>
+      </span>
+      <Button size="sm" variant="ghost" data-testid="ping" onClick={() => void ping()}>
         {t.text('swCheckAgain')}
-      </button>
+      </Button>
     </div>
   );
 };

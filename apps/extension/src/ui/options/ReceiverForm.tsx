@@ -2,8 +2,11 @@ import type { AppError } from '@redline/core';
 import type { ReceiverView } from '@redline/rpc';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
+import { CircleAlert, CircleCheck } from 'lucide-preact';
+import { Button } from '../kit/Button';
 import { describeError } from '../shared/errors';
 import { useTranslator } from '../shared/i18n';
+import { SettingsSection } from './SettingsSection';
 
 type Feedback =
   | { readonly kind: 'none' }
@@ -77,19 +80,22 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
   };
 
   return (
-    <section class="card">
-      <h2>{t.text('receiverTitle')}</h2>
-      <p class="muted">{t.text('receiverHint')}</p>
+    <SettingsSection
+      id="receiver"
+      title={t.text('receiverTitle')}
+      description={t.text('receiverHint')}
+    >
       <form
-        class="form"
+        class="settings-form"
         onSubmit={(event) => {
           event.preventDefault();
           void save();
         }}
       >
-        <label>
-          <span class="label">{t.text('receiverUrl')}</span>
+        <label class="field">
+          <span class="field-label">{t.text('receiverUrl')}</span>
           <input
+            class="input"
             data-testid="receiver-url"
             type="url"
             required
@@ -100,9 +106,10 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
             }}
           />
         </label>
-        <label>
-          <span class="label">{t.text('receiverToken')}</span>
+        <label class="field">
+          <span class="field-label">{t.text('receiverToken')}</span>
           <input
+            class="input"
             data-testid="receiver-token"
             type="password"
             autocomplete="off"
@@ -113,35 +120,40 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
             }}
           />
         </label>
-        <div class="actions">
-          <button type="submit" class="primary" data-testid="receiver-save">
-            {t.text('save')}
-          </button>
+        {feedback.kind !== 'none' && (
+          <p
+            role={feedback.kind === 'ok' ? 'status' : 'alert'}
+            class={feedback.kind === 'ok' ? 'status-line ok' : 'alert'}
+            data-testid="receiver-feedback"
+          >
+            {feedback.kind === 'ok' ? (
+              <CircleCheck size={14} aria-hidden="true" />
+            ) : (
+              <CircleAlert size={14} aria-hidden="true" />
+            )}
+            <span>
+              {feedback.kind === 'ok'
+                ? feedback.text
+                : feedback.kind === 'denied'
+                  ? t.text('permissionDenied')
+                  : describeError(t, feedback.error)}
+            </span>
+          </p>
+        )}
+        <div class="form-actions">
           {stored !== null && (
             <>
-              <button type="button" onClick={() => void check()}>
-                {t.text('check')}
-              </button>
-              <button type="button" class="danger" onClick={() => void clear()}>
+              <Button variant="danger" onClick={() => void clear()}>
                 {t.text('disconnect')}
-              </button>
+              </Button>
+              <Button onClick={() => void check()}>{t.text('check')}</Button>
             </>
           )}
+          <Button type="submit" variant="primary" data-testid="receiver-save">
+            {t.text('save')}
+          </Button>
         </div>
       </form>
-      {feedback.kind !== 'none' && (
-        <p
-          role={feedback.kind === 'ok' ? 'status' : 'alert'}
-          class={feedback.kind === 'ok' ? 'muted' : 'error'}
-          data-testid="receiver-feedback"
-        >
-          {feedback.kind === 'ok'
-            ? feedback.text
-            : feedback.kind === 'denied'
-              ? t.text('permissionDenied')
-              : describeError(t, feedback.error)}
-        </p>
-      )}
-    </section>
+    </SettingsSection>
   );
 };

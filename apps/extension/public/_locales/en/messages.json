@@ -56,6 +56,9 @@
   "chooseWithKeyboard": {
     "message": "Choose with the keyboard"
   },
+  "composerKeys": {
+    "message": "↵ to save"
+  },
   "overlayLabel": {
     "message": "Redline: describe the change"
   },
@@ -128,6 +131,48 @@
   "sizeMegabytes": {
     "message": "$1 MB"
   },
+  "emptyTitle": {
+    "message": "Circle what needs to change"
+  },
+  "emptyShortcut": {
+    "message": "Open a page of your app and press"
+  },
+  "emptyBody": {
+    "message": "Each circled area with your comment becomes a step. Steps on several pages make one task."
+  },
+  "emptyContextMenu": {
+    "message": "You can also right-click the page and choose “Circle an area”."
+  },
+  "shortcutUnset": {
+    "message": "Set a shortcut on the chrome://extensions/shortcuts page."
+  },
+  "nextStep": {
+    "message": "Add a step:"
+  },
+  "nextStepWhere": {
+    "message": "on the page"
+  },
+  "untitledTask": {
+    "message": "Untitled task"
+  },
+  "draftsMenu": {
+    "message": "Drafts"
+  },
+  "moreActions": {
+    "message": "More actions"
+  },
+  "confirmDeleteDraft": {
+    "message": "Delete this draft with all its steps?"
+  },
+  "confirmRemoveStep": {
+    "message": "Delete this step?"
+  },
+  "connectReceiverHint": {
+    "message": "Connect a receiver to send tasks to your agent."
+  },
+  "connectReceiver": {
+    "message": "Connect"
+  },
   "panelLabel": {
     "message": "Redline tasks"
   },
@@ -137,14 +182,8 @@
   "tabActive": {
     "message": "In progress"
   },
-  "tabActiveCount": {
-    "message": "In progress ($1)"
-  },
   "tabHistory": {
     "message": "History"
-  },
-  "draftLabel": {
-    "message": "Draft"
   },
   "newDraft": {
     "message": "New draft"
@@ -152,26 +191,11 @@
   "emptyDraft": {
     "message": "Empty draft"
   },
-  "draftOption": {
-    "message": "$1 · $2"
-  },
-  "titleLabel": {
-    "message": "Title"
-  },
-  "titlePlaceholder": {
-    "message": "Task title (optional)"
-  },
   "deleteDraft": {
     "message": "Delete draft"
   },
   "confirmDelete": {
     "message": "Yes, delete"
-  },
-  "noActiveDraft": {
-    "message": "A new draft appears with the first step."
-  },
-  "howToCapture": {
-    "message": "Open a page and press Alt+Shift+A to circle an area."
   },
   "stepsLabel": {
     "message": "Steps"
@@ -213,10 +237,31 @@
     "message": "What the agent gets"
   },
   "preview": {
-    "message": "Preview the bundle"
+    "message": "Preview"
   },
   "previewing": {
-    "message": "Assembling…"
+    "message": "Assembling the bundle…"
+  },
+  "previewRefresh": {
+    "message": "Assemble again"
+  },
+  "fileCount_one": {
+    "message": "$1 file"
+  },
+  "fileCount_few": {
+    "message": "$1 files"
+  },
+  "fileCount_many": {
+    "message": "$1 files"
+  },
+  "fileCount_other": {
+    "message": "$1 files"
+  },
+  "previewSummary": {
+    "message": "$1 · $2 · sha256 $3"
+  },
+  "close": {
+    "message": "Close"
   },
   "previewStale": {
     "message": "The draft has changed — assemble the bundle again."
@@ -247,9 +292,6 @@
   },
   "projectConflict": {
     "message": "The steps belong to different projects. Split them into separate drafts."
-  },
-  "noReceiver": {
-    "message": "No receiver is set up."
   },
   "openSettings": {
     "message": "Settings"
@@ -356,9 +398,6 @@
   "add": {
     "message": "Add"
   },
-  "remove": {
-    "message": "Remove"
-  },
   "removeBinding": {
     "message": "Remove $1"
   },
@@ -380,8 +419,8 @@
   "diagnosticsClear": {
     "message": "Clear"
   },
-  "diagnosticsCapture": {
-    "message": "$1 · $2 · $3 ms"
+  "milliseconds": {
+    "message": "$1 ms"
   },
   "diagnosticsCollector": {
     "message": "Collector"

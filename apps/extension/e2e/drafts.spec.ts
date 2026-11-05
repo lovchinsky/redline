@@ -89,7 +89,7 @@ test('a draft of three steps on two pages survives a browser restart', async () 
     'Rename Enterprise to Business',
     'Make Export the primary button',
   ]);
-  await expect(panel.getByTestId('step').locator('img.thumb')).toHaveCount(3);
+  await expect(panel.getByTestId('step').locator('img.step-shot')).toHaveCount(3);
   await context.close();
 });
 
@@ -144,14 +144,18 @@ test('editing a draft in the side panel, and a preview that is exactly what is s
   );
 
   // Assembling again without changes returns the same frozen bundle.
+  await panel.keyboard.press('Escape');
   await panel.getByTestId('assemble').click();
   await expect(panel.getByTestId('bundle-digest')).toHaveAttribute('data-digest', digest ?? '');
+  await panel.keyboard.press('Escape');
 
-  // Removing a step makes the preview stale.
+  // Removing a step (confirmed) changes the bundle.
   await steps.nth(1).getByRole('button', { name: 'Видалити крок' }).click();
   await steps.nth(1).getByRole('button', { name: 'Видалити крок' }).click();
   await expect(steps).toHaveCount(1);
-  await expect(panel.getByText('Чернетка змінилась — складіть пакет ще раз.')).toBeVisible();
+  await panel.getByTestId('assemble').click();
+  await expect(panel.getByTestId('bundle-digest')).not.toHaveAttribute('data-digest', digest ?? '');
+  await expect(panel.getByTestId('bundle-context')).not.toContainText('## Step 2');
 });
 
 test('new drafts collect new steps; deleting the active one clears it', async ({ context }) => {
@@ -164,6 +168,7 @@ test('new drafts collect new steps; deleting the active one clears it', async ({
   });
 
   await panel.bringToFront();
+  await panel.getByTestId('draft-select').click();
   await panel.getByTestId('new-draft').click();
   await expect(panel.getByTestId('empty-draft')).toBeVisible();
   await captureStep(pricing, panel, {
@@ -173,13 +178,18 @@ test('new drafts collect new steps; deleting the active one clears it', async ({
 
   await panel.bringToFront();
   await expect.poll(() => comments(panel)).toEqual(['Second']);
-  await expect(panel.getByTestId('draft-select').locator('option')).toHaveCount(2);
+  const drafts = panel.getByRole('menuitemradio');
+  await panel.getByTestId('draft-select').click();
+  await expect(drafts).toHaveCount(2);
+  await panel.keyboard.press('Escape');
 
-  await panel.getByRole('button', { name: 'Видалити чернетку' }).click();
+  await panel.getByRole('button', { name: 'Інші дії' }).click();
+  await panel.getByRole('menuitem', { name: 'Видалити чернетку' }).click();
   await panel.getByRole('button', { name: 'Так, видалити' }).click();
   await expect(panel.getByTestId('empty-draft')).toBeVisible();
-  await expect(panel.getByTestId('draft-select').locator('option')).toHaveCount(2); // "—" + First
+  await panel.getByTestId('draft-select').click();
+  await expect(drafts).toHaveCount(1);
 
-  await panel.getByTestId('draft-select').selectOption({ label: 'First · 1 крок' });
+  await drafts.filter({ hasText: 'First' }).click();
   await expect.poll(() => comments(panel)).toEqual(['First']);
 });

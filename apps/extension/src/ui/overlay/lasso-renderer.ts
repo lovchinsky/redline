@@ -30,11 +30,12 @@ export interface Scene {
   readonly dimOutside: boolean;
 }
 
-const GLOW_STOPS = ['#5ac8fa', '#7d7aff', '#bf5af2', '#ff375f', '#ff9f0a', '#5ac8fa'] as const;
+/** The brand's red line, warming to orange and pink as it turns. */
+const GLOW_STOPS = ['#e5484d', '#ff7a45', '#ff3d7f', '#e5484d', '#ff9a3c', '#e5484d'] as const;
 const ROTATION_PERIOD_MS = 4000;
 
 /**
- * Draws outlines with a soft, slowly rotating multicolour glow on a full-viewport canvas.
+ * Draws outlines with a soft, slowly rotating red glow on a full-viewport canvas.
  * Stateless between frames: every call to `render` redraws the whole scene.
  */
 export class LassoRenderer {
@@ -97,7 +98,7 @@ export class LassoRenderer {
       ctx.strokeStyle = 'rgb(255 255 255 / 0.95)';
       ctx.strokeRect(rect.x - 3, rect.y - 3, rect.width + 6, rect.height + 6);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = '#4a5cf0';
+      ctx.strokeStyle = '#e5484d';
       ctx.strokeRect(rect.x - 3, rect.y - 3, rect.width + 6, rect.height + 6);
       ctx.restore();
       return;

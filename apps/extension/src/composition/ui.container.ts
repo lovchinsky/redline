@@ -6,6 +6,7 @@ import { DatabaseConnection, openDatabase } from '../adapters/idb/database';
 import { IdbLocalFiles } from '../adapters/idb/idb-local-files';
 import { RuntimeClientTransport } from '../adapters/messaging/runtime-client-transport';
 import { RuntimeEventSource } from '../adapters/messaging/runtime-events';
+import { browserCaptureShortcut } from '../adapters/platform/commands';
 import { browserHostAccess, browserNavigation } from '../adapters/platform/ui-platform';
 import { ConsoleLogger } from '../adapters/system/console-logger';
 import { uuidIdGenerator } from '../adapters/system/uuid-id-generator';
@@ -24,6 +25,7 @@ export const createUiContainer = (scope: string): UiServices => {
     archiver: new ZipBundleArchiver(),
     hostAccess: browserHostAccess,
     navigation: browserNavigation,
+    shortcut: browserCaptureShortcut,
     i18n: new MessageTranslator(chromeMessages),
     ids: uuidIdGenerator,
     clock: { now: () => Date.now() },

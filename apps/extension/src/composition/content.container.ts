@@ -25,7 +25,9 @@ import { RecordStep } from '../application/capture/record-step';
 import { CaptureRuntime } from '../ui/overlay/capture-runtime';
 import { CaptureSession } from '../ui/overlay/capture-session';
 import { OverlayHost } from '../ui/overlay/overlay-host';
+import kitCss from '../ui/kit/kit.css?inline';
 import overlayCss from '../ui/overlay/overlay.css?inline';
+import tokensCss from '../ui/shared/tokens.css?inline';
 import { PageRuntimeClient } from '@redline/page-runtime/client';
 import { BridgePageRuntime } from '../adapters/capture/bridge-page-runtime';
 
@@ -81,7 +83,7 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
     createSession: (initialSnapshot) =>
       new CaptureSession({
         view: window,
-        host: OverlayHost.mount(document, overlayCss),
+        host: OverlayHost.mount(document, [tokensCss, kitCss, overlayCss].join('\n')),
         dom,
         resolver: new EnclosureResolver(dom),
         traversal: new ElementTraversal(dom, document.body),

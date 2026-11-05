@@ -25,6 +25,7 @@
     "@redline/rpc": "workspace:*",
     "fflate": "0.8.3",
     "idb": "8.0.4",
+    "lucide-preact": "1.61.0",
     "preact": "10.29.8",
     "zod": "4.6.7"
   },

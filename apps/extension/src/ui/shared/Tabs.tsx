@@ -4,6 +4,8 @@ import { useRef } from 'preact/hooks';
 export interface TabItem<Id extends string> {
   readonly id: Id;
   readonly label: string;
+  /** Shown as a small counter after the label, when above zero. */
+  readonly count?: number;
 }
 
 interface TabsProps<Id extends string> {
@@ -51,7 +53,7 @@ export const Tabs = <Id extends string>({
   return (
     <>
       <div ref={list} class="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
-        {tabs.map(({ id, label: tabLabel }) => (
+        {tabs.map(({ id, label: tabLabel, count }) => (
           <button
             key={id}
             id={`tab-${id}`}
@@ -66,10 +68,16 @@ export const Tabs = <Id extends string>({
             }}
           >
             {tabLabel}
+            {count !== undefined && count > 0 && <span class="count">{count}</span>}
           </button>
         ))}
       </div>
-      <div id={`panel-${selected}`} role="tabpanel" aria-labelledby={`tab-${selected}`}>
+      <div
+        id={`panel-${selected}`}
+        class="tabpanel"
+        role="tabpanel"
+        aria-labelledby={`tab-${selected}`}
+      >
         {children}
       </div>
     </>

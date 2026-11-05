@@ -21,14 +21,14 @@ export const OverlayView = ({ state, anchor, cursor, ...handlers }: OverlayViewP
   if (state.kind === 'armed') {
     return (
       <div class="hint" role="status" data-testid="hint">
-        {t.text('overlayArmedHint')}
+        <span class="hint-line">{t.text('overlayArmedHint')}</span>
       </div>
     );
   }
   if (state.kind === 'picking') {
     return (
       <div class="hint" data-testid="hint">
-        <span>{t.text('overlayKeyboardHint')}</span>
+        <span class="hint-line">{t.text('overlayKeyboardHint')}</span>
         {/* Announced on every move, so screen reader users hear where the cursor is. */}
         <span class="cursor" role="status" aria-live="polite" data-testid="cursor">
           {cursor === null ? '' : t.text('overlayKeyboardCurrent', cursor)}

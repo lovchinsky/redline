@@ -56,6 +56,9 @@
   "chooseWithKeyboard": {
     "message": "Вибрати з клавіатури"
   },
+  "composerKeys": {
+    "message": "↵ — зберегти"
+  },
   "overlayLabel": {
     "message": "Redline: опишіть правку"
   },
@@ -128,6 +131,48 @@
   "sizeMegabytes": {
     "message": "$1 МБ"
   },
+  "emptyTitle": {
+    "message": "Обведіть, що треба змінити"
+  },
+  "emptyShortcut": {
+    "message": "Відкрийте сторінку свого застосунку й натисніть"
+  },
+  "emptyBody": {
+    "message": "Кожна обведена область із коментарем стає кроком. Кроки на кількох сторінках складаються в одну задачу."
+  },
+  "emptyContextMenu": {
+    "message": "Або клацніть правою кнопкою на сторінці й оберіть «Обвести область»."
+  },
+  "shortcutUnset": {
+    "message": "Задайте сполучення клавіш на сторінці chrome://extensions/shortcuts."
+  },
+  "nextStep": {
+    "message": "Ще крок:"
+  },
+  "nextStepWhere": {
+    "message": "на сторінці"
+  },
+  "untitledTask": {
+    "message": "Задача без назви"
+  },
+  "draftsMenu": {
+    "message": "Чернетки"
+  },
+  "moreActions": {
+    "message": "Інші дії"
+  },
+  "confirmDeleteDraft": {
+    "message": "Видалити чернетку разом з усіма кроками?"
+  },
+  "confirmRemoveStep": {
+    "message": "Видалити цей крок?"
+  },
+  "connectReceiverHint": {
+    "message": "Підключіть отримувача, щоб надсилати задачі агенту."
+  },
+  "connectReceiver": {
+    "message": "Підключити"
+  },
   "panelLabel": {
     "message": "Задачі Redline"
   },
@@ -137,14 +182,8 @@
   "tabActive": {
     "message": "В роботі"
   },
-  "tabActiveCount": {
-    "message": "В роботі ($1)"
-  },
   "tabHistory": {
     "message": "Історія"
-  },
-  "draftLabel": {
-    "message": "Чернетка"
   },
   "newDraft": {
     "message": "Нова чернетка"
@@ -152,26 +191,11 @@
   "emptyDraft": {
     "message": "Порожня чернетка"
   },
-  "draftOption": {
-    "message": "$1 · $2"
-  },
-  "titleLabel": {
-    "message": "Назва"
-  },
-  "titlePlaceholder": {
-    "message": "Назва задачі (необов’язково)"
-  },
   "deleteDraft": {
     "message": "Видалити чернетку"
   },
   "confirmDelete": {
     "message": "Так, видалити"
-  },
-  "noActiveDraft": {
-    "message": "Нова чернетка з’явиться з першим кроком."
-  },
-  "howToCapture": {
-    "message": "Відкрийте сторінку і натисніть Alt+Shift+A, щоб обвести область."
   },
   "stepsLabel": {
     "message": "Кроки"
@@ -213,10 +237,31 @@
     "message": "Що піде агенту"
   },
   "preview": {
-    "message": "Переглянути пакет"
+    "message": "Переглянути"
   },
   "previewing": {
     "message": "Складаю пакет…"
+  },
+  "previewRefresh": {
+    "message": "Скласти ще раз"
+  },
+  "fileCount_one": {
+    "message": "$1 файл"
+  },
+  "fileCount_few": {
+    "message": "$1 файли"
+  },
+  "fileCount_many": {
+    "message": "$1 файлів"
+  },
+  "fileCount_other": {
+    "message": "$1 файлу"
+  },
+  "previewSummary": {
+    "message": "$1 · $2 · sha256 $3"
+  },
+  "close": {
+    "message": "Закрити"
   },
   "previewStale": {
     "message": "Чернетка змінилась — складіть пакет ще раз."
@@ -247,9 +292,6 @@
   },
   "projectConflict": {
     "message": "Кроки належать до різних проєктів. Розділіть їх на окремі чернетки."
-  },
-  "noReceiver": {
-    "message": "Отримувача не налаштовано."
   },
   "openSettings": {
     "message": "Налаштування"
@@ -356,9 +398,6 @@
   "add": {
     "message": "Додати"
   },
-  "remove": {
-    "message": "Прибрати"
-  },
   "removeBinding": {
     "message": "Прибрати $1"
   },
@@ -380,8 +419,8 @@
   "diagnosticsClear": {
     "message": "Очистити"
   },
-  "diagnosticsCapture": {
-    "message": "$1 · $2 · $3 мс"
+  "milliseconds": {
+    "message": "$1 мс"
   },
   "diagnosticsCollector": {
     "message": "Колектор"

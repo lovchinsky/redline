@@ -1,7 +1,10 @@
-import type { DraftView, BundlePreview as Preview } from '@redline/rpc';
-import { useEffect, useState } from 'preact/hooks';
-import type { UiServices } from '../services';
 import type { AppError } from '@redline/core';
+import type { DraftView, BundlePreview as Preview } from '@redline/rpc';
+import { Download, FileText, LoaderCircle, RefreshCw } from 'lucide-preact';
+import { useCallback, useEffect, useState } from 'preact/hooks';
+import { Button } from '../kit/Button';
+import { Sheet } from '../kit/Sheet';
+import type { UiServices } from '../services';
 import { downloadBlob } from '../shared/download';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { formatBytes } from '../shared/format';
@@ -9,26 +12,26 @@ import { useTranslator } from '../shared/i18n';
 import { LocalImage } from './LocalImage';
 
 type PreviewState =
-  | { readonly kind: 'idle' }
   | { readonly kind: 'assembling' }
   | { readonly kind: 'ready'; readonly preview: Preview; readonly context: string }
   | { readonly kind: 'failed'; readonly error: AppError };
 
+interface PreviewSheetProps {
+  readonly services: UiServices;
+  readonly draft: DraftView;
+  readonly onClose: () => void;
+}
+
 /**
- * Shows the frozen bundle of the draft: `context.md` and every file, read from the bundle
- * the service worker stored. The same bundle is what gets delivered.
+ * The frozen bundle of the draft: `context.md` and every file, read from the bundle the service
+ * worker stored. The same bundle is what gets delivered.
  */
-export const BundlePreview = ({ services, draft }: { services: UiServices; draft: DraftView }) => {
+export const PreviewSheet = ({ services, draft, onClose }: PreviewSheetProps) => {
   const t = useTranslator();
-  const [state, setState] = useState<PreviewState>({ kind: 'idle' });
+  const [state, setState] = useState<PreviewState>({ kind: 'assembling' });
   const stale = state.kind === 'ready' && state.preview.revision !== draft.revision;
 
-  // A preview belongs to one draft; switching drafts starts over.
-  useEffect(() => {
-    setState({ kind: 'idle' });
-  }, [draft.id]);
-
-  const assemble = async () => {
+  const assemble = useCallback(async () => {
     setState({ kind: 'assembling' });
     const preview = await services.rpc.call('task.assemble', { taskId: draft.id });
     if (!preview.ok) {
@@ -42,7 +45,11 @@ export const BundlePreview = ({ services, draft }: { services: UiServices; draft
         ? { kind: 'ready', preview: preview.value, context: await context.value.text() }
         : { kind: 'failed', error: context.error },
     );
-  };
+  }, [services, draft.id]);
+
+  useEffect(() => {
+    void assemble();
+  }, [assemble]);
 
   /** Saves the frozen bundle as a .zip, for handing it to an agent by hand. */
   const download = async (preview: Preview) => {
@@ -56,73 +63,103 @@ export const BundlePreview = ({ services, draft }: { services: UiServices; draft
   };
 
   return (
-    <section class="card preview" aria-live="polite">
-      <div class="row">
-        <h2 class="grow">{t.text('previewTitle')}</h2>
-        <button
-          type="button"
-          data-testid="assemble"
-          disabled={draft.steps.length === 0 || state.kind === 'assembling'}
-          onClick={() => void assemble()}
-        >
-          {state.kind === 'assembling' ? t.text('previewing') : t.text('preview')}
-        </button>
-      </div>
-
-      {state.kind === 'failed' && <ErrorAlert error={state.error} />}
-      {stale && <p class="muted">{t.text('previewStale')}</p>}
-      {state.kind === 'ready' && !stale && (
-        <>
-          <p class="muted" data-testid="bundle-digest" data-digest={state.preview.digest}>
-            sha256 {state.preview.digest.slice(0, 12)} ·{' '}
-            {formatBytes(
-              t,
-              state.preview.files.reduce((sum, file) => sum + file.bytes, 0),
-            )}
-          </p>
-          {/* Scrolls on its own, so it takes focus to be scrollable from the keyboard. */}
-          <pre
-            class="context"
-            data-testid="bundle-context"
-            tabIndex={0}
-            aria-label={state.preview.entry}
+    <Sheet
+      title={t.text('previewTitle')}
+      closeLabel={t.text('close')}
+      onClose={onClose}
+      actions={
+        state.kind === 'ready' && (
+          <Button
+            size="sm"
+            data-testid="download-zip"
+            icon={<Download size={14} aria-hidden="true" />}
+            onClick={() => void download(state.preview)}
           >
-            {state.context}
-          </pre>
-          <div class="row">
-            <h3 class="grow">{t.text('files')}</h3>
-            <button
-              type="button"
-              data-testid="download-zip"
-              onClick={() => void download(state.preview)}
+            {t.text('downloadZip')}
+          </Button>
+        )
+      }
+    >
+      <div class="preview" aria-live="polite">
+        {state.kind === 'assembling' && (
+          <p class="note">
+            <LoaderCircle size={14} class="spin" aria-hidden="true" />
+            <span>{t.text('previewing')}</span>
+          </p>
+        )}
+        {state.kind === 'failed' && <ErrorAlert error={state.error} />}
+        {stale && (
+          <div class="note">
+            <span class="grow">{t.text('previewStale')}</span>
+            <Button
+              size="sm"
+              icon={<RefreshCw size={14} aria-hidden="true" />}
+              onClick={() => void assemble()}
             >
-              {t.text('downloadZip')}
-            </button>
+              {t.text('previewRefresh')}
+            </Button>
           </div>
-          <ul class="files">
-            {state.preview.files.map((file) => (
-              <li key={file.path}>
-                {file.mediaType.startsWith('image/') ? (
-                  <LocalImage
-                    class="file-thumb"
-                    files={services.files}
-                    source={{
-                      kind: 'bundle',
-                      taskId: state.preview.taskId,
-                      digest: state.preview.digest,
-                      path: file.path,
-                    }}
-                    alt=""
-                  />
-                ) : (
-                  <span class="file-thumb placeholder" aria-hidden="true" />
-                )}
-                <code>{file.path}</code> <span class="muted">{formatBytes(t, file.bytes)}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </section>
+        )}
+        {state.kind === 'ready' && (
+          <>
+            <p
+              class="preview-summary"
+              data-testid="bundle-digest"
+              data-digest={state.preview.digest}
+            >
+              {t.text(
+                'previewSummary',
+                t.count('fileCount', state.preview.files.length),
+                formatBytes(
+                  t,
+                  state.preview.files.reduce((sum, file) => sum + file.bytes, 0),
+                ),
+                state.preview.digest.slice(0, 12),
+              )}
+            </p>
+            <section class="preview-section">
+              <h3 class="section-label">{state.preview.entry}</h3>
+              {/* Scrolls on its own, so it takes focus to be scrollable from the keyboard. */}
+              <pre
+                class="context"
+                data-testid="bundle-context"
+                tabIndex={0}
+                aria-label={state.preview.entry}
+              >
+                {state.context}
+              </pre>
+            </section>
+            <section class="preview-section">
+              <h3 class="section-label">{t.text('files')}</h3>
+              <ul class="files">
+                {state.preview.files.map((file) => (
+                  <li key={file.path}>
+                    {file.mediaType.startsWith('image/') ? (
+                      <LocalImage
+                        class="file-thumb"
+                        files={services.files}
+                        source={{
+                          kind: 'bundle',
+                          taskId: state.preview.taskId,
+                          digest: state.preview.digest,
+                          path: file.path,
+                        }}
+                        alt=""
+                      />
+                    ) : (
+                      <span class="file-thumb file-icon" aria-hidden="true">
+                        <FileText size={16} />
+                      </span>
+                    )}
+                    <code class="file-path">{file.path}</code>
+                    <span class="file-size">{formatBytes(t, file.bytes)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </>
+        )}
+      </div>
+    </Sheet>
   );
 };

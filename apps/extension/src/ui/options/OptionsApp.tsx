@@ -1,4 +1,5 @@
 import { useEffect } from 'preact/hooks';
+import { Logo } from '../kit/Logo';
 import type { UiServices } from '../services';
 import { TranslatorProvider, useTranslator } from '../shared/i18n';
 import { BindingsList } from './BindingsList';
@@ -11,12 +12,17 @@ const Options = ({ services }: { services: UiServices }) => {
     document.title = t.text('optionsTitle');
   }, [t]);
   return (
-    <main class="options">
-      <h1>{t.text('optionsTitle')}</h1>
-      <ReceiverForm services={services} />
-      <BindingsList services={services} />
-      <DiagnosticsSection services={services} />
-    </main>
+    <div class="options">
+      <header class="options-header">
+        <Logo size={28} />
+        <h1>{t.text('optionsTitle')}</h1>
+      </header>
+      <main class="options-sections">
+        <ReceiverForm services={services} />
+        <BindingsList services={services} />
+        <DiagnosticsSection services={services} />
+      </main>
+    </div>
   );
 };
 
