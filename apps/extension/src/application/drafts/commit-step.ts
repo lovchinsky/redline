@@ -19,14 +19,14 @@ import {
 import type { StepRecord } from '@redline/rpc';
 import type { CaptureRepository, CommittedStep } from '../../ports/capture';
 import type { ActiveDraftStore, TaskRepository } from '../../ports/drafts';
-import type { DraftWriter } from './draft-writer';
+import type { TaskWriter } from '../tasks/task-writer';
 
 export interface CommitStepDeps {
   readonly catalog: FragmentCatalog;
   readonly captures: CaptureRepository;
   readonly tasks: TaskRepository;
   readonly active: ActiveDraftStore;
-  readonly writer: DraftWriter;
+  readonly writer: TaskWriter;
   readonly ids: IdGenerator;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -81,7 +81,11 @@ export class CommitStep {
         const activated = await this.deps.active.set(added.value.id);
         if (!activated.ok) return activated;
       }
-      await writer.announce(added.value.id);
+      await writer.announce({
+        taskId: added.value.id,
+        before: draft.value.isNew ? null : draft.value.task,
+        after: added.value,
+      });
       return ok({ taskId: added.value.id, stepId: step.id, stepCount: added.value.steps.length });
     });
   }

@@ -8,6 +8,13 @@ export const E2E_MODE = 'e2e';
  */
 export const E2E_HOST_PERMISSIONS = ['<all_urls>'];
 
+/** Sites a user may bind, and the receiver; requested per origin, never at install. */
+export const OPTIONAL_HOST_PERMISSIONS = [
+  'https://*/*',
+  'http://localhost/*',
+  'http://127.0.0.1/*',
+];
+
 export default defineConfig({
   srcDir: 'src',
   manifestVersion: 3,
@@ -17,7 +24,17 @@ export default defineConfig({
     name: 'Redline',
     description: 'Обведи область на сайті, опиши правку — і відправ задачу агенту.',
     // activeTab + scripting: inject only into the tab the user invoked us on. No host access.
-    permissions: ['sidePanel', 'activeTab', 'scripting', 'contextMenus', 'alarms'],
+    permissions: [
+      'sidePanel',
+      'activeTab',
+      'scripting',
+      'contextMenus',
+      'alarms',
+      'storage',
+      'notifications',
+    ],
+    // Asked for at runtime, one origin at a time: a bound site, the receiver.
+    optional_host_permissions: OPTIONAL_HOST_PERMISSIONS,
     // e2e builds only: see E2E_HOST_PERMISSIONS.
     ...(mode === E2E_MODE ? { host_permissions: E2E_HOST_PERMISSIONS } : {}),
     action: { default_title: 'Redline' },

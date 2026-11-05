@@ -7,6 +7,7 @@ import {
   type Result,
   type TaskId,
 } from '@redline/core';
+import type { Bundle } from '@redline/assembly';
 import type { LocalFiles } from '../../ports/drafts';
 import type { DatabaseConnection } from './database';
 import { storageError } from './errors';
@@ -43,6 +44,23 @@ export class IdbLocalFiles implements LocalFiles {
         : ok(file.data);
     } catch (cause) {
       return err(storageError(cause, 'Reading bundle file'));
+    }
+  }
+
+  async bundle(taskId: TaskId, digest: string): Promise<Result<Bundle, AppError>> {
+    try {
+      const db = await this.connection.get();
+      const record = await db.get('bundles', taskId);
+      if (record?.digest !== digest) {
+        return err(appError('not-found', 'The bundle was replaced', { taskId, digest }));
+      }
+      return ok({
+        manifest: record.manifest,
+        digest: record.digest,
+        files: new Map(record.files.map((file) => [file.path, file.data])),
+      });
+    } catch (cause) {
+      return err(storageError(cause, 'Reading bundle'));
     }
   }
 }

@@ -1,44 +1,24 @@
-import { AssemblyEngine, MarkdownContextRenderer, Packager } from '@redline/assembly';
-import { FragmentCatalog, SerialQueue, SerialRateLimiter } from '@redline/core';
-import { fragmentDescriptors } from '@redline/modules/descriptors';
-import { dedupeProcessor } from '@redline/processors';
-import { summaryTokens } from '@redline/profiles';
-import { EventPublisher, RpcServer, events, protocol, type Unsubscribe } from '@redline/rpc';
+import { SerialRateLimiter, TaskId, type Logger } from '@redline/core';
+import { RpcServer, protocol, type Unsubscribe } from '@redline/rpc';
 import { browser, type Browser } from 'wxt/browser';
 import { BadgeNotice } from '../adapters/capture/badge-notice';
 import { scriptingInjector } from '../adapters/capture/scripting-injector';
 import { RpcTabCaptureClient } from '../adapters/capture/tab-capture-client';
 import { VisibleTabCapturer } from '../adapters/capture/visible-tab-capturer';
 import { DatabaseConnection, openDatabase } from '../adapters/idb/database';
-import { IdbAssetStore } from '../adapters/idb/idb-asset-store';
-import { IdbActiveDraftStore } from '../adapters/idb/idb-active-draft-store';
-import { IdbBundleRepository } from '../adapters/idb/idb-bundle-repository';
-import { IdbCaptureRepository } from '../adapters/idb/idb-capture-repository';
-import { IdbTaskRepository } from '../adapters/idb/idb-task-repository';
 import { offscreenImageDeriver } from '../adapters/images/offscreen-image-deriver';
 import { RuntimeEventSink } from '../adapters/messaging/runtime-events';
 import { RuntimeServerTransport } from '../adapters/messaging/runtime-server-transport';
+import { AlarmWakeUps, WAKE_UP_ALARMS } from '../adapters/platform/alarm-wake-ups';
+import { ChromeNotifier, NOTIFICATION_PREFIX } from '../adapters/platform/chrome-notifier';
+import { ToolbarActivity } from '../adapters/platform/toolbar-activity';
 import { ConsoleLogger } from '../adapters/system/console-logger';
 import { systemClock } from '../adapters/system/system-clock';
 import { uuidIdGenerator } from '../adapters/system/uuid-id-generator';
-import { DeriveImage, TakeSnapshot } from '../application/capture/capture-assets';
-import { createCaptureHandlers } from '../application/capture/capture-handlers';
-import { StartCapture } from '../application/capture/start-capture';
-import { AssembleBundle } from '../application/drafts/assemble-bundle';
-import { CollectGarbage } from '../application/drafts/collect-garbage';
-import { CommitStep } from '../application/drafts/commit-step';
-import {
-  ActivateDraft,
-  CreateDraft,
-  DeleteDraft,
-  EditDraft,
-  RemoveStep,
-} from '../application/drafts/draft-commands';
-import { createDraftHandlers } from '../application/drafts/draft-handlers';
-import { GetDraft, ListDrafts } from '../application/drafts/draft-queries';
-import { DraftWriter } from '../application/drafts/draft-writer';
-import { StoredCaptures } from '../application/drafts/stored-captures';
-import { createSystemHandlers } from '../application/system/system-handlers';
+import { createBackgroundServices, type BackgroundPlatform } from './background.services';
+
+/** Manifest command and context menu item that start capture on the current page. */
+export const START_CAPTURE = 'start-capture';
 
 /** `tabs.captureVisibleTab` allows two calls per second; keep a margin. */
 const CAPTURE_INTERVAL_MS = 550;
@@ -48,8 +28,24 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
-/** Manifest command and context menu item that start capture on the current page. */
-export const START_CAPTURE = 'start-capture';
+/** The Chrome side of the service worker. */
+const chromePlatform = (logger: Logger): BackgroundPlatform => ({
+  version: browser.runtime.getManifest().version,
+  clock: systemClock,
+  ids: uuidIdGenerator,
+  database: new DatabaseConnection(() => openDatabase({ logger: logger.child('db') })),
+  storage: browser.storage.local,
+  fetch: (input, init) => fetch(input, init),
+  eventSink: new RuntimeEventSink(logger.child('events')),
+  wakeUps: new AlarmWakeUps(logger.child('alarms')),
+  notifier: new ChromeNotifier(browser.runtime.getURL('/icon/128.png'), logger.child('notify')),
+  activity: new ToolbarActivity(logger.child('badge')),
+  notice: new BadgeNotice(logger.child('notice')),
+  injector: scriptingInjector,
+  tabs: new RpcTabCaptureClient(uuidIdGenerator),
+  capturer: new VisibleTabCapturer(new SerialRateLimiter(CAPTURE_INTERVAL_MS, systemClock, sleep)),
+  deriver: offscreenImageDeriver,
+});
 
 /** Alarm that deletes unreferenced captures and images. */
 const COLLECT_GARBAGE = 'collect-garbage';
@@ -61,122 +57,47 @@ const COLLECT_GARBAGE_PERIOD_MIN = 6 * 60;
  */
 export const createBackgroundContainer = () => {
   const logger = new ConsoleLogger('background');
-  const version = browser.runtime.getManifest().version;
-  const publisher = new EventPublisher(events, new RuntimeEventSink(logger.child('events')));
-  const notice = new BadgeNotice(logger.child('notice'));
-  const database = new DatabaseConnection(() => openDatabase({ logger: logger.child('db') }));
-  const assets = new IdbAssetStore(database, uuidIdGenerator, systemClock);
-
-  const catalog = new FragmentCatalog(fragmentDescriptors);
-  const captureRepository = new IdbCaptureRepository(database);
-  const tasks = new IdbTaskRepository(database);
-  const active = new IdbActiveDraftStore(database);
-  const bundles = new IdbBundleRepository(database);
-  const writer = new DraftWriter({
-    queue: new SerialQueue(),
-    active,
-    events: publisher,
-    logger: logger.child('drafts'),
-  });
-  const captures = new StoredCaptures({
-    repository: captureRepository,
-    assets,
-    catalog,
-    logger: logger.child('captures'),
-  });
-  const commands = {
-    tasks,
-    active,
-    bundles,
-    captures,
-    writer,
-    ids: uuidIdGenerator,
-    clock: systemClock,
-  };
-  const queries = { tasks, active, captures, catalog };
-  const collectGarbage = new CollectGarbage({
-    tasks,
-    captures: captureRepository,
-    assets,
-    writer,
-    clock: systemClock,
-    logger: logger.child('gc'),
-  });
-
-  const startCapture = new StartCapture({
-    injector: scriptingInjector,
-    tabs: new RpcTabCaptureClient(uuidIdGenerator),
-    notice,
-    logger: logger.child('capture'),
-  });
-
-  const server = new RpcServer(
-    protocol,
-    {
-      ...createSystemHandlers({
-        clock: systemClock,
-        version,
-        events: publisher,
-        logger: logger.child('system'),
-      }),
-      ...createCaptureHandlers({
-        startCapture,
-        takeSnapshot: new TakeSnapshot(
-          new VisibleTabCapturer(new SerialRateLimiter(CAPTURE_INTERVAL_MS, systemClock, sleep)),
-          assets,
-        ),
-        deriveImage: new DeriveImage(offscreenImageDeriver, assets),
-        commitStep: new CommitStep({
-          catalog,
-          captures: captureRepository,
-          tasks,
-          active,
-          writer,
-          ids: uuidIdGenerator,
-          clock: systemClock,
-          logger: logger.child('steps'),
-        }),
-      }),
-      ...createDraftHandlers({
-        listDrafts: new ListDrafts(queries),
-        getDraft: new GetDraft(queries),
-        createDraft: new CreateDraft(commands),
-        activateDraft: new ActivateDraft(commands),
-        editDraft: new EditDraft(commands),
-        removeStep: new RemoveStep(commands),
-        deleteDraft: new DeleteDraft(commands),
-        assembleBundle: new AssembleBundle({
-          tasks,
-          captures,
-          bundles,
-          engine: new AssemblyEngine({
-            processors: [dedupeProcessor],
-            renderer: new MarkdownContextRenderer(catalog, {
-              budget: { summaryTokens: (intent) => summaryTokens[intent] },
-            }),
-            packager: new Packager(assets),
-          }),
-          writer,
-          clock: systemClock,
-          clientVersion: version,
-          logger: logger.child('assembly'),
-        }),
-      }),
-    },
-    logger.child('rpc'),
-  );
+  const services = createBackgroundServices(chromePlatform(logger), logger);
+  const server = new RpcServer(protocol, services.handlers, logger.child('rpc'));
 
   const runGarbageCollection = (): void => {
-    void collectGarbage.execute().then((result) => {
+    void services.collectGarbage.execute().then((result) => {
       if (result.ok) logger.info('Garbage collected', result.value);
       else logger.error('Garbage collection failed', { ...result.error });
     });
   };
 
+  /** Work that may have come due while the worker was stopped. */
+  const catchUp = (): void => {
+    void services.outbox.run();
+    void services.followRemote.checkStatuses();
+    void services.activity.refresh();
+    void services.wakeUps.plan();
+  };
+
   /** User gestures (shortcut, context menu) grant activeTab for the tab they target. */
   const startCaptureFromGesture = (tab: Browser.tabs.Tab | undefined): void => {
     if (tab?.id === undefined) return;
-    void startCapture.execute({ tabId: tab.id, url: tab.url });
+    void services.startCapture.execute({ tabId: tab.id, url: tab.url });
+  };
+
+  /** A click on a task notification opens its result, or the side panel to answer. */
+  const openTask = async (notificationId: string): Promise<void> => {
+    if (!notificationId.startsWith(NOTIFICATION_PREFIX)) return;
+    const taskId = TaskId.safeParse(notificationId.slice(NOTIFICATION_PREFIX.length));
+    if (!taskId.success) return;
+    await browser.notifications.clear(notificationId);
+    const task = await services.tasks.get(taskId.data);
+    if (
+      task.ok &&
+      task.value.state.kind === 'submitted' &&
+      task.value.state.status.phase === 'result-ready'
+    ) {
+      await browser.tabs.create({ url: task.value.state.status.resultUrl });
+      return;
+    }
+    const window = await browser.windows.getLastFocused();
+    if (window.id !== undefined) await browser.sidePanel.open({ windowId: window.id });
   };
 
   return {
@@ -202,32 +123,46 @@ export const createBackgroundContainer = () => {
       };
       const onAlarm = (alarm: Browser.alarms.Alarm) => {
         if (alarm.name === COLLECT_GARBAGE) runGarbageCollection();
+        if (alarm.name === WAKE_UP_ALARMS.deliver) void services.outbox.run();
+        if (alarm.name === WAKE_UP_ALARMS['check-statuses'])
+          void services.followRemote.checkStatuses();
+      };
+      const onNotificationClick = (notificationId: string) => {
+        void openTask(notificationId).catch((cause: unknown) => {
+          logger.warn('Could not open a task from a notification', { cause: String(cause) });
+        });
       };
       // A notice explains why capture failed on one page; it should not outlive that page.
       const onTabUpdated = (tabId: number, change: Browser.tabs.OnUpdatedInfo) => {
-        if (change.status === 'loading') void notice.clear(tabId);
+        if (change.status === 'loading') void services.notice.clear(tabId);
+      };
+      const onStartup = () => {
+        runGarbageCollection();
       };
 
       browser.commands.onCommand.addListener(onCommand);
       browser.contextMenus.onClicked.addListener(onMenuClick);
       browser.runtime.onInstalled.addListener(onInstalled);
-      browser.runtime.onStartup.addListener(runGarbageCollection);
+      browser.runtime.onStartup.addListener(onStartup);
       browser.alarms.onAlarm.addListener(onAlarm);
+      browser.notifications.onClicked.addListener(onNotificationClick);
       browser.tabs.onUpdated.addListener(onTabUpdated);
       browser.sidePanel
         .setPanelBehavior({ openPanelOnActionClick: true })
         .catch((cause: unknown) => {
           logger.error('Could not enable the side panel on action click', { cause: String(cause) });
         });
-      logger.info('Service worker started', { version });
+      catchUp();
+      logger.info('Service worker started', { version: services.version });
 
       return () => {
         stopServer();
         browser.commands.onCommand.removeListener(onCommand);
         browser.contextMenus.onClicked.removeListener(onMenuClick);
         browser.runtime.onInstalled.removeListener(onInstalled);
-        browser.runtime.onStartup.removeListener(runGarbageCollection);
+        browser.runtime.onStartup.removeListener(onStartup);
         browser.alarms.onAlarm.removeListener(onAlarm);
+        browser.notifications.onClicked.removeListener(onNotificationClick);
         browser.tabs.onUpdated.removeListener(onTabUpdated);
       };
     },

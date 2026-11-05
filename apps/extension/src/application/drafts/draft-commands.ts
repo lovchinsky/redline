@@ -14,7 +14,7 @@ import {
   type Task,
 } from '@redline/core';
 import type { ActiveDraftStore, BundleRepository, TaskRepository } from '../../ports/drafts';
-import type { DraftWriter } from './draft-writer';
+import type { TaskWriter } from '../tasks/task-writer';
 import type { StoredCaptures } from './stored-captures';
 
 export interface DraftCommandDeps {
@@ -22,7 +22,7 @@ export interface DraftCommandDeps {
   readonly active: ActiveDraftStore;
   readonly bundles: BundleRepository;
   readonly captures: StoredCaptures;
-  readonly writer: DraftWriter;
+  readonly writer: TaskWriter;
   readonly ids: IdGenerator;
   readonly clock: Clock;
 }
@@ -42,7 +42,7 @@ export class CreateDraft {
       if (!saved.ok) return saved;
       const activated = await active.set(task.id);
       if (!activated.ok) return activated;
-      await writer.announce(task.id);
+      await writer.announce({ taskId: task.id, before: null, after: task });
       return ok({ taskId: task.id });
     });
   }
@@ -59,7 +59,7 @@ export class ActivateDraft {
       if (!task.ok) return task;
       const activated = await active.set(taskId);
       if (!activated.ok) return activated;
-      await writer.announce(taskId);
+      await writer.announce({ taskId, before: task.value, after: task.value });
       return done();
     });
   }
@@ -95,7 +95,7 @@ export class EditDraft {
       if (next.value === task.value) return done();
       const saved = await tasks.save(next.value);
       if (!saved.ok) return saved;
-      await writer.announce(taskId);
+      await writer.announce({ taskId, before: task.value, after: next.value });
       return done();
     });
   }
@@ -115,14 +115,17 @@ export class RemoveStep {
       const saved = await tasks.save(removed.value.task);
       if (!saved.ok) return saved;
       await captures.dispose([removed.value.removed.captureId]);
-      await writer.announce(taskId);
+      await writer.announce({ taskId, before: task.value, after: removed.value.task });
       return done();
     });
   }
 }
 
-/** Deletes a draft with everything collected for it. */
-export class DeleteDraft {
+/**
+ * Deletes a task in any state with everything collected for it. A task already delivered
+ * keeps going on the receiver; the extension only stops following it.
+ */
+export class DeleteTask {
   constructor(private readonly deps: DraftCommandDeps) {}
 
   execute(taskId: TaskId): Promise<Done> {
@@ -141,7 +144,7 @@ export class DeleteDraft {
       const bundle = await bundles.delete(taskId);
       if (!bundle.ok) return bundle;
       await captures.dispose(task.value.steps.map((step) => step.captureId));
-      await writer.announce(taskId);
+      await writer.announce({ taskId, before: task.value, after: null });
       return done();
     });
   }

@@ -2,7 +2,9 @@ import * as z from 'zod/mini';
 import { appError, type AppError } from '../shared/errors';
 import { idSchema } from '../shared/ids';
 import { err, ok, type Result } from '../shared/result';
+import { ProjectId } from './binding';
 import { intentSchema } from './intent';
+import { remoteStatusSchema } from './remote-status';
 
 export const TaskId = idSchema().brand<'TaskId'>();
 export type TaskId = z.infer<typeof TaskId>;
@@ -46,19 +48,64 @@ export const stepSchema = z.readonly(
 );
 export type Step = z.infer<typeof stepSchema>;
 
+/** Why a delivery attempt failed, kept as plain data on the task. */
+export const deliveryErrorSchema = z.readonly(z.object({ code: z.string(), message: z.string() }));
+export type DeliveryError = z.infer<typeof deliveryErrorSchema>;
+
 /**
- * Lifecycle of a task. Delivery states join the union when tasks can be submitted; from then
- * on the operations below must refuse to edit anything but a draft.
+ * Lifecycle of a task: a draft is edited; a queued task waits in the outbox until the receiver
+ * accepts its frozen bundle; a submitted task follows the receiver's status; a failed one was
+ * refused by the receiver and can be retried or reopened as a draft.
  */
 export const taskStateSchema = z.discriminatedUnion('kind', [
   z.readonly(z.object({ kind: z.literal('draft') })),
+  z.readonly(
+    z.object({
+      kind: z.literal('queued'),
+      projectId: ProjectId,
+      projectName: z.string(),
+      /** Digest of the frozen bundle that must be delivered, byte for byte. */
+      digest: z.string(),
+      queuedAt: z.number(),
+      attempts: z.int().check(z.nonnegative()),
+      nextAttemptAt: z.number(),
+      lastError: z.nullable(deliveryErrorSchema),
+    }),
+  ),
+  z.readonly(
+    z.object({
+      kind: z.literal('submitted'),
+      projectId: ProjectId,
+      projectName: z.string(),
+      remoteId: z.string().check(z.minLength(1)),
+      submittedAt: z.number(),
+      status: remoteStatusSchema,
+      /** When the receiver last reported, and how often it is willing to be asked. */
+      checkedAt: z.number(),
+      pollAfterSec: z.number().check(z.positive()),
+      /** When to ask the receiver again on schedule; `null` once the status is terminal. */
+      nextCheckAt: z.nullable(z.number()),
+    }),
+  ),
+  z.readonly(
+    z.object({
+      kind: z.literal('failed'),
+      projectId: ProjectId,
+      projectName: z.string(),
+      digest: z.string(),
+      error: deliveryErrorSchema,
+      failedAt: z.number(),
+    }),
+  ),
 ]);
 export type TaskState = z.infer<typeof taskStateSchema>;
+export type TaskStateKind = TaskState['kind'];
 
 /**
  * Aggregate root: an ordered list of steps that will become one request to the agent.
- * Immutable; every operation below returns a new task with `revision` incremented, so a
- * revision identifies exactly one content of the task (assembled bundles are keyed by it).
+ * Immutable; every operation returns a new task. `revision` grows only when the content
+ * (title, steps) changes, so a revision identifies exactly one content of the task and
+ * assembled bundles are keyed by it. State changes only move `updatedAt`.
  */
 export const taskSchema = z.readonly(
   z.object({
@@ -95,6 +142,11 @@ const changed = (
   updatedAt: now,
 });
 
+const requireDraft = (task: Task): Result<Task, AppError> =>
+  task.state.kind === 'draft'
+    ? ok(task)
+    : err(appError('conflict', 'Only a draft can be edited', { state: task.state.kind }));
+
 const indexOfStep = (task: Task, stepId: StepId): Result<number, AppError> => {
   const index = task.steps.findIndex((step) => step.id === stepId);
   return index === -1
@@ -112,6 +164,8 @@ const normalizeComment = (comment: string): Result<string, AppError> => {
 };
 
 export const addStep = (task: Task, step: Step, now: number): Result<Task, AppError> => {
+  const draft = requireDraft(task);
+  if (!draft.ok) return draft;
   if (task.steps.some((existing) => existing.id === step.id)) {
     return err(appError('conflict', 'The step is already in the task', { stepId: step.id }));
   }
@@ -126,6 +180,8 @@ export const editStepComment = (
   comment: string,
   now: number,
 ): Result<Task, AppError> => {
+  const draft = requireDraft(task);
+  if (!draft.ok) return draft;
   const index = indexOfStep(task, stepId);
   if (!index.ok) return index;
   const normalized = normalizeComment(comment);
@@ -141,6 +197,8 @@ export const removeStep = (
   stepId: StepId,
   now: number,
 ): Result<{ readonly task: Task; readonly removed: Step }, AppError> => {
+  const draft = requireDraft(task);
+  if (!draft.ok) return draft;
   const index = indexOfStep(task, stepId);
   if (!index.ok) return index;
   const removed = task.steps[index.value];
@@ -156,6 +214,8 @@ export const moveStep = (
   toIndex: number,
   now: number,
 ): Result<Task, AppError> => {
+  const draft = requireDraft(task);
+  if (!draft.ok) return draft;
   const from = indexOfStep(task, stepId);
   if (!from.ok) return from;
   if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex >= task.steps.length) {
@@ -171,6 +231,8 @@ export const moveStep = (
 
 /** Sets the user's title; an empty title clears it. */
 export const renameTask = (task: Task, title: string, now: number): Result<Task, AppError> => {
+  const draft = requireDraft(task);
+  if (!draft.ok) return draft;
   const trimmed = title.trim();
   if (trimmed.length > MAX_TITLE_LENGTH) {
     return err(appError('validation', 'The title is too long', { max: MAX_TITLE_LENGTH }));

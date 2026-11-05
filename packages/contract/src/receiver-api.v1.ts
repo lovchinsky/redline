@@ -57,6 +57,9 @@ export type Project = z.infer<typeof projectSchema>;
 export type ListProjectsResponse = z.infer<typeof listProjectsResponseSchema>;
 export type Question = z.infer<typeof questionSchema>;
 export type RemoteStatus = z.infer<typeof remoteStatusSchema>;
-/** Response of both `POST /v1/tasks` and `GET /v1/tasks/:remoteId`. */
+/**
+ * Response of `POST /v1/tasks`, `GET /v1/tasks/:remoteId` and `POST /v1/tasks/:remoteId/replies`.
+ * `POST /v1/tasks` with an `Idempotency-Key` already seen returns the existing task.
+ */
 export type TaskStateResponse = z.infer<typeof taskStateResponseSchema>;
 export type ReplyRequest = z.infer<typeof replyRequestSchema>;

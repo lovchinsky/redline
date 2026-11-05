@@ -3,6 +3,7 @@ import { BundlePreview } from './BundlePreview';
 import { PANEL_TEXT } from './copy';
 import { DraftHeader } from './DraftHeader';
 import { StepCard } from './StepCard';
+import { SubmitPanel } from './SubmitPanel';
 import { useDrafts } from './use-drafts';
 
 export const DraftsPanel = ({ services }: { services: UiServices }) => {
@@ -40,6 +41,9 @@ export const DraftsPanel = ({ services }: { services: UiServices }) => {
         </ol>
       )}
       {draft !== null && <BundlePreview services={services} draft={draft} />}
+      {draft !== null && draft.steps.length > 0 && (
+        <SubmitPanel services={services} draft={draft} />
+      )}
     </>
   );
 };

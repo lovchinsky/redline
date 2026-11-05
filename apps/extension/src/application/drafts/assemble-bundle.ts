@@ -10,15 +10,14 @@ import {
 } from '@redline/core';
 import type { BundlePreview } from '@redline/rpc';
 import type { BundleRepository, StoredBundle, TaskRepository } from '../../ports/drafts';
-import type { DraftWriter } from './draft-writer';
+import type { TaskWriter } from '../tasks/task-writer';
 import type { StoredCaptures } from './stored-captures';
 
-export interface AssembleBundleDeps {
+export interface BundleAssemblerDeps {
   readonly tasks: TaskRepository;
   readonly captures: StoredCaptures;
   readonly bundles: BundleRepository;
   readonly engine: AssemblyEngine;
-  readonly writer: DraftWriter;
   readonly clock: Clock;
   readonly clientVersion: string;
   readonly logger: Logger;
@@ -35,21 +34,15 @@ const previewOf = ({ taskId, revision, bundle, warnings }: StoredBundle): Bundle
 });
 
 /**
- * Assembles a task into a frozen bundle and keeps it. While the task is unchanged the stored
- * bundle is reused, so the preview and the delivery are the same bytes, not two assemblies.
- * Runs in the write queue: an edit cannot slip between reading the task and storing its bundle.
+ * The frozen bundle of a task's current content: the stored one while the task is unchanged,
+ * otherwise a fresh assembly that replaces it. Preview and delivery both go through here, so
+ * what the user saw is what gets sent. Callers run it inside the task write queue, so an edit
+ * cannot slip between reading the task and storing its bundle.
  */
-export class AssembleBundle {
-  constructor(private readonly deps: AssembleBundleDeps) {}
+export class BundleAssembler {
+  constructor(private readonly deps: BundleAssemblerDeps) {}
 
-  execute(taskId: TaskId): Promise<Result<BundlePreview, AppError>> {
-    return this.deps.writer.run(async () => {
-      const stored = await this.assembled(taskId);
-      return stored.ok ? ok(previewOf(stored.value)) : stored;
-    });
-  }
-
-  private async assembled(taskId: TaskId): Promise<Result<StoredBundle, AppError>> {
+  async frozen(taskId: TaskId): Promise<Result<StoredBundle, AppError>> {
     const { tasks, captures, bundles, engine, clock, clientVersion, logger } = this.deps;
     const task = await tasks.get(taskId);
     if (!task.ok) return task;
@@ -87,5 +80,20 @@ export class AssembleBundle {
     };
     const saved = await bundles.put(fresh);
     return saved.ok ? ok(fresh) : saved;
+  }
+}
+
+/** Assembles a task for the preview. */
+export class AssembleBundle {
+  constructor(
+    private readonly assembler: BundleAssembler,
+    private readonly writer: TaskWriter,
+  ) {}
+
+  execute(taskId: TaskId): Promise<Result<BundlePreview, AppError>> {
+    return this.writer.run(async () => {
+      const stored = await this.assembler.frozen(taskId);
+      return stored.ok ? ok(previewOf(stored.value)) : stored;
+    });
   }
 }

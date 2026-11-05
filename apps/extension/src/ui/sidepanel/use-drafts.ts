@@ -65,7 +65,7 @@ export const useDrafts = (services: UiServices): readonly [DraftsState, DraftAct
 
   useEffect(() => {
     void reload();
-    return services.events.on('drafts.changed', () => void reload());
+    return services.events.on('tasks.changed', () => void reload());
   }, [services, reload]);
 
   const actions = useMemo((): DraftActions => {
@@ -86,7 +86,7 @@ export const useDrafts = (services: UiServices): readonly [DraftsState, DraftAct
         run(rpc.call('drafts.rename', { taskId, title }));
       },
       deleteDraft: (taskId) => {
-        run(rpc.call('drafts.delete', { taskId }));
+        run(rpc.call('tasks.delete', { taskId }));
       },
       editComment: (taskId, stepId, comment) => {
         run(rpc.call('steps.editComment', { taskId, stepId, comment }));

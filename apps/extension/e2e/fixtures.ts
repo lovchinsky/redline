@@ -42,12 +42,18 @@ export const launchExtension = async (userDataDir = ''): Promise<BrowserContext>
 export const serviceWorkerOf = async (context: BrowserContext): Promise<Worker> =>
   context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
 
-export const openSidePanel = async (context: BrowserContext): Promise<Page> => {
+const openExtensionPage = async (context: BrowserContext, path: string): Promise<Page> => {
   const extensionId = new URL((await serviceWorkerOf(context)).url()).host;
   const page = await context.newPage();
-  await page.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+  await page.goto(`chrome-extension://${extensionId}/${path}`);
   return page;
 };
+
+export const openSidePanel = (context: BrowserContext): Promise<Page> =>
+  openExtensionPage(context, 'sidepanel.html');
+
+export const openOptions = (context: BrowserContext): Promise<Page> =>
+  openExtensionPage(context, 'options.html');
 
 export const test = base.extend<ExtensionFixtures>({
   // Playwright requires object destructuring for fixture dependencies, even when there are none.

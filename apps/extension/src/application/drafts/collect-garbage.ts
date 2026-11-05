@@ -8,7 +8,7 @@ import {
 } from '@redline/core';
 import type { CaptureRepository } from '../../ports/capture';
 import type { AssetInventory, TaskRepository } from '../../ports/drafts';
-import type { DraftWriter } from './draft-writer';
+import type { TaskWriter } from '../tasks/task-writer';
 
 /** Data younger than this may belong to a capture still in progress. */
 export const GARBAGE_GRACE_MS = 60 * 60 * 1000;
@@ -17,7 +17,7 @@ export interface CollectGarbageDeps {
   readonly tasks: TaskRepository;
   readonly captures: CaptureRepository;
   readonly assets: AssetStore & AssetInventory;
-  readonly writer: DraftWriter;
+  readonly writer: TaskWriter;
   readonly clock: Clock;
   readonly logger: Logger;
 }

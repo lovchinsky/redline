@@ -230,3 +230,85 @@ textarea {
   border-radius: 4px;
   object-fit: cover;
 }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  border-bottom: 1px solid var(--rl-border);
+}
+
+.tabs button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 6px 10px;
+  color: var(--rl-muted);
+}
+
+.tabs button[aria-selected='true'] {
+  border-bottom-color: var(--rl-accent);
+  color: var(--rl-text);
+}
+
+button.primary {
+  background: var(--rl-accent);
+  color: var(--rl-bg);
+}
+
+.submit label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.submit p {
+  margin: 0 0 8px;
+}
+
+.tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.task p {
+  margin: 2px 0;
+}
+
+.task .state {
+  font-weight: 500;
+}
+
+.question {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--rl-bg);
+}
+
+.options {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.form {
+  display: grid;
+  gap: 10px;
+}
+
+.bindings {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+
+.bindings th,
+.bindings td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rl-border);
+  text-align: left;
+}

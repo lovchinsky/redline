@@ -30,8 +30,15 @@ test('the production manifest requests no host access and declares no content sc
     'scripting',
     'contextMenus',
     'alarms',
+    'storage',
+    'notifications',
   ]);
   expect(manifest.host_permissions).toBeUndefined();
+  expect(manifest.optional_host_permissions).toEqual([
+    'https://*/*',
+    'http://localhost/*',
+    'http://127.0.0.1/*',
+  ]);
   expect(manifest.content_scripts).toBeUndefined();
   expect(manifest.commands?.['start-capture']?.suggested_key).toEqual({ default: 'Alt+Shift+A' });
 });

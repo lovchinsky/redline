@@ -10,7 +10,7 @@ import {
   type Task,
   type TaskId,
 } from '@redline/core';
-import type { DraftSummary, DraftView, StepView } from '@redline/rpc';
+import type { DraftSummary, DraftView, StepView, TaskSummary } from '@redline/rpc';
 import type { ActiveDraftStore, TaskRepository } from '../../ports/drafts';
 import type { StoredCaptures } from './stored-captures';
 
@@ -85,5 +85,21 @@ export class GetDraft {
       if (thumbnail != null) return thumbnail;
     }
     return null;
+  }
+}
+
+/** Tasks past the draft stage, most recently changed first. */
+export class ListTasks {
+  constructor(private readonly deps: Pick<DraftQueryDeps, 'tasks'>) {}
+
+  async execute(): Promise<Result<{ tasks: readonly TaskSummary[] }, AppError>> {
+    const tasks = await this.deps.tasks.list();
+    if (!tasks.ok) return tasks;
+    return ok({
+      tasks: tasks.value
+        .filter((task) => task.state.kind !== 'draft')
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map((task) => ({ ...summaryOf(task), state: task.state })),
+    });
   }
 }

@@ -42,4 +42,11 @@ export interface LocalFiles {
   asset(id: AssetId): Promise<Result<Blob, AppError>>;
   /** A file of a task's frozen bundle; fails if the bundle was replaced since `digest`. */
   bundleFile(taskId: TaskId, digest: string, path: string): Promise<Result<Blob, AppError>>;
+  /** The whole frozen bundle; fails if it was replaced since `digest`. */
+  bundle(taskId: TaskId, digest: string): Promise<Result<Bundle, AppError>>;
+}
+
+/** Packs a bundle into one file people can hand over: `manifest.json` plus every file. */
+export interface BundleArchiver {
+  archive(bundle: Pick<Bundle, 'manifest' | 'files'>): Promise<Result<Blob, AppError>>;
 }

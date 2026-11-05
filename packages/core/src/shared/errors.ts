@@ -7,6 +7,7 @@ export const APP_ERROR_CODES = [
   'permission-denied',
   'restricted-page',
   'receiver-unavailable',
+  'not-configured',
   'bridge-unavailable',
   'quota',
   'storage',

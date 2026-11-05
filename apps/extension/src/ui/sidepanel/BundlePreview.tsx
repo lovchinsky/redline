@@ -39,6 +39,25 @@ export const BundlePreview = ({ services, draft }: { services: UiServices; draft
     );
   };
 
+  /** Saves the frozen bundle as a .zip, for handing it to an agent by hand. */
+  const download = async (preview: Preview) => {
+    const bundle = await services.files.bundle(preview.taskId, preview.digest);
+    const archive = bundle.ok ? await services.archiver.archive(bundle.value) : bundle;
+    if (!archive.ok) {
+      setState({ kind: 'failed', message: archive.error.message });
+      return;
+    }
+    const url = URL.createObjectURL(archive.value);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `redline-${preview.taskId.slice(0, 8)}.zip`;
+    link.click();
+    // Revoke after the download has started reading the URL.
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60_000);
+  };
+
   return (
     <section class="card preview" aria-live="polite">
       <div class="row">
@@ -68,7 +87,16 @@ export const BundlePreview = ({ services, draft }: { services: UiServices; draft
           <pre class="context" data-testid="bundle-context">
             {state.context}
           </pre>
-          <h3>{PANEL_TEXT.files}</h3>
+          <div class="row">
+            <h3 class="grow">{PANEL_TEXT.files}</h3>
+            <button
+              type="button"
+              data-testid="download-zip"
+              onClick={() => void download(state.preview)}
+            >
+              {PANEL_TEXT.downloadZip}
+            </button>
+          </div>
           <ul class="files">
             {state.preview.files.map((file) => (
               <li key={file.path}>

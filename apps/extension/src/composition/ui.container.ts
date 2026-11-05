@@ -1,8 +1,10 @@
 import { EventSubscriber, RpcClient, events, protocol } from '@redline/rpc';
+import { ZipBundleArchiver } from '../adapters/archive/zip-bundle-archiver';
 import { DatabaseConnection, openDatabase } from '../adapters/idb/database';
 import { IdbLocalFiles } from '../adapters/idb/idb-local-files';
 import { RuntimeClientTransport } from '../adapters/messaging/runtime-client-transport';
 import { RuntimeEventSource } from '../adapters/messaging/runtime-events';
+import { browserHostAccess, browserNavigation } from '../adapters/platform/ui-platform';
 import { ConsoleLogger } from '../adapters/system/console-logger';
 import { uuidIdGenerator } from '../adapters/system/uuid-id-generator';
 import type { UiServices } from '../ui/services';
@@ -17,6 +19,9 @@ export const createUiContainer = (scope: string): UiServices => {
     files: new IdbLocalFiles(
       new DatabaseConnection(() => openDatabase({ logger: logger.child('db') })),
     ),
+    archiver: new ZipBundleArchiver(),
+    hostAccess: browserHostAccess,
+    navigation: browserNavigation,
     ids: uuidIdGenerator,
     clock: { now: () => Date.now() },
   };
