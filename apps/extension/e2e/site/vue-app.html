@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vue plans — fixture</title>
+    <style>
+      body {
+        margin: 0;
+        font: 16px/1.4 sans-serif;
+      }
+      .plans {
+        display: flex;
+        gap: 24px;
+        padding: 32px;
+      }
+      .plan-card {
+        width: 220px;
+        height: 160px;
+        padding: 16px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+      }
+    </style>
+    <script src="/vendor/vue.global.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      const { createApp, defineComponent, h } = Vue;
+      const PlanCard = defineComponent({
+        name: 'PlanCard',
+        props: { title: String },
+        render() {
+          return h('article', { class: 'plan-card', 'data-testid': 'vue-plan-card' }, [
+            h('h3', this.title),
+            h('p', { class: 'price' }, '—'),
+          ]);
+        },
+      });
+      const PlanGrid = defineComponent({
+        name: 'PlanGrid',
+        render: () =>
+          h('section', { class: 'plans' }, [
+            h(PlanCard, { title: 'Basic' }),
+            h(PlanCard, { title: 'Pro' }),
+          ]),
+      });
+      createApp({ name: 'PricingPage', render: () => h(PlanGrid) }).mount('#app');
+
+      // The page has been failing before anyone opened Redline.
+      fetch('/api/prices')
+        .then((response) => response.json())
+        .then((prices) => {
+          throw new TypeError(`Cannot read properties of undefined (reading '${prices.amount}')`);
+        });
+      setTimeout(() => {
+        throw new TypeError("Cannot read properties of undefined (reading 'amount')");
+      }, 0);
+    </script>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 import type { CaptureContext, CaptureEngine, CollectionPlan, StepSubject } from '@redline/capture';
-import type { AppError, Logger, Result } from '@redline/core';
+import { redactText, redactUrl, type AppError, type Logger, type Result } from '@redline/core';
 import type { CommittedStep, StepCommitter } from '../../ports/capture';
 
 export interface RecordStepDeps {
@@ -27,8 +27,9 @@ export class RecordStep {
     const { page } = context;
     return committer.commit(
       {
-        url: page.url,
-        title: page.title,
+        // The step's own facts leave the page too; fragments are redacted by the engine.
+        url: redactUrl(page.url),
+        title: redactText(page.title),
         comment: step.comment,
         viewport: {
           width: page.viewport.width,

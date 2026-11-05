@@ -47,6 +47,21 @@ export class FragmentSet {
     return new FragmentSet(this.fragments.map(transform), this.diagnostics);
   }
 
+  /**
+   * Rewrites every fragment's data with a kind-agnostic transform that keeps the data's shape
+   * (e.g. replacing text inside strings), so each fragment still matches its kind's schema.
+   */
+  mapData(transform: (data: unknown) => unknown): FragmentSet {
+    return new FragmentSet(
+      this.fragments.map(
+        (fragment) =>
+          // Sound for shape-preserving transforms: the data keeps its kind's shape.
+          ({ ...fragment, data: transform(fragment.data) }) as AnyFragment,
+      ),
+      this.diagnostics,
+    );
+  }
+
   filter(keep: (fragment: AnyFragment) => boolean): FragmentSet {
     return new FragmentSet(this.fragments.filter(keep), this.diagnostics);
   }

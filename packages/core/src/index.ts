@@ -16,6 +16,8 @@ export * from './shared/rate-limiter';
 export * from './shared/serial-queue';
 export * from './shared/canonical-json';
 export * from './shared/coalescing-runner';
+export * from './shared/redaction';
+export * from './shared/source-paths';
 export * from './pipeline/fragment';
 export * from './pipeline/descriptor';
 export * from './pipeline/catalog';

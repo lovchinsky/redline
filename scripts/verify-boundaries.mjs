@@ -74,6 +74,12 @@ const probes = [
     expectRule: 'boundaries/dependencies',
   },
   {
+    name: 'the page runtime (MAIN world) must stay free of other packages',
+    file: 'packages/page-runtime/src/__boundary_probe__.ts',
+    code: "import { ok } from '../../core/src/shared/result';\nexport const probe = ok(1);\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
     name: 'control: the module catalog may list modules',
     file: 'packages/modules/src/__boundary_probe__.ts',
     code: "import { layoutCollector } from './layout/collector';\nexport const probe = layoutCollector;\n",

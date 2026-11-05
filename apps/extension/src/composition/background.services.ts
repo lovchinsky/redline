@@ -23,6 +23,7 @@ import type { Fetch } from '../adapters/receiver/http-receiver-client';
 import type { StorageArea } from '../adapters/storage/storage-area';
 import { DeriveImage, TakeSnapshot } from '../application/capture/capture-assets';
 import { createCaptureHandlers } from '../application/capture/capture-handlers';
+import { InjectPageRuntime, SyncPageRuntime } from '../application/capture/page-runtime';
 import { StartCapture } from '../application/capture/start-capture';
 import { DeliverQueued } from '../application/delivery/deliver-queued';
 import { createDeliveryHandlers } from '../application/delivery/delivery-handlers';
@@ -58,7 +59,10 @@ import { TaskWriter } from '../application/tasks/task-writer';
 import type {
   CaptureScriptInjector,
   CaptureUnavailableNotice,
+  GrantedHosts,
   ImageDeriver,
+  PageRuntimeInjector,
+  PageRuntimeRegistration,
   TabCaptureClient,
   ViewportCapturer,
 } from '../ports/capture';
@@ -85,6 +89,9 @@ export interface BackgroundPlatform {
   readonly tabs: TabCaptureClient;
   readonly capturer: ViewportCapturer;
   readonly deriver: ImageDeriver;
+  readonly pageRuntimeInjector: PageRuntimeInjector;
+  readonly pageRuntimeRegistration: PageRuntimeRegistration;
+  readonly grantedHosts: GrantedHosts;
 }
 
 /** The service worker's object graph: every adapter and use case, wired once. */
@@ -180,6 +187,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
         clock,
         logger: logger.child('steps'),
       }),
+      injectPageRuntime: new InjectPageRuntime(platform.pageRuntimeInjector),
     }),
     ...createDraftHandlers({
       listDrafts: new ListDrafts(queries),
@@ -231,6 +239,12 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     followRemote,
     activity,
     wakeUps,
+    syncPageRuntime: new SyncPageRuntime({
+      bindings: bindingStore,
+      granted: platform.grantedHosts,
+      registration: platform.pageRuntimeRegistration,
+      logger: logger.child('page-runtime'),
+    }),
     collectGarbage: new CollectGarbage({
       tasks,
       captures: captureRepository,

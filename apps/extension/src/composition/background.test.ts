@@ -61,6 +61,7 @@ const setup = () => {
   const wakeUps = new Map<WakeUpReason, number | null>();
   const activity: { active: number; needsInput: number }[] = [];
   const changes: unknown[] = [];
+  const registered: string[][] = [];
 
   const services = createBackgroundServices(
     {
@@ -94,6 +95,14 @@ const setup = () => {
       tabs: { start: unused },
       capturer: { capture: unused },
       deriver: { derive: unused },
+      pageRuntimeInjector: { inject: unused },
+      pageRuntimeRegistration: {
+        sync: (patterns) => {
+          registered.push([...patterns]);
+          return Promise.resolve({ ok: true, value: undefined });
+        },
+      },
+      grantedHosts: { includes: (pattern) => Promise.resolve(pattern !== 'https://denied.io/*') },
     },
     silentLogger,
   );
@@ -134,6 +143,7 @@ const setup = () => {
     wakeUps,
     activity,
     changes,
+    registered,
     advance: (ms: number) => {
       now += ms;
     },
@@ -467,5 +477,22 @@ describe('delivery', () => {
       ok: false,
       error: { code: 'conflict' },
     });
+  });
+});
+
+describe('page runtime on bound sites', () => {
+  it('starts with the page only on bound sites the user granted access to', async () => {
+    const project = { id: 'acme-web' as never, name: 'Acme Web' };
+    for (const pattern of ['https://acme.io/admin', 'https://*.shop.io', 'https://denied.io']) {
+      value(await app.rpc.call('bindings.set', { pattern, project }));
+    }
+    await app.services.syncPageRuntime.execute();
+    expect(app.registered.at(-1)).toEqual(['https://*.shop.io/*', 'https://acme.io/*']);
+
+    for (const pattern of ['https://acme.io/admin', 'https://*.shop.io', 'https://denied.io']) {
+      value(await app.rpc.call('bindings.remove', { pattern }));
+    }
+    await app.services.syncPageRuntime.execute();
+    expect(app.registered.at(-1)).toEqual([]);
   });
 });

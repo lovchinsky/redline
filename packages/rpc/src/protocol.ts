@@ -166,6 +166,8 @@ export const protocol = defineProtocol({
       stepCount: z.int().check(z.positive()),
     }),
   },
+  /** Runs the page runtime in the calling frame's MAIN world. Content scripts only. */
+  'capture.injectPageRuntime': { request: empty, response: empty },
   /** Starts capture in a tab the extension may access (activeTab grant or host permission). */
   'capture.start': {
     request: z.object({ tabId: z.int().check(z.nonnegative()) }),

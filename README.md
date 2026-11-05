@@ -16,8 +16,9 @@
 | `packages/dom`                   | Запити до DOM з урахуванням shadow DOM, `EnclosureResolver`: що саме обведено                 |
 | `packages/capture`               | Рушій збору контексту: контракт колектора, профілі → план, ізоляція і таймаути                |
 | `packages/modules`               | Модулі контексту: `descriptors` (схема + presenter, будь-де) і `collectors` (лише в сторінці) |
+| `packages/page-runtime`          | Скрипт у MAIN world сторінки (≈ 7 КБ): компоненти React/Vue/Svelte/Angular, помилки, запити   |
 | `packages/profiles`              | Який контекст збирати для кожного типу правки                                                 |
-| `packages/processors`            | Процесори рівня задачі: `dedupe` згортає повтори між кроками в посилання                      |
+| `packages/processors`            | `redaction` (маскування особистих даних у кроці), `dedupe` (повтори між кроками → посилання)  |
 | `packages/assembly`              | Збирання пакета: presenters → бюджет токенів → `context.md` + `more-context.md` → `bundle.v1` |
 | `tools/mock-receiver`            | Отримувач за `receiver-api.v1` у пам'яті: для e2e і щоб спробувати розширення без сервера     |
 | `apps/extension/src/ports`       | Контракти, які сценарії вимагають від платформи; реалізуються адаптерами                      |

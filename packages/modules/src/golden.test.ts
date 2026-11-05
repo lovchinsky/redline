@@ -5,7 +5,12 @@ import {
   UNLIMITED_BUDGET,
   type RenderStep,
 } from '@redline/assembly';
-import { CaptureEngine, buildCollectionPlan, type StepSubject } from '@redline/capture';
+import {
+  CaptureEngine,
+  buildCollectionPlan,
+  type PageRuntimePort,
+  type StepSubject,
+} from '@redline/capture';
 import {
   CaptureId,
   FragmentCatalog,
@@ -30,6 +35,10 @@ const plan = buildCollectionPlan(collectors, captureProfile);
 const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: 2000 }, { now: () => 0 });
 const renderer = new MarkdownContextRenderer(catalog, { budget: UNLIMITED_BUDGET });
 
+/** Diagnostics other than "nothing to report here" (no framework, no errors on the fixture). */
+const failures = (capture: StepCapture) =>
+  capture.diagnostics.filter((diagnostic) => diagnostic.outcome !== 'not-applicable');
+
 const renderStep = (step: StepSubject, capture: StepCapture): RenderStep => ({
   id: 'step-1',
   comment: step.comment,
@@ -38,7 +47,67 @@ const renderStep = (step: StepSubject, capture: StepCapture): RenderStep => ({
   references: [],
 });
 
+/** A React dev server page that has been failing: what the page runtime would report. */
+const failingReactPage: PageRuntimePort = {
+  componentTrace: () =>
+    Promise.resolve({
+      ok: true,
+      value: {
+        framework: 'react',
+        version: '19.1.10',
+        mode: 'development',
+        components: [
+          { name: 'PlanCard', file: '/Users/maria/acme/src/pricing/PlanCard.tsx', line: 14 },
+          { name: 'PlanGrid', file: null, line: null },
+          { name: 'PricingPage', file: null, line: null },
+        ],
+      },
+    }),
+  runtimeReport: () =>
+    Promise.resolve({
+      ok: true,
+      value: {
+        observedSince: 'page-load',
+        errors: [
+          {
+            message: "TypeError: Cannot read properties of undefined (reading 'amount')",
+            source: 'http://localhost:5173/src/pricing/PlanCard.tsx:21:30',
+            count: 3,
+            lastSeenMsAgo: 4_200,
+          },
+        ],
+        failedRequests: [
+          {
+            url: 'http://localhost:5173/api/prices',
+            status: 500,
+            initiator: 'fetch',
+            count: 1,
+            lastSeenMsAgo: 4_300,
+          },
+        ],
+      },
+    }),
+};
+
 describe('context.md, end to end (golden)', () => {
+  it('a bug on a React dev server page, with components, errors and failed requests', async () => {
+    mountPricing();
+    const cards = Array.from(document.querySelectorAll('[data-testid="plan-card"]'));
+    const step = stepOf('The prices do not load: cards show nothing', [
+      shapeAround('shape-1', cards),
+    ]);
+
+    const capture = await engine.run(
+      plan,
+      step,
+      captureContext(new FakeImages(), failingReactPage),
+    );
+    const rendered = renderer.render({ steps: [renderStep(step, capture)] });
+
+    expect(failures(capture)).toEqual([]);
+    await expect(rendered.markdown).toMatchFileSnapshot('./__golden__/react-bug.md');
+  });
+
   it('pricing cards circled for a layout change', async () => {
     mountPricing();
     const cards = Array.from(document.querySelectorAll('[data-testid="plan-card"]'));
@@ -47,7 +116,7 @@ describe('context.md, end to end (golden)', () => {
     const capture = await engine.run(plan, step, captureContext());
     const rendered = renderer.render({ steps: [renderStep(step, capture)] });
 
-    expect(capture.diagnostics).toEqual([]);
+    expect(failures(capture)).toEqual([]);
     await expect(rendered.markdown).toMatchFileSnapshot('./__golden__/pricing-layout.md');
     expect(rendered.files.find((file) => file.path.endsWith('dom.html'))?.content).toMatchObject({
       kind: 'text',
@@ -64,7 +133,7 @@ describe('context.md, end to end (golden)', () => {
     const capture = await engine.run(plan, step, captureContext(images));
     const rendered = renderer.render({ steps: [renderStep(step, capture)] });
 
-    expect(capture.diagnostics).toEqual([]);
+    expect(failures(capture)).toEqual([]);
     expect(images.requests.map((request) => request.format)).toEqual(['image/png', 'image/webp']);
     await expect(rendered.markdown).toMatchFileSnapshot('./__golden__/badge-text.md');
   });

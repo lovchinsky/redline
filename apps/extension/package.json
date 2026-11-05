@@ -19,6 +19,7 @@
     "@redline/dom": "workspace:*",
     "@redline/geometry": "workspace:*",
     "@redline/modules": "workspace:*",
+    "@redline/page-runtime": "workspace:*",
     "@redline/processors": "workspace:*",
     "@redline/profiles": "workspace:*",
     "@redline/rpc": "workspace:*",
@@ -35,6 +36,7 @@
     "fake-indexeddb": "6.2.6",
     "typescript": "5.9.3",
     "vitest": "4.1.12",
+    "vue": "3.5.44",
     "wxt": "0.21.4"
   }
 }

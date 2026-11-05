@@ -33,4 +33,12 @@
 | 3 | `p.price` | 17, 73, 186×24 |  |
 | 4 | `button` | 17, 105, 62×32 |  |
 
+**Computed styles:**
+
+- `span.badge`: `width: 186px; height: 20px; box-sizing: border-box; display: block`
+
+**CSS rules for `span.badge`** (in source order, later rules win):
+
+- `.badge` — `<style>` in the page: `display: block; height: 20px;`
+
 **DOM of `article[data-testid=plan-card]`:** [details/step-1/area-1-dom.html](details/step-1/area-1-dom.html) — circled elements carry `data-redline="selected"`.

@@ -36,4 +36,12 @@
 | 3 | `article[data-testid=plan-card]` | 488, 0, 220×200 | yes |
 | 4 | `pricing-contact.enterprise` | 732, 0, 220×200 |  |
 
+**Computed styles:**
+
+- `article[data-testid=plan-card]`: `width: 220px; height: 200px; box-sizing: border-box; padding: 16px; border: 1px solid rgb(204, 204, 204); display: block`
+
+**CSS rules for `article[data-testid=plan-card]`** (in source order, later rules win):
+
+- `.card` — `<style>` in the page: `display: block; width: 220px; height: 200px; padding: 16px; border: 1px solid rgb(204, 204, 204); overflow: hidden;`
+
 **DOM of `section[data-testid=plans]`:** [details/step-1/area-1-dom.html](details/step-1/area-1-dom.html) — circled elements carry `data-redline="selected"`.

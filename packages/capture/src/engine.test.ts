@@ -39,6 +39,10 @@ const context = {
     colorScheme: 'light',
   },
   images: { derive: () => Promise.reject(new Error('unused')) },
+  pageRuntime: {
+    componentTrace: () => Promise.reject(new Error('unused')),
+    runtimeReport: () => Promise.reject(new Error('unused')),
+  },
   log: silentLogger,
 } satisfies CaptureContext;
 

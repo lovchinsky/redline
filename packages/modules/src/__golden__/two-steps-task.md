@@ -36,6 +36,14 @@
 | 3 | `article[data-testid=plan-card]` | 488, 0, 220×200 | yes |
 | 4 | `pricing-contact.enterprise` | 732, 0, 220×200 |  |
 
+**Computed styles:**
+
+- `article[data-testid=plan-card]`: `width: 220px; height: 200px; box-sizing: border-box; padding: 16px; border: 1px solid rgb(204, 204, 204); display: block`
+
+**CSS rules for `article[data-testid=plan-card]`** (in source order, later rules win):
+
+- `.card` — `<style>` in the page: `display: block; width: 220px; height: 200px; padding: 16px; border: 1px solid rgb(204, 204, 204); overflow: hidden;`
+
 **DOM of `section[data-testid=plans]`:** [details/step-1/area-1-dom.html](details/step-1/area-1-dom.html) — circled elements carry `data-redline="selected"`.
 
 ## Step 2
@@ -69,5 +77,13 @@ _Page: same as Step 1._
 | 2 | `span.badge` | 17, 53, 186×20 | yes |
 | 3 | `p.price` | 17, 73, 186×24 |  |
 | 4 | `button` | 17, 105, 62×32 |  |
+
+**Computed styles:**
+
+- `span.badge`: `width: 186px; height: 20px; box-sizing: border-box; display: block`
+
+**CSS rules for `span.badge`** (in source order, later rules win):
+
+- `.badge` — `<style>` in the page: `display: block; height: 20px;`
 
 **DOM of `article[data-testid=plan-card]`:** [details/step-2/area-1-dom.html](details/step-2/area-1-dom.html) — circled elements carry `data-redline="selected"`.

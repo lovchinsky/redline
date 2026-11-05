@@ -172,3 +172,85 @@ describe('dom-snapshot', () => {
     expect(data.html).toContain('<span class="badge" data-redline="selected">Most popular</span>');
   });
 });
+
+describe('computed-styles', () => {
+  it('reports what styles the circled element, not initial or inherited values', async () => {
+    mountPricing();
+    const set = await collect('computed-styles', [shapeAround('s1', [get('.badge')])]);
+    const [element] = first(set.ofKind('computed-styles')).data.elements;
+    expect(element?.label).toBe('span.badge');
+    expect(element?.styles).toMatchObject({ display: 'block', height: '20px' });
+    // Same font and colour as the card around it: inherited, so not reported.
+    expect(element?.styles).not.toHaveProperty('font-family');
+    expect(element?.styles).not.toHaveProperty('color');
+    expect(element?.styles).not.toHaveProperty('position');
+  });
+
+  it('looks at one element per group of identical siblings', async () => {
+    mountPricing();
+    const cards = Array.from(document.querySelectorAll('[data-testid="plan-card"]'));
+    const set = await collect('computed-styles', [shapeAround('s1', cards)]);
+    const { elements } = first(set.ofKind('computed-styles')).data;
+    expect(elements.map((e) => e.label)).toEqual(['article[data-testid=plan-card]']);
+    expect(elements[0]?.styles).toMatchObject({ padding: '16px', width: '220px' });
+  });
+});
+
+describe('css-rules', () => {
+  const addStyle = (css: string, devId?: string) => {
+    const style = document.createElement('style');
+    if (devId !== undefined) style.dataset['viteDevId'] = devId;
+    style.textContent = css;
+    document.head.append(style);
+    return style;
+  };
+
+  it('lists matching rules with their source file, conditions and inline styles', async () => {
+    mountPricing();
+    const styles = [
+      addStyle(
+        `* { box-sizing: border-box; }
+         .badge { color: crimson; font-weight: 600; }
+         @media (min-width: 1px) { .card .badge { letter-spacing: 0.02em; } }
+         @media (max-width: 1px) { .badge { color: blue; } }`,
+        '/Users/maria/work/acme/src/components/Badge.css',
+      ),
+    ];
+    get('.badge').setAttribute('style', 'margin-top: 4px');
+    const set = await collect('css-rules', [shapeAround('s1', [get('.badge')])]);
+    const data = first(set.ofKind('css-rules')).data;
+    const rules = data.elements[0]?.rules ?? [];
+
+    expect(rules.map((rule) => rule.selector)).toEqual([
+      '.badge',
+      '.badge',
+      '.card .badge',
+      'style=""',
+    ]);
+    expect(rules[1]).toEqual({
+      selector: '.badge',
+      declarations: 'color: crimson; font-weight: 600;',
+      source: { kind: 'dev-module', path: 'src/components/Badge.css' },
+      conditions: [],
+    });
+    expect(rules[2]?.conditions).toEqual(['@media (min-width: 1px)']);
+    expect(rules[0]?.source).toEqual({ kind: 'inline-style-element' });
+    expect(data.unreadableSheets).toBe(0);
+    for (const style of styles) style.remove();
+  });
+
+  it('reads constructed stylesheets of the shadow root an element lives in', async () => {
+    mount('<x-card></x-card>', '');
+    const host = get('x-card');
+    const root = host.attachShadow({ mode: 'open' });
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync('.inner { display: block; width: 200px; height: 100px; }');
+    root.adoptedStyleSheets = [sheet];
+    root.innerHTML = '<div class="inner">Inside</div>';
+    const inner = root.querySelector('.inner');
+    if (inner === null) throw new Error('fixture');
+    const set = await collect('css-rules', [shapeAround('s1', [inner])]);
+    const rules = first(set.ofKind('css-rules')).data.elements[0]?.rules ?? [];
+    expect(rules).toMatchObject([{ selector: '.inner', source: { kind: 'constructed' } }]);
+  });
+});

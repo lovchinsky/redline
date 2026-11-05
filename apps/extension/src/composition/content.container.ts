@@ -4,6 +4,7 @@ import { DocumentDomQuery, EnclosureResolver } from '@redline/dom';
 import { collectors } from '@redline/modules/collectors';
 import { fragmentDescriptors } from '@redline/modules/descriptors';
 import { captureProfile } from '@redline/profiles';
+import { redactionProcessor } from '@redline/processors';
 import { RpcClient, RpcServer, protocol, tabProtocol } from '@redline/rpc';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { pageInfoOf } from '../adapters/capture/page-info';
@@ -22,6 +23,8 @@ import { CaptureRuntime } from '../ui/overlay/capture-runtime';
 import { CaptureSession } from '../ui/overlay/capture-session';
 import { OverlayHost } from '../ui/overlay/overlay-host';
 import overlayCss from '../ui/overlay/overlay.css?inline';
+import { PageRuntimeClient } from '@redline/page-runtime/client';
+import { BridgePageRuntime } from '../adapters/capture/bridge-page-runtime';
 
 /** Per-collector time budgets; screenshots round-trip to the service worker twice. */
 const EXECUTION_POLICY = { defaultTimeoutMs: 2000, timeouts: { screenshot: 10_000 } };
@@ -40,11 +43,18 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
   const dom = new DocumentDomQuery(document, isOverlay);
   const snapshots = new RpcViewportSnapshots(rpc, window, dom);
 
+  const pageRuntime = new BridgePageRuntime(
+    new PageRuntimeClient(document, () => uuidIdGenerator.next()),
+    rpc,
+    logger.child('page-runtime'),
+  );
+
   const recordStep = new RecordStep({
     plan: buildCollectionPlan(collectors, captureProfile),
     engine: new CaptureEngine(
       new FragmentCatalog(fragmentDescriptors),
-      [],
+      // Runs on every capture before anything leaves the page.
+      [redactionProcessor],
       EXECUTION_POLICY,
       systemClock,
     ),
@@ -53,6 +63,7 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
       dom,
       page: pageInfoOf(window),
       images: new RpcImagePort(rpc),
+      pageRuntime,
       log: logger.child('collect'),
     }),
     committer: new RpcStepCommitter(rpc),

@@ -8,7 +8,7 @@ const pageUrl = `${SITE_ORIGIN}/pricing.html`;
 interface StoredCapture {
   capture: {
     fragments: { kind: string; data: unknown; assets: { id: string }[] }[];
-    diagnostics: unknown[];
+    diagnostics: { source: string; outcome: string }[];
   };
 }
 
@@ -79,9 +79,16 @@ test('circling cards collects context and adds the step to a draft with real scr
   const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
     (record) => record.id === task?.steps[0]?.captureId,
   );
-  expect(stored?.capture.diagnostics).toEqual([]);
+  // A plain static page: no framework, no errors, no failed requests. Nothing failed.
+  expect(stored?.capture.diagnostics.map((d) => [d.source, d.outcome]).sort()).toEqual([
+    ['framework', 'not-applicable'],
+    ['network-failures', 'not-applicable'],
+    ['runtime-errors', 'not-applicable'],
+  ]);
   expect(stored?.capture.fragments.map((f) => f.kind).sort()).toEqual([
     'anchors',
+    'computed-styles',
+    'css-rules',
     'dom-snapshot',
     'layout',
     'page-meta',

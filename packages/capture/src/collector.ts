@@ -1,7 +1,7 @@
 import type { AssetRef, FragmentKind, FragmentRegistry, Logger, Priority } from '@redline/core';
 import type { DomQuery } from '@redline/dom';
 import type * as z from 'zod/mini';
-import type { ImagePort } from './ports';
+import type { ImagePort, PageRuntimePort } from './ports';
 import type { PageInfo, ShapeSubject, StepSubject } from './subject';
 
 /** Everything a collector may use. Collectors never reach for globals or extension APIs. */
@@ -10,6 +10,7 @@ export interface CaptureContext {
   readonly dom: DomQuery;
   readonly page: PageInfo;
   readonly images: ImagePort;
+  readonly pageRuntime: PageRuntimePort;
   readonly log: Logger;
 }
 

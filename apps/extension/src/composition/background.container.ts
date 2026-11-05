@@ -4,6 +4,11 @@ import { browser, type Browser } from 'wxt/browser';
 import { BadgeNotice } from '../adapters/capture/badge-notice';
 import { scriptingInjector } from '../adapters/capture/scripting-injector';
 import { RpcTabCaptureClient } from '../adapters/capture/tab-capture-client';
+import {
+  browserGrantedHosts,
+  scriptingPageRuntimeInjector,
+  scriptingPageRuntimeRegistration,
+} from '../adapters/capture/page-runtime-scripts';
 import { VisibleTabCapturer } from '../adapters/capture/visible-tab-capturer';
 import { DatabaseConnection, openDatabase } from '../adapters/idb/database';
 import { offscreenImageDeriver } from '../adapters/images/offscreen-image-deriver';
@@ -45,6 +50,9 @@ const chromePlatform = (logger: Logger): BackgroundPlatform => ({
   tabs: new RpcTabCaptureClient(uuidIdGenerator),
   capturer: new VisibleTabCapturer(new SerialRateLimiter(CAPTURE_INTERVAL_MS, systemClock, sleep)),
   deriver: offscreenImageDeriver,
+  pageRuntimeInjector: scriptingPageRuntimeInjector,
+  pageRuntimeRegistration: scriptingPageRuntimeRegistration,
+  grantedHosts: browserGrantedHosts,
 });
 
 /** Alarm that deletes unreferenced captures and images. */
@@ -73,6 +81,7 @@ export const createBackgroundContainer = () => {
     void services.followRemote.checkStatuses();
     void services.activity.refresh();
     void services.wakeUps.plan();
+    void services.syncPageRuntime.execute();
   };
 
   /** User gestures (shortcut, context menu) grant activeTab for the tab they target. */
@@ -139,6 +148,13 @@ export const createBackgroundContainer = () => {
       const onStartup = () => {
         runGarbageCollection();
       };
+      // Bound sites and granted hosts decide where the page runtime starts with the page.
+      const onStorageChanged = (changes: Record<string, unknown>, area: string) => {
+        if (area === 'local' && 'bindings' in changes) void services.syncPageRuntime.execute();
+      };
+      const onPermissionsChanged = () => {
+        void services.syncPageRuntime.execute();
+      };
 
       browser.commands.onCommand.addListener(onCommand);
       browser.contextMenus.onClicked.addListener(onMenuClick);
@@ -147,6 +163,9 @@ export const createBackgroundContainer = () => {
       browser.alarms.onAlarm.addListener(onAlarm);
       browser.notifications.onClicked.addListener(onNotificationClick);
       browser.tabs.onUpdated.addListener(onTabUpdated);
+      browser.storage.onChanged.addListener(onStorageChanged);
+      browser.permissions.onAdded.addListener(onPermissionsChanged);
+      browser.permissions.onRemoved.addListener(onPermissionsChanged);
       browser.sidePanel
         .setPanelBehavior({ openPanelOnActionClick: true })
         .catch((cause: unknown) => {
@@ -164,6 +183,9 @@ export const createBackgroundContainer = () => {
         browser.alarms.onAlarm.removeListener(onAlarm);
         browser.notifications.onClicked.removeListener(onNotificationClick);
         browser.tabs.onUpdated.removeListener(onTabUpdated);
+        browser.storage.onChanged.removeListener(onStorageChanged);
+        browser.permissions.onAdded.removeListener(onPermissionsChanged);
+        browser.permissions.onRemoved.removeListener(onPermissionsChanged);
       };
     },
   };

@@ -6,6 +6,7 @@ import {
   type Worker,
 } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 /** The e2e build: production code plus host access to the fixture origin. */
@@ -23,6 +24,20 @@ interface ExtensionFixtures {
   extensionPage: Page;
 }
 
+const require = createRequire(import.meta.url);
+
+/** Fixture site resources that are not HTML files: a framework build and a failing API. */
+const SPECIAL_ROUTES: Readonly<
+  Record<string, () => Promise<{ status?: number; body: string | Buffer; contentType: string }>>
+> = {
+  '/vendor/vue.global.js': async () => ({
+    body: await readFile(require.resolve('vue/dist/vue.global.js')),
+    contentType: 'text/javascript',
+  }),
+  '/api/prices': () =>
+    Promise.resolve({ status: 500, body: '{"error":"boom"}', contentType: 'application/json' }),
+};
+
 /**
  * Starts Chromium with the extension and the fixture site. `userDataDir` '' is a throwaway
  * profile; pass a directory to keep the profile across launches (a browser restart).
@@ -33,7 +48,13 @@ export const launchExtension = async (userDataDir = ''): Promise<BrowserContext>
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
   });
   await context.route(`${SITE_ORIGIN}/**`, async (route) => {
-    const file = path.join(siteDir, new URL(route.request().url()).pathname);
+    const { pathname } = new URL(route.request().url());
+    const special = SPECIAL_ROUTES[pathname];
+    if (special !== undefined) {
+      await route.fulfill(await special());
+      return;
+    }
+    const file = path.join(siteDir, pathname);
     await route.fulfill({ body: await readFile(file), contentType: 'text/html; charset=utf-8' });
   });
   return context;

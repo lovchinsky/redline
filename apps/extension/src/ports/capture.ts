@@ -73,3 +73,24 @@ export interface StepCommitter {
 export interface ViewportSnapshots {
   take(): Promise<Result<ViewportSnapshot, AppError>>;
 }
+
+/** Puts the page runtime into a frame's MAIN world. Idempotent: the runtime starts once. */
+export interface PageRuntimeInjector {
+  inject(target: {
+    readonly tabId: number;
+    readonly frameId: number;
+  }): Promise<Result<void, AppError>>;
+}
+
+/**
+ * Starts the page runtime at document_start on the given sites, so errors and failed requests
+ * are observed from page load. Replaces the previous set; an empty set removes it.
+ */
+export interface PageRuntimeRegistration {
+  sync(matchPatterns: readonly string[]): Promise<Result<void, AppError>>;
+}
+
+/** Which host permissions the user has granted. */
+export interface GrantedHosts {
+  includes(matchPattern: string): Promise<boolean>;
+}

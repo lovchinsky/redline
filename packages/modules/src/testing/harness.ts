@@ -2,6 +2,7 @@ import type {
   CaptureContext,
   ImageDerivation,
   ImagePort,
+  PageRuntimePort,
   ShapeSubject,
   StepSubject,
 } from '@redline/capture';
@@ -68,7 +69,20 @@ export class FakeImages implements ImagePort {
   }
 }
 
-export const captureContext = (images: ImagePort = new FakeImages()): CaptureContext => ({
+/** A page with no framework and nothing failed, as the runtime would report it. */
+export const quietPageRuntime: PageRuntimePort = {
+  componentTrace: () => Promise.resolve({ ok: true, value: null }),
+  runtimeReport: () =>
+    Promise.resolve({
+      ok: true,
+      value: { observedSince: 'capture-start', errors: [], failedRequests: [] },
+    }),
+};
+
+export const captureContext = (
+  images: ImagePort = new FakeImages(),
+  pageRuntime: PageRuntimePort = quietPageRuntime,
+): CaptureContext => ({
   document,
   dom: new DocumentDomQuery(document),
   page: {
@@ -81,6 +95,7 @@ export const captureContext = (images: ImagePort = new FakeImages()): CaptureCon
     colorScheme: 'light',
   },
   images,
+  pageRuntime,
   log: silentLogger,
 });
 

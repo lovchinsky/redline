@@ -107,3 +107,16 @@ export const captureStep = async (
   await probe.click('submit');
   await expect(page.locator('redline-overlay')).toHaveCount(0);
 };
+
+/** Calls the service worker's RPC from an extension page, as the side panel would. */
+export const callRpc = (extensionPage: Page, method: string, payload: unknown): Promise<unknown> =>
+  extensionPage.evaluate(
+    async ({ type, rpcMethod, rpcPayload }) =>
+      (await chrome.runtime.sendMessage({
+        type,
+        id: `e2e-${rpcMethod}`,
+        method: rpcMethod,
+        payload: rpcPayload,
+      })) as unknown,
+    { type: REQUEST_TYPE, rpcMethod: method, rpcPayload: payload },
+  );
