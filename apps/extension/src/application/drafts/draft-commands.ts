@@ -36,12 +36,11 @@ export class CreateDraft {
 
   execute(): Promise<Result<{ taskId: TaskId }, AppError>> {
     const { active, writer, ids, clock } = this.deps;
-    return writer.run(async () => {
+    return writer.run(async (tx) => {
       const task = createDraft(TaskId.parse(ids.next()), clock.now());
-      // Active first: observers read it when the new draft is announced.
       const activated = await active.set(task.id);
       if (!activated.ok) return activated;
-      const saved = await writer.commit(null, task);
+      const saved = await tx.commit(null, task);
       return saved.ok ? ok({ taskId: task.id }) : saved;
     });
   }
@@ -53,12 +52,12 @@ export class ActivateDraft {
 
   execute(taskId: TaskId): Promise<Done> {
     const { tasks, active, writer } = this.deps;
-    return writer.run(async () => {
+    return writer.run(async (tx) => {
       const task = await tasks.get(taskId);
       if (!task.ok) return task;
       const activated = await active.set(taskId);
       if (!activated.ok) return activated;
-      await writer.announce({ taskId, before: task.value, after: task.value });
+      tx.touch(task.value);
       return done();
     });
   }
@@ -97,12 +96,12 @@ export class RemoveStep {
 
   execute(taskId: TaskId, stepId: StepId): Promise<Done> {
     const { tasks, captures, writer, clock } = this.deps;
-    return writer.run(async () => {
+    return writer.run(async (tx) => {
       const task = await tasks.get(taskId);
       if (!task.ok) return task;
       const removed = removeStep(task.value, stepId, clock.now());
       if (!removed.ok) return removed;
-      const saved = await writer.commit(task.value, removed.value.task);
+      const saved = await tx.commit(task.value, removed.value.task);
       if (!saved.ok) return saved;
       await captures.dispose([removed.value.removed.captureId]);
       return done();
@@ -119,7 +118,7 @@ export class DeleteTask {
 
   execute(taskId: TaskId): Promise<Done> {
     const { tasks, active, bundles, captures, writer } = this.deps;
-    return writer.run(async () => {
+    return writer.run(async (tx) => {
       const task = await tasks.get(taskId);
       if (!task.ok) return task;
       const current = await active.get();
@@ -127,7 +126,7 @@ export class DeleteTask {
         const cleared = await active.set(null);
         if (!cleared.ok) return cleared;
       }
-      const deleted = await writer.commit(task.value, null);
+      const deleted = await tx.commit(task.value, null);
       if (!deleted.ok) return deleted;
       const bundle = await bundles.delete(taskId);
       if (!bundle.ok) return bundle;

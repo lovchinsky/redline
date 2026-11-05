@@ -121,7 +121,7 @@ export class SubmitTask {
   async execute({ taskId, revision, project }: SubmitRequest): Promise<Done> {
     const { tasks, active, bindings, assembler, writer, ids, clock } = this.deps;
     const queued = await writer.run(
-      async (): Promise<Result<{ boundSites: boolean }, AppError>> => {
+      async (tx): Promise<Result<{ boundSites: boolean }, AppError>> => {
         const task = await tasks.get(taskId);
         if (!task.ok) return task;
         if (task.value.state.kind === 'draft' && task.value.revision !== revision) {
@@ -186,13 +186,12 @@ export class SubmitTask {
           });
           if (!bound.ok) return bound;
         }
-        // Inactive first: observers read it when the queued task is announced.
         const current = await active.get();
         if (current.ok && current.value === taskId) {
           const cleared = await active.set(null);
           if (!cleared.ok) return cleared;
         }
-        const saved = await writer.commit(task.value, next.value);
+        const saved = await tx.commit(task.value, next.value);
         if (!saved.ok) return saved;
         return ok({ boundSites: unbound.size > 0 });
       },
@@ -243,15 +242,14 @@ export class ReopenDraft {
 
   execute(taskId: TaskId): Promise<Done> {
     const { tasks, active, writer, clock } = this.deps;
-    return writer.run(async () => {
+    return writer.run(async (tx) => {
       const task = await tasks.get(taskId);
       if (!task.ok) return task;
       const next = reopenDraft(task.value, clock.now());
       if (!next.ok) return next;
-      // Active first: observers read it when the reopened draft is announced.
       const activated = await active.set(taskId);
       if (!activated.ok) return activated;
-      const saved = await writer.commit(task.value, next.value);
+      const saved = await tx.commit(task.value, next.value);
       return saved.ok ? ok({}) : saved;
     });
   }

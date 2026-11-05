@@ -68,18 +68,16 @@ export class CommitStep {
       capturedAt: now,
     };
 
-    return writer.run(async () => {
+    return writer.run(async (tx) => {
       const draft = await this.activeDraft(now);
       if (!draft.ok) return draft;
       const added = addStep(draft.value.task, step, now);
       if (!added.ok) return added;
-
-      // Active first: observers read it when the step is announced.
       if (draft.value.isNew) {
         const activated = await this.deps.active.set(added.value.id);
         if (!activated.ok) return activated;
       }
-      const stored = await writer.commit(draft.value.isNew ? null : draft.value.task, added.value);
+      const stored = await tx.commit(draft.value.isNew ? null : draft.value.task, added.value);
       if (!stored.ok) return stored;
       return ok({ taskId: added.value.id, stepId: step.id, stepCount: added.value.steps.length });
     });
