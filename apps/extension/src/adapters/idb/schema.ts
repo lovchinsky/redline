@@ -1,6 +1,7 @@
 import type { DBSchema, IDBPDatabase, IDBPTransaction, StoreNames } from 'idb';
 import type { BundleManifest } from '@redline/contract';
 import type { CaptureRecord } from '../../ports/capture';
+import { upgradeTaskRecord } from './task-records-v4';
 
 export const DATABASE_NAME = 'redline';
 
@@ -77,6 +78,25 @@ export const migrations: readonly Migration[] = [
       db.createObjectStore('workspace');
       db.createObjectStore('bundles', { keyPath: 'taskId' });
       transaction.objectStore('assets').createIndex('createdAt', 'createdAt');
+    },
+  },
+  {
+    version: 4,
+    description: 'Tasks: one delivery record per send, counted status checks, lost tasks',
+    migrate(_db, transaction) {
+      // Rewrites every task within the upgrade; any failure aborts it, leaving version 3 intact.
+      void (async () => {
+        const bundles = transaction.objectStore('bundles');
+        let cursor = await transaction.objectStore('tasks').openCursor();
+        while (cursor !== null) {
+          const bundle = await bundles.get(cursor.key);
+          const upgraded = upgradeTaskRecord(cursor.value, bundle?.digest ?? null);
+          if (upgraded !== cursor.value) await cursor.update(upgraded);
+          cursor = await cursor.continue();
+        }
+      })().catch(() => {
+        transaction.abort();
+      });
     },
   },
 ];

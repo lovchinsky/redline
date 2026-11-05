@@ -35,15 +35,14 @@ export class CreateDraft {
   constructor(private readonly deps: DraftCommandDeps) {}
 
   execute(): Promise<Result<{ taskId: TaskId }, AppError>> {
-    const { tasks, active, writer, ids, clock } = this.deps;
+    const { active, writer, ids, clock } = this.deps;
     return writer.run(async () => {
       const task = createDraft(TaskId.parse(ids.next()), clock.now());
-      const saved = await tasks.save(task);
-      if (!saved.ok) return saved;
+      // Active first: observers read it when the new draft is announced.
       const activated = await active.set(task.id);
       if (!activated.ok) return activated;
-      await writer.announce({ taskId: task.id, before: null, after: task });
-      return ok({ taskId: task.id });
+      const saved = await writer.commit(null, task);
+      return saved.ok ? ok({ taskId: task.id }) : saved;
     });
   }
 }
@@ -85,19 +84,10 @@ const apply = (task: Task, edit: DraftEdit, now: number): Result<Task, AppError>
 export class EditDraft {
   constructor(private readonly deps: DraftCommandDeps) {}
 
-  execute(taskId: TaskId, edit: DraftEdit): Promise<Done> {
-    const { tasks, writer, clock } = this.deps;
-    return writer.run(async () => {
-      const task = await tasks.get(taskId);
-      if (!task.ok) return task;
-      const next = apply(task.value, edit, clock.now());
-      if (!next.ok) return next;
-      if (next.value === task.value) return done();
-      const saved = await tasks.save(next.value);
-      if (!saved.ok) return saved;
-      await writer.announce({ taskId, before: task.value, after: next.value });
-      return done();
-    });
+  async execute(taskId: TaskId, edit: DraftEdit): Promise<Done> {
+    const { writer, clock } = this.deps;
+    const updated = await writer.update(taskId, (task) => apply(task, edit, clock.now()));
+    return updated.ok ? done() : updated;
   }
 }
 
@@ -112,10 +102,9 @@ export class RemoveStep {
       if (!task.ok) return task;
       const removed = removeStep(task.value, stepId, clock.now());
       if (!removed.ok) return removed;
-      const saved = await tasks.save(removed.value.task);
+      const saved = await writer.commit(task.value, removed.value.task);
       if (!saved.ok) return saved;
       await captures.dispose([removed.value.removed.captureId]);
-      await writer.announce({ taskId, before: task.value, after: removed.value.task });
       return done();
     });
   }
@@ -133,18 +122,16 @@ export class DeleteTask {
     return writer.run(async () => {
       const task = await tasks.get(taskId);
       if (!task.ok) return task;
-      const deleted = await tasks.delete(taskId);
-      if (!deleted.ok) return deleted;
-
       const current = await active.get();
       if (current.ok && current.value === taskId) {
         const cleared = await active.set(null);
         if (!cleared.ok) return cleared;
       }
+      const deleted = await writer.commit(task.value, null);
+      if (!deleted.ok) return deleted;
       const bundle = await bundles.delete(taskId);
       if (!bundle.ok) return bundle;
       await captures.dispose(task.value.steps.map((step) => step.captureId));
-      await writer.announce({ taskId, before: task.value, after: null });
       return done();
     });
   }

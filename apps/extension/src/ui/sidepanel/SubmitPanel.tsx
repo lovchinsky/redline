@@ -71,9 +71,12 @@ export const ActionBar = ({ services, draft, onPreview }: ActionBarProps) => {
         return pattern.ok ? [hostPermissionOf(pattern.value)] : [];
       }),
     );
+    // The revision on screen is what the user approves; the project is the one shown, which
+    // the service worker binds the unbound sites to (and checks against the bound ones).
     const sent = await services.rpc.call('task.submit', {
       taskId: draft.id,
-      project: unbound.length > 0 ? project : null,
+      revision: draft.revision,
+      project,
     });
     setSending(false);
     if (!sent.ok) setError(sent.error);

@@ -1,4 +1,4 @@
-import { isTerminal } from '@redline/core';
+import { MAX_COMMENT_LENGTH, isTerminal } from '@redline/core';
 import type { TaskSummary } from '@redline/rpc';
 import { Ellipsis, ExternalLink, RefreshCw, RotateCcw, Send, Trash, Undo2 } from 'lucide-preact';
 import { useState } from 'preact/hooks';
@@ -51,6 +51,7 @@ const QuestionForm = ({
         <textarea
           class="textarea"
           aria-label={t.text('answerLabel')}
+          maxLength={MAX_COMMENT_LENGTH}
           placeholder={t.text('answerLabel')}
           rows={2}
           value={answer}
@@ -134,7 +135,7 @@ export const TaskCard = ({
         )}
       </div>
       <p class="task-meta">
-        {state.kind === 'draft' ? '' : `${state.projectName} · `}
+        {state.kind === 'draft' ? '' : `${state.delivery.projectName} · `}
         {t.count('stepCount', task.stepCount)} · {t.time(task.updatedAt)}
       </p>
       <Badge tone={toneOf(task)} data-testid="task-state">

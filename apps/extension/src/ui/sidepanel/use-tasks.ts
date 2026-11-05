@@ -7,7 +7,7 @@ export interface TasksState {
   readonly loading: boolean;
   /** In flight, or waiting for the user (refused by the receiver). */
   readonly active: readonly TaskSummary[];
-  /** Finished on the receiver. */
+  /** Finished on the receiver, or lost there. */
   readonly history: readonly TaskSummary[];
   readonly error: AppError | null;
 }
@@ -20,8 +20,9 @@ export interface TaskActions {
   readonly remove: (taskId: TaskId) => void;
 }
 
+/** Nothing more will happen to it: done on the receiver, or no longer known there. */
 const finished = (task: TaskSummary): boolean =>
-  task.state.kind === 'submitted' && isTerminal(task.state.status);
+  task.state.kind === 'lost' || (task.state.kind === 'submitted' && isTerminal(task.state.status));
 
 /** Tasks past the draft stage, re-read whenever the service worker announces a change. */
 export const useTasks = (services: UiServices): readonly [TasksState, TaskActions] => {

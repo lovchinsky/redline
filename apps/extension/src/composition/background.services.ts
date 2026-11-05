@@ -120,6 +120,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
   const activity = new ActivityObserver(tasks, platform.activity);
   const wakeUps = new WakeUpPlanner(tasks, platform.wakeUps);
   const writer = new TaskWriter({
+    tasks,
     queue: new SerialQueue(),
     observers: [
       new UiTaskEvents(active, publisher, logger.child('ui-events')),
@@ -175,7 +176,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
 
   const commands = { tasks, active, bundles, captures, writer, ids, clock };
   const queries = { tasks, active, captures, catalog };
-  const deliveryActions = { tasks, active, outbox, writer, clock };
+  const deliveryActions = { tasks, active, outbox, writer, ids, clock };
 
   const handlers = {
     ...createSystemHandlers({ clock, version, events: publisher, logger: logger.child('system') }),
@@ -227,6 +228,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
         outbox,
         writer,
         events: publisher,
+        ids,
         clock,
         logger: logger.child('submit'),
       }),

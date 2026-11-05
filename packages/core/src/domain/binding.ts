@@ -22,7 +22,8 @@ export interface BindingPattern {
   readonly pathPrefix: string;
 }
 
-const PATTERN = /^(https?):\/\/(\*\.)?([^/:?#*]+)(?::(\d{1,5}))?(\/[^?#*]*)?$/i;
+/** Scheme, optional `*.`, host (a name, or an IPv6 address in brackets), port, path. */
+const PATTERN = /^(https?):\/\/(\*\.)?(\[[0-9a-f:.]+\]|[^/:?#*[\]]+)(?::(\d{1,5}))?(\/[^?#*]*)?$/i;
 const DEFAULT_PORTS: Readonly<Record<string, string>> = { 'http:': '80', 'https:': '443' };
 
 export const parseBindingPattern = (text: string): Result<BindingPattern, AppError> => {
@@ -76,8 +77,20 @@ export const formatBindingPattern = (pattern: BindingPattern): string =>
 export const hostPermissionOf = (pattern: BindingPattern): string =>
   `${pattern.protocol}//${pattern.wildcard ? '*.' : ''}${pattern.host}/*`;
 
-/** The exact-origin pattern of a page, the one created when a user picks a project for it. */
-export const originPatternOf = (url: URL): string => `${url.protocol}//${url.host}`;
+/**
+ * The pattern created when a user picks a project for a page: its exact origin. Only web pages
+ * can be bound; a local file has no site to remember, so its project is chosen every time.
+ */
+export const sitePatternOf = (url: URL): BindingPattern | null =>
+  url.protocol === 'http:' || url.protocol === 'https:'
+    ? {
+        protocol: url.protocol,
+        host: url.hostname,
+        wildcard: false,
+        port: url.port,
+        pathPrefix: '/',
+      }
+    : null;
 
 export const patternMatches = (pattern: BindingPattern, url: URL): boolean => {
   if (url.protocol !== pattern.protocol || url.port !== pattern.port) return false;

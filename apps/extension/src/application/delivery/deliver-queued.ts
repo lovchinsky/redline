@@ -1,5 +1,7 @@
 import {
   CoalescingRunner,
+  appError,
+  err,
   markDeliveryFailed,
   markSubmitted,
   ok,
@@ -7,7 +9,6 @@ import {
   startDeliveryAttempt,
   type AppError,
   type Clock,
-  type DeliveryError,
   type Logger,
   type Result,
   type Task,
@@ -15,39 +16,7 @@ import {
 import type { ReceiverPort, ReceiverReport } from '../../ports/delivery';
 import type { BundleRepository, TaskRepository } from '../../ports/drafts';
 import type { TaskWriter } from '../tasks/task-writer';
-
-const FIRST_RETRY_MS = 30_000;
-const MAX_RETRY_MS = 30 * 60_000;
-
-/** Failures that may pass by themselves; anything else needs the user. */
-const TRANSIENT: ReadonlySet<AppError['code']> = new Set([
-  'receiver-unavailable',
-  'timeout',
-  'transport',
-  'not-configured',
-]);
-
-export const isTransient = (error: AppError): boolean => TRANSIENT.has(error.code);
-
-/**
- * When to try again after `attempts` failures: 30 s, doubling, at most 30 min, and never
- * sooner than the receiver asked for with `Retry-After`.
- */
-export const retryDelayMs = (attempts: number, retryAfterSec?: number): number =>
-  Math.max(
-    Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** Math.max(0, attempts - 1)),
-    (retryAfterSec ?? 0) * 1000,
-  );
-
-const retryAfterOf = (error: AppError): number | undefined => {
-  const value = error.details?.['retryAfterSec'];
-  return typeof value === 'number' ? value : undefined;
-};
-
-const asDeliveryError = (error: AppError): DeliveryError => ({
-  code: error.code,
-  message: error.message,
-});
+import { isTransient, nextRetryAt, toDeliveryError } from './retry-policy';
 
 export interface DeliverQueuedDeps {
   readonly tasks: TaskRepository;
@@ -58,13 +27,15 @@ export interface DeliverQueuedDeps {
   readonly logger: Logger;
 }
 
+type Queued = Extract<Task['state'], { kind: 'queued' }>;
+
 /**
  * The outbox: delivers every queued task whose attempt is due. Queued tasks are the durable
  * record of what still has to be sent, so a stopped worker, a crash or being offline loses
- * nothing; the task id as `Idempotency-Key` makes a repeated send of an accepted bundle return
- * the same remote task instead of a duplicate. Each attempt is written down before the request
- * (write-ahead), so one that never returns still counts and backs off; network calls run
- * outside the write queue.
+ * nothing; the delivery id as `Idempotency-Key` makes a repeated send of an accepted bundle
+ * return the same remote task instead of a duplicate. Each attempt is written down before the
+ * request (write-ahead), so one that never returns still counts and backs off; network calls
+ * run outside the write queue.
  */
 export class DeliverQueued {
   private readonly runner = new CoalescingRunner(() => this.pass());
@@ -90,90 +61,65 @@ export class DeliverQueued {
   }
 
   /** Records the attempt before making it; null when the task is no longer due for one. */
-  private async begin(task: Task): Promise<Task | null> {
-    const started = await this.deps.writer.run(async () => {
-      const current = await this.deps.tasks.get(task.id);
+  private async begin(task: Task): Promise<Queued | null> {
+    const started = await this.deps.writer.update(task.id, (current) => {
       const now = this.deps.clock.now();
-      // Changed meanwhile (deleted, sent, rescheduled): not this pass's to deliver.
-      if (
-        !current.ok ||
-        current.value.state.kind !== 'queued' ||
-        current.value.state.nextAttemptAt > now
-      ) {
-        return ok(null);
-      }
-      const attempt = current.value.state.attempts + 1;
-      const next = startDeliveryAttempt(current.value, now + retryDelayMs(attempt), now);
-      if (!next.ok) return next;
-      const written = await this.deps.tasks.save(next.value);
-      if (!written.ok) return written;
-      await this.deps.writer.announce({
-        taskId: task.id,
-        before: current.value,
-        after: next.value,
-      });
-      return ok(next.value);
+      // Changed meanwhile (sent, refused, rescheduled): not this pass's to deliver.
+      if (current.state.kind !== 'queued' || current.state.nextAttemptAt > now) return ok(current);
+      return startDeliveryAttempt(current, nextRetryAt(current.state.attempts + 1, now), now);
     });
     if (!started.ok) {
-      this.deps.logger.error('Could not start a delivery attempt', { ...started.error });
+      // Deleted meanwhile is not a failure; anything else is worth knowing about.
+      if (started.error.code !== 'not-found') {
+        this.deps.logger.error('Could not start a delivery attempt', { ...started.error });
+      }
       return null;
     }
-    return started.value;
+    const { before, after } = started.value;
+    return after !== before && after.state.kind === 'queued' ? after.state : null;
+  }
+
+  private async send(task: Task, queued: Queued): Promise<Result<ReceiverReport, AppError>> {
+    const { delivery } = queued;
+    const stored = await this.deps.bundles.get(task.id);
+    if (!stored.ok) return stored;
+    if (stored.value?.bundle.digest !== delivery.digest) {
+      return err(appError('not-found', 'The frozen bundle of this task is gone'));
+    }
+    return this.deps.receiver.submit({
+      projectId: delivery.projectId,
+      bundle: stored.value.bundle,
+      idempotencyKey: delivery.id,
+    });
   }
 
   private async deliver(due: Task): Promise<void> {
-    const task = await this.begin(due);
-    if (task?.state.kind !== 'queued') return;
-    const { projectId, digest } = task.state;
-    const stored = await this.deps.bundles.get(task.id);
-    const outcome: Result<ReceiverReport, AppError> = !stored.ok
-      ? stored
-      : stored.value?.bundle.digest !== digest
-        ? {
-            ok: false,
-            error: { code: 'not-found', message: 'The frozen bundle of this task is gone' },
-          }
-        : await this.deps.receiver.submit({
-            projectId,
-            bundle: stored.value.bundle,
-            idempotencyKey: task.id,
-          });
+    const queued = await this.begin(due);
+    if (queued === null) return;
+    const outcome = await this.send(due, queued);
 
-    const saved = await this.deps.writer.run(async () => {
-      const current = await this.deps.tasks.get(task.id);
-      // Deleted, retried or reopened meanwhile: this attempt's result no longer applies.
-      if (
-        !current.ok ||
-        current.value.state.kind !== 'queued' ||
-        current.value.state.digest !== digest
-      ) {
-        return ok(undefined);
+    const saved = await this.deps.writer.update(due.id, (current) => {
+      // Retried, reopened or sent meanwhile: this attempt's result no longer applies.
+      if (current.state.kind !== 'queued' || current.state.delivery.id !== queued.delivery.id) {
+        return ok(current);
       }
       const now = this.deps.clock.now();
-      const next = outcome.ok
-        ? markSubmitted(current.value, outcome.value, now)
-        : isTransient(outcome.error)
-          ? recordFailedAttempt(
-              current.value,
-              asDeliveryError(outcome.error),
-              now + retryDelayMs(current.value.state.attempts, retryAfterOf(outcome.error)),
-              now,
-            )
-          : markDeliveryFailed(current.value, asDeliveryError(outcome.error), now);
-      if (!next.ok) return next;
-      const written = await this.deps.tasks.save(next.value);
-      if (!written.ok) return written;
-      await this.deps.writer.announce({
-        taskId: task.id,
-        before: current.value,
-        after: next.value,
-      });
-      return ok(undefined);
+      if (outcome.ok) return markSubmitted(current, outcome.value, now);
+      const error = toDeliveryError(outcome.error);
+      return isTransient(outcome.error)
+        ? recordFailedAttempt(
+            current,
+            error,
+            nextRetryAt(current.state.attempts, now, outcome.error),
+            now,
+          )
+        : markDeliveryFailed(current, error, now);
     });
-    if (!saved.ok)
+    if (!saved.ok && saved.error.code !== 'not-found') {
       this.deps.logger.error('Could not record a delivery attempt', { ...saved.error });
+    }
     if (!outcome.ok) {
-      this.deps.logger.warn('Delivery attempt failed', { taskId: task.id, ...outcome.error });
+      this.deps.logger.warn('Delivery attempt failed', { taskId: due.id, ...outcome.error });
     }
   }
 }

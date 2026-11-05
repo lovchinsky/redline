@@ -1,4 +1,4 @@
-import type { TaskId } from '@redline/core';
+import { MAX_COMMENT_LENGTH, type TaskId } from '@redline/core';
 import type { StepView } from '@redline/rpc';
 import { ArrowDown, ArrowUp, Pencil, Trash } from 'lucide-preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -99,6 +99,7 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
             <textarea
               class="textarea"
               aria-label={t.text('stepCommentLabel')}
+              maxLength={MAX_COMMENT_LENGTH}
               value={draft}
               rows={3}
               ref={editor}

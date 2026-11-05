@@ -1,5 +1,7 @@
 import type { AssemblyEngine } from '@redline/assembly';
 import {
+  appError,
+  err,
   ok,
   type AppError,
   type Clock,
@@ -34,8 +36,8 @@ const previewOf = ({ taskId, revision, bundle, warnings }: StoredBundle): Bundle
 });
 
 /**
- * The frozen bundle of a task's current content: the stored one while the task is unchanged,
- * otherwise a fresh assembly that replaces it. Preview and delivery both go through here, so
+ * The frozen bundle of a task's current content: for a draft, the stored one while the draft is
+ * unchanged, otherwise a fresh assembly that replaces it; for a task already sent, the one sent. Preview and delivery both go through here, so
  * what the user saw is what gets sent. Callers run it inside the task write queue, so an edit
  * cannot slip between reading the task and storing its bundle.
  */
@@ -49,6 +51,14 @@ export class BundleAssembler {
 
     const cached = await bundles.get(taskId);
     if (!cached.ok) return cached;
+    const { state } = task.value;
+    if (state.kind !== 'draft') {
+      // Sent (or on its way): the bundle is what the user approved, even if this version of
+      // the extension would assemble it differently. It is never assembled again.
+      return cached.value?.bundle.digest === state.delivery.digest
+        ? ok(cached.value)
+        : err(appError('not-found', 'The frozen bundle of this task is gone', { taskId }));
+    }
     if (
       cached.value?.revision === task.value.revision &&
       cached.value.clientVersion === clientVersion

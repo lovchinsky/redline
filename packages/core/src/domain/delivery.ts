@@ -1,8 +1,7 @@
 import { appError, type AppError } from '../shared/errors';
 import { err, ok, type Result } from '../shared/result';
-import type { ProjectId } from './binding';
 import { isTerminal, type RemoteStatus } from './remote-status';
-import type { DeliveryError, Task, TaskState, TaskStateKind } from './task';
+import type { Delivery, DeliveryError, DeliveryId, Task, TaskState, TaskStateKind } from './task';
 
 /** Receivers may ask to be polled more often; the extension never polls faster than this. */
 export const MIN_POLL_INTERVAL_SEC = 30;
@@ -36,10 +35,19 @@ const nextCheck = (report: RemoteReport, now: number): number | null =>
     ? null
     : now + Math.max(MIN_POLL_INTERVAL_SEC, report.pollAfterSec) * 1000;
 
-/** Freezes a draft for delivery to a project: its bundle (by digest) goes to the outbox. */
+const queuedState = (delivery: Delivery, now: number): TaskState => ({
+  kind: 'queued',
+  delivery,
+  queuedAt: now,
+  attempts: 0,
+  nextAttemptAt: now,
+  lastError: null,
+});
+
+/** Freezes a draft for delivery: its bundle (by digest) goes to the outbox. */
 export const queueForDelivery = (
   task: Task,
-  target: { readonly projectId: ProjectId; readonly projectName: string; readonly digest: string },
+  delivery: Delivery,
   now: number,
 ): Result<Task, AppError> => {
   const draft = inState(task, 'draft');
@@ -47,22 +55,7 @@ export const queueForDelivery = (
   if (task.steps.length === 0) {
     return err(appError('validation', 'A task without steps cannot be sent'));
   }
-  return ok(
-    withState(
-      task,
-      {
-        kind: 'queued',
-        projectId: target.projectId,
-        projectName: target.projectName,
-        digest: target.digest,
-        queuedAt: now,
-        attempts: 0,
-        nextAttemptAt: now,
-        lastError: null,
-      },
-      now,
-    ),
-  );
+  return ok(withState(task, queuedState(delivery, now), now));
 };
 
 /**
@@ -118,14 +111,15 @@ export const markSubmitted = (
       task,
       {
         kind: 'submitted',
-        projectId: queued.value.projectId,
-        projectName: queued.value.projectName,
+        delivery: queued.value.delivery,
         remoteId: receipt.remoteId,
         submittedAt: now,
         status: receipt.status,
         checkedAt: now,
         pollAfterSec: receipt.pollAfterSec,
         nextCheckAt: nextCheck(receipt, now),
+        checkFailures: 0,
+        checkError: null,
       },
       now,
     ),
@@ -145,9 +139,7 @@ export const markDeliveryFailed = (
       task,
       {
         kind: 'failed',
-        projectId: queued.value.projectId,
-        projectName: queued.value.projectName,
-        digest: queued.value.digest,
+        delivery: queued.value.delivery,
         error,
         failedAt: now,
       },
@@ -156,26 +148,14 @@ export const markDeliveryFailed = (
   );
 };
 
-/** Sends a refused bundle again, e.g. after the user fixed the receiver settings. */
-export const retryDelivery = (task: Task, now: number): Result<Task, AppError> => {
+/**
+ * Sends a refused bundle again, e.g. after the user fixed the receiver settings. The receiver
+ * answered the previous delivery for good, so this one is new and carries a new id.
+ */
+export const retryDelivery = (task: Task, id: DeliveryId, now: number): Result<Task, AppError> => {
   const failed = inState(task, 'failed');
   if (!failed.ok) return failed;
-  return ok(
-    withState(
-      task,
-      {
-        kind: 'queued',
-        projectId: failed.value.projectId,
-        projectName: failed.value.projectName,
-        digest: failed.value.digest,
-        queuedAt: now,
-        attempts: 0,
-        nextAttemptAt: now,
-        lastError: null,
-      },
-      now,
-    ),
-  );
+  return ok(withState(task, queuedState({ ...failed.value.delivery, id }, now), now));
 };
 
 /** Turns a refused task back into a draft so it can be edited and sent again. */
@@ -202,18 +182,48 @@ export const applyRemoteReport = (
         checkedAt: now,
         pollAfterSec: report.pollAfterSec,
         nextCheckAt: nextCheck(report, now),
+        checkFailures: 0,
+        checkError: null,
       },
       now,
     ),
   );
 };
 
-/** Asking the receiver failed; ask again at `at` without changing what is known. */
-export const deferStatusCheck = (task: Task, at: number, now: number): Result<Task, AppError> => {
+/**
+ * Asking the receiver failed for a reason that may pass; ask again at `at` without changing
+ * what is known. The failure is counted, so the caller can back off.
+ */
+export const deferStatusCheck = (
+  task: Task,
+  error: DeliveryError,
+  at: number,
+  now: number,
+): Result<Task, AppError> => {
   const submitted = inState(task, 'submitted');
   if (!submitted.ok) return submitted;
-  if (submitted.value.nextCheckAt === null) return ok(task);
-  return ok(withState(task, { ...submitted.value, nextCheckAt: at }, now));
+  // Nothing is scheduled after a final status, so there is nothing to defer.
+  if (isTerminal(submitted.value.status)) return ok(task);
+  return ok(
+    withState(
+      task,
+      {
+        ...submitted.value,
+        nextCheckAt: at,
+        checkFailures: submitted.value.checkFailures + 1,
+        checkError: error,
+      },
+      now,
+    ),
+  );
+};
+
+/** The receiver no longer knows the task it accepted: there is nothing left to follow. */
+export const loseTrack = (task: Task, now: number): Result<Task, AppError> => {
+  const submitted = inState(task, 'submitted');
+  if (!submitted.ok) return submitted;
+  const { delivery, remoteId, submittedAt } = submitted.value;
+  return ok(withState(task, { kind: 'lost', delivery, remoteId, submittedAt, lostAt: now }, now));
 };
 
 /**

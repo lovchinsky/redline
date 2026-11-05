@@ -1,4 +1,5 @@
 import {
+  CoalescingRunner,
   hostPermissionOf,
   ok,
   parseBindingPattern,
@@ -37,9 +38,19 @@ export interface SyncPageRuntimeDeps {
  * starts. Elsewhere it starts with capture. Run whenever bindings or permissions change.
  */
 export class SyncPageRuntime {
+  /**
+   * Bindings and permissions often change together (sending to a new site does both): calls
+   * during a pass get one more pass, so registrations never run concurrently or end stale.
+   */
+  private readonly runner = new CoalescingRunner(() => this.sync());
+
   constructor(private readonly deps: SyncPageRuntimeDeps) {}
 
-  async execute(): Promise<void> {
+  execute(): Promise<void> {
+    return this.runner.run();
+  }
+
+  private async sync(): Promise<void> {
     const { bindings, granted, registration, logger } = this.deps;
     const all = await bindings.all();
     if (!all.ok) {

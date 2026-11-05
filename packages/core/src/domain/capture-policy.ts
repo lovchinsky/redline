@@ -1,6 +1,10 @@
-/** Why the extension cannot draw on a page. */
-export type CaptureUnavailableReason =
-  'browser-page' | 'web-store' | 'unsupported-scheme' | 'no-access';
+import type { ErrorReason } from '../shared/errors';
+
+/** Why the extension cannot draw on a page. Also the reason of the error that says so. */
+export type CaptureUnavailableReason = Extract<
+  ErrorReason,
+  'browser-page' | 'web-store' | 'unsupported-scheme' | 'no-access'
+>;
 
 export type CaptureAvailability =
   | { readonly capturable: true }

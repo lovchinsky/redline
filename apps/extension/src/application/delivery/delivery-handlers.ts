@@ -36,7 +36,7 @@ export const createDeliveryHandlers = ({
   settings,
 }: DeliveryUseCases): Pick<ProtocolHandlers<AppProtocol>, DeliveryMethods> => ({
   'task.deliveryTarget': ({ taskId }) => resolveTarget.execute(taskId),
-  'task.submit': ({ taskId, project }) => submitTask.execute(taskId, project),
+  'task.submit': (request) => submitTask.execute(request),
   'task.retry': ({ taskId }) => retryDelivery.execute(taskId),
   'task.reopen': ({ taskId }) => reopenDraft.execute(taskId),
   'task.refresh': ({ taskId }) => followRemote.refresh(taskId),

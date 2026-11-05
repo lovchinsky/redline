@@ -1,6 +1,4 @@
 import {
-  MAX_COMMENT_LENGTH,
-  MAX_TITLE_LENGTH,
   ProjectId,
   StepId,
   TaskId,
@@ -45,7 +43,7 @@ const imageSchema = z.object({
 export const stepRecordSchema = z.object({
   url: z.url(),
   title: z.string(),
-  comment: z.string().check(z.minLength(1), z.maxLength(MAX_COMMENT_LENGTH)),
+  comment: z.string(),
   viewport: viewportSchema,
   shapeIds: z.readonly(z.array(z.string().check(z.minLength(1))).check(z.minLength(1))),
 });
@@ -219,7 +217,7 @@ export const protocol = defineProtocol({
   /** Makes a draft the one new steps go to. */
   'drafts.activate': { request: taskRef, response: empty, callers: ['extension'] },
   'drafts.rename': {
-    request: z.object({ taskId: TaskId, title: z.string().check(z.maxLength(MAX_TITLE_LENGTH)) }),
+    request: z.object({ taskId: TaskId, title: z.string() }),
     response: empty,
     callers: ['extension'],
   },
@@ -228,7 +226,7 @@ export const protocol = defineProtocol({
     request: z.object({
       taskId: TaskId,
       stepId: StepId,
-      comment: z.string().check(z.maxLength(MAX_COMMENT_LENGTH)),
+      comment: z.string(),
     }),
     response: empty,
     callers: ['extension'],
@@ -251,11 +249,16 @@ export const protocol = defineProtocol({
     callers: ['extension'],
   },
   /**
-   * Queues a draft for delivery. `project` binds the draft's unbound sites to it; `null`
-   * relies on the existing bindings. The frozen bundle of the draft is what gets sent.
+   * Queues a draft for delivery. `revision` is the draft the user saw: a newer one is refused
+   * (`draft-changed`). `project` binds the draft's unbound sites to it; `null` relies on the
+   * existing bindings. The frozen bundle of that revision is what gets sent.
    */
   'task.submit': {
-    request: z.object({ taskId: TaskId, project: z.nullable(projectSchema) }),
+    request: z.object({
+      taskId: TaskId,
+      revision: z.int().check(z.nonnegative()),
+      project: z.nullable(projectSchema),
+    }),
     response: empty,
     callers: ['extension'],
   },
@@ -269,7 +272,7 @@ export const protocol = defineProtocol({
     request: z.object({
       taskId: TaskId,
       questionId: z.string().check(z.minLength(1)),
-      text: z.string().check(z.minLength(1), z.maxLength(MAX_COMMENT_LENGTH)),
+      text: z.string(),
     }),
     response: empty,
     callers: ['extension'],

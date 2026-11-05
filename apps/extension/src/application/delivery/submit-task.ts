@@ -1,16 +1,19 @@
 import {
+  DeliveryId,
   appError,
   err,
+  formatBindingPattern,
   ok,
-  originPatternOf,
   queueForDelivery,
   reopenDraft,
   rescheduleDelivery,
   resolveBinding,
   retryDelivery,
+  sitePatternOf,
   type AppError,
   type Binding,
   type Clock,
+  type IdGenerator,
   type Logger,
   type Result,
   type Task,
@@ -30,11 +33,17 @@ interface StepSite {
   readonly binding: Binding | null;
 }
 
-/** The site of every step and the binding that applies to the step's page. */
+/**
+ * The site of every step that can be bound, and the binding that applies to the step's page.
+ * Steps on local files have no site: they take whichever project the others agree on.
+ */
 const sitesOf = (task: Task, bindings: readonly Binding[]): StepSite[] =>
-  task.steps.map((step) => {
+  task.steps.flatMap((step) => {
     const url = new URL(step.page.url);
-    return { origin: originPatternOf(url), binding: resolveBinding(bindings, url) };
+    const site = sitePatternOf(url);
+    return site === null
+      ? []
+      : [{ origin: formatBindingPattern(site), binding: resolveBinding(bindings, url) }];
   });
 
 const targetOf = (sites: readonly StepSite[]): DeliveryTarget => {
@@ -61,6 +70,7 @@ export interface SubmitTaskDeps {
   readonly outbox: DeliverQueued;
   readonly writer: TaskWriter;
   readonly events: EventPublisher<AppEvents>;
+  readonly ids: IdGenerator;
   readonly clock: Clock;
   readonly logger: Logger;
 }
@@ -80,20 +90,36 @@ export class ResolveDeliveryTarget {
   }
 }
 
+/** What the user sends: the draft as they saw it, and the project if they picked one. */
+export interface SubmitRequest {
+  readonly taskId: TaskId;
+  /** Revision of the draft the user looked at; anything newer was not approved. */
+  readonly revision: number;
+  readonly project: ProjectRef | null;
+}
+
 /**
  * Sends a draft: binds its unbound sites to the chosen project, freezes its bundle (the one the
- * preview showed) and puts it in the outbox. The draft stops being active, so the next circled
- * step starts a new one. Delivery itself happens in the outbox, right away or later.
+ * preview showed) and puts it in the outbox. Only the revision the user saw is sent: a step
+ * added meanwhile (from another tab) stops it. The draft stops being active, so the next
+ * circled step starts a new one. Delivery itself happens in the outbox, right away or later.
  */
 export class SubmitTask {
   constructor(private readonly deps: SubmitTaskDeps) {}
 
-  async execute(taskId: TaskId, project: ProjectRef | null): Promise<Done> {
-    const { tasks, active, bindings, assembler, writer, clock } = this.deps;
+  async execute({ taskId, revision, project }: SubmitRequest): Promise<Done> {
+    const { tasks, active, bindings, assembler, writer, ids, clock } = this.deps;
     const queued = await writer.run(
       async (): Promise<Result<{ boundSites: boolean }, AppError>> => {
         const task = await tasks.get(taskId);
         if (!task.ok) return task;
+        if (task.value.state.kind === 'draft' && task.value.revision !== revision) {
+          return err(
+            appError('conflict', 'The draft changed since it was shown', {
+              reason: 'draft-changed',
+            }),
+          );
+        }
         const all = await bindings.all();
         if (!all.ok) return all;
         const sites = sitesOf(task.value, all.value);
@@ -127,7 +153,12 @@ export class SubmitTask {
         const now = clock.now();
         const next = queueForDelivery(
           task.value,
-          { projectId: chosen.id, projectName: chosen.name, digest: frozen.value.bundle.digest },
+          {
+            id: DeliveryId.parse(ids.next()),
+            projectId: chosen.id,
+            projectName: chosen.name,
+            digest: frozen.value.bundle.digest,
+          },
           now,
         );
         if (!next.ok) return next;
@@ -144,14 +175,14 @@ export class SubmitTask {
           });
           if (!bound.ok) return bound;
         }
-        const saved = await tasks.save(next.value);
-        if (!saved.ok) return saved;
+        // Inactive first: observers read it when the queued task is announced.
         const current = await active.get();
         if (current.ok && current.value === taskId) {
           const cleared = await active.set(null);
           if (!cleared.ok) return cleared;
         }
-        await writer.announce({ taskId, before: task.value, after: next.value });
+        const saved = await writer.commit(task.value, next.value);
+        if (!saved.ok) return saved;
         return ok({ boundSites: unbound.size > 0 });
       },
     );
@@ -173,31 +204,25 @@ export interface DeliveryActionDeps {
   readonly active: ActiveDraftStore;
   readonly outbox: DeliverQueued;
   readonly writer: TaskWriter;
+  readonly ids: IdGenerator;
   readonly clock: Clock;
 }
 
-/** Sends a refused task again, or moves a waiting one's next attempt to now. */
+/** Sends a refused task again as a new delivery, or moves a waiting one's next attempt to now. */
 export class RetryDelivery {
   constructor(private readonly deps: DeliveryActionDeps) {}
 
   async execute(taskId: TaskId): Promise<Done> {
-    const { tasks, writer, clock } = this.deps;
-    const result = await writer.run(async (): Promise<Done> => {
-      const task = await tasks.get(taskId);
-      if (!task.ok) return task;
+    const { writer, ids, clock } = this.deps;
+    const updated = await writer.update(taskId, (task) => {
       const now = clock.now();
-      const next =
-        task.value.state.kind === 'queued'
-          ? rescheduleDelivery(task.value, now, now)
-          : retryDelivery(task.value, now);
-      if (!next.ok) return next;
-      const saved = await tasks.save(next.value);
-      if (!saved.ok) return saved;
-      await writer.announce({ taskId, before: task.value, after: next.value });
-      return ok({});
+      return task.state.kind === 'queued'
+        ? rescheduleDelivery(task, now, now)
+        : retryDelivery(task, DeliveryId.parse(ids.next()), now);
     });
-    if (result.ok) void this.deps.outbox.run();
-    return result;
+    if (!updated.ok) return updated;
+    void this.deps.outbox.run();
+    return ok({});
   }
 }
 
@@ -212,12 +237,11 @@ export class ReopenDraft {
       if (!task.ok) return task;
       const next = reopenDraft(task.value, clock.now());
       if (!next.ok) return next;
-      const saved = await tasks.save(next.value);
-      if (!saved.ok) return saved;
+      // Active first: observers read it when the reopened draft is announced.
       const activated = await active.set(taskId);
       if (!activated.ok) return activated;
-      await writer.announce({ taskId, before: task.value, after: next.value });
-      return ok({});
+      const saved = await writer.commit(task.value, next.value);
+      return saved.ok ? ok({}) : saved;
     });
   }
 }

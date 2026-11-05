@@ -1,4 +1,4 @@
-import { isActive, needsInput, type Logger, type Task } from '@redline/core';
+import { CoalescingRunner, isActive, needsInput, type Logger, type Task } from '@redline/core';
 import type { AppEvents, EventPublisher } from '@redline/rpc';
 import type { ActivityIndicator, Notifier, TaskNotice, WakeUps } from '../../ports/delivery';
 import type { ActiveDraftStore, TaskRepository } from '../../ports/drafts';
@@ -34,12 +34,19 @@ export class ActivityObserver implements TaskObserver {
     private readonly indicator: ActivityIndicator,
   ) {}
 
+  /** Recomputed from all tasks; a call during a pass gets one more pass, never a stale one. */
+  private readonly runner = new CoalescingRunner(() => this.show());
+
   async taskChanged(): Promise<void> {
     await this.refresh();
   }
 
   /** Also called when the worker starts, since the badge does not survive a browser restart. */
-  async refresh(): Promise<void> {
+  refresh(): Promise<void> {
+    return this.runner.run();
+  }
+
+  private async show(): Promise<void> {
     const tasks = await this.tasks.list();
     if (!tasks.ok) return;
     await this.indicator.show({
@@ -58,6 +65,7 @@ export const noticeFor = (before: Task | null, after: Task | null): TaskNotice |
   if (now.kind === 'failed' && was?.kind === 'queued') {
     return { ...base, kind: 'delivery-failed', reason: now.error.message };
   }
+  if (now.kind === 'lost' && was?.kind === 'submitted') return { ...base, kind: 'lost' };
   if (now.kind !== 'submitted') return null;
   const previous = was?.kind === 'submitted' ? was.status : null;
   const status = now.status;
@@ -103,11 +111,18 @@ export class WakeUpPlanner implements TaskObserver {
     private readonly wakeUps: WakeUps,
   ) {}
 
+  /** Recomputed from all tasks; a call during a pass gets one more pass, never a stale one. */
+  private readonly runner = new CoalescingRunner(() => this.schedule());
+
   async taskChanged(): Promise<void> {
     await this.plan();
   }
 
-  async plan(): Promise<void> {
+  plan(): Promise<void> {
+    return this.runner.run();
+  }
+
+  private async schedule(): Promise<void> {
     const tasks = await this.tasks.list();
     if (!tasks.ok) return;
     const earliest = (times: readonly number[]) => (times.length === 0 ? null : Math.min(...times));

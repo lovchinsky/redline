@@ -5,6 +5,7 @@ import {
   applyRemoteReport,
   deferStatusCheck,
   isActive,
+  loseTrack,
   markDeliveryFailed,
   markSubmitted,
   mayRefresh,
@@ -15,7 +16,16 @@ import {
   reopenDraft,
   retryDelivery,
 } from './delivery';
-import { CaptureId, StepId, TaskId, addStep, createDraft, renameTask, type Task } from './task';
+import {
+  CaptureId,
+  DeliveryId,
+  StepId,
+  TaskId,
+  addStep,
+  createDraft,
+  renameTask,
+  type Task,
+} from './task';
 
 const value = <T>(result: Result<T, unknown>): T => {
   if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -39,8 +49,14 @@ const draft = (): Task =>
     ),
   );
 
-const target = { projectId: ProjectId.parse('acme'), projectName: 'Acme', digest: 'd'.repeat(64) };
+const target = {
+  id: DeliveryId.parse('delivery-1'),
+  projectId: ProjectId.parse('acme'),
+  projectName: 'Acme',
+  digest: 'd'.repeat(64),
+};
 const queued = () => value(queueForDelivery(draft(), target, 10));
+const unavailable = { code: 'receiver-unavailable', message: '503' };
 
 describe('delivery lifecycle', () => {
   it('queues a draft without touching its content revision', () => {
@@ -73,7 +89,7 @@ describe('delivery lifecycle', () => {
     });
   });
 
-  it('records why the started attempt failed, keeping the bundle digest', () => {
+  it('records why the started attempt failed, keeping the delivery', () => {
     const started = value(startDeliveryAttempt(queued(), 50, 20));
     const retried = value(
       recordFailedAttempt(started, { code: 'receiver-unavailable', message: '503' }, 70, 21),
@@ -82,7 +98,7 @@ describe('delivery lifecycle', () => {
       kind: 'queued',
       attempts: 1,
       nextAttemptAt: 70,
-      digest: target.digest,
+      delivery: target,
       lastError: { code: 'receiver-unavailable' },
     });
   });
@@ -97,6 +113,7 @@ describe('delivery lifecycle', () => {
     );
     expect(submitted.state).toMatchObject({
       kind: 'submitted',
+      delivery: target,
       remoteId: 'r1',
       nextCheckAt: 30_100,
     });
@@ -127,13 +144,59 @@ describe('delivery lifecycle', () => {
     expect(done.state).toMatchObject({ nextCheckAt: null });
     expect(isActive(done)).toBe(false);
     expect(mayRefresh(done, 1_000_000)).toBe(false);
-    expect(value(deferStatusCheck(done, 999, 400))).toBe(done);
+    expect(value(deferStatusCheck(done, unavailable, 999, 400))).toBe(done);
   });
 
-  it('a refused task can be retried as is, or reopened for editing', () => {
+  it('counts failed status checks until the receiver reports again', () => {
+    const submitted = value(
+      markSubmitted(
+        queued(),
+        { remoteId: 'r1', status: { phase: 'working' }, pollAfterSec: 30 },
+        100,
+      ),
+    );
+    const once = value(deferStatusCheck(submitted, unavailable, 1_000, 200));
+    const twice = value(deferStatusCheck(once, unavailable, 2_000, 300));
+    expect(twice.state).toMatchObject({
+      checkFailures: 2,
+      checkError: unavailable,
+      nextCheckAt: 2_000,
+      status: { phase: 'working' },
+    });
+    const reported = value(
+      applyRemoteReport(twice, { status: { phase: 'working' }, pollAfterSec: 30 }, 400),
+    );
+    expect(reported.state).toMatchObject({ checkFailures: 0, checkError: null });
+  });
+
+  it('loses track of a task the receiver forgot, which is no longer in flight', () => {
+    const submitted = value(
+      markSubmitted(
+        queued(),
+        { remoteId: 'r1', status: { phase: 'working' }, pollAfterSec: 30 },
+        100,
+      ),
+    );
+    const lost = value(loseTrack(submitted, 500));
+    expect(lost.state).toEqual({
+      kind: 'lost',
+      delivery: target,
+      remoteId: 'r1',
+      submittedAt: 100,
+      lostAt: 500,
+    });
+    expect(isActive(lost)).toBe(false);
+    expect(loseTrack(queued(), 1)).toMatchObject({ ok: false });
+  });
+
+  it('a refused task can be sent again as a new delivery, or reopened for editing', () => {
     const failed = value(markDeliveryFailed(queued(), { code: 'validation', message: '422' }, 50));
-    expect(failed.state).toMatchObject({ kind: 'failed', digest: target.digest });
-    expect(value(retryDelivery(failed, 60)).state).toMatchObject({ kind: 'queued', attempts: 0 });
+    expect(failed.state).toMatchObject({ kind: 'failed', delivery: target });
+    expect(value(retryDelivery(failed, DeliveryId.parse('delivery-2'), 60)).state).toMatchObject({
+      kind: 'queued',
+      attempts: 0,
+      delivery: { ...target, id: 'delivery-2' },
+    });
     const reopened = value(reopenDraft(failed, 60));
     expect(reopened.state).toEqual({ kind: 'draft' });
     expect(value(renameTask(reopened, 'Again', 61)).title).toBe('Again');
@@ -145,7 +208,7 @@ describe('delivery lifecycle', () => {
       ok: false,
       error: { code: 'conflict' },
     });
-    expect(retryDelivery(queued(), 1)).toMatchObject({ ok: false });
+    expect(retryDelivery(queued(), DeliveryId.parse('d'), 1)).toMatchObject({ ok: false });
     expect(applyRemoteReport(queued(), report, 1)).toMatchObject({ ok: false });
   });
 });

@@ -1,20 +1,22 @@
 import {
+  ERROR_CODES,
   IDEMPOTENCY_KEY_HEADER,
   MANIFEST_PART,
   PROJECT_PART,
   listProjectsResponseSchema,
+  errorResponseSchema,
   receiverRoutes,
   taskStateResponseSchema,
 } from '@redline/contract';
 import { ProjectId, appError, err, ok, parseWith, type AppError, type Result } from '@redline/core';
 import type * as z from 'zod/mini';
 import type {
-  Delivery,
   ReceiverPort,
   ReceiverProject,
   ReceiverReport,
   ReceiverSettings,
   SettingsStore,
+  Submission,
 } from '../../ports/delivery';
 
 /**
@@ -35,8 +37,22 @@ const retryAfterSec = (response: Response, now: number): number | undefined => {
   return Number.isNaN(date) ? undefined : Math.max(0, Math.ceil((date - now) / 1000));
 };
 
-/** HTTP status → application error; transient failures are `receiver-unavailable`. */
-const httpError = (response: Response, now: number): AppError => {
+/** The contract's error code of a response, if its body carries one. */
+const errorCodeOf = async (response: Response): Promise<string | null> => {
+  try {
+    const body = parseWith(errorResponseSchema, await response.json());
+    return body.ok ? body.value.error.code : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * HTTP status → application error; transient failures are `receiver-unavailable`. Only a
+ * receiver that says so (`unknown-task`) makes a task `not-found`: a bare 404 more likely means
+ * a wrong address than a forgotten task, and that passes once the address is fixed.
+ */
+const httpError = async (response: Response, now: number): Promise<AppError> => {
   const details = { status: response.status, retryAfterSec: retryAfterSec(response, now) };
   const { status } = response;
   if (status === 401 || status === 403) {
@@ -45,8 +61,10 @@ const httpError = (response: Response, now: number): AppError => {
       reason: 'token-refused',
     });
   }
-  if (status === 404) return appError('not-found', 'The receiver does not know this', details);
-  if (status === 408 || status === 425 || status === 429 || status >= 500) {
+  if (status === 404 && (await errorCodeOf(response)) === ERROR_CODES.unknownTask) {
+    return appError('not-found', 'The receiver does not know this task', details);
+  }
+  if (status === 404 || status === 408 || status === 425 || status === 429 || status >= 500) {
     return appError(
       'receiver-unavailable',
       `The receiver is unavailable (${String(status)})`,
@@ -80,19 +98,19 @@ export class HttpReceiverClient implements ReceiverPort {
       : body;
   }
 
-  async submit(delivery: Delivery): Promise<Result<ReceiverReport, AppError>> {
+  async submit(submission: Submission): Promise<Result<ReceiverReport, AppError>> {
     const form = new FormData();
     form.append(
       MANIFEST_PART,
-      new Blob([JSON.stringify(delivery.bundle.manifest)], { type: 'application/json' }),
+      new Blob([JSON.stringify(submission.bundle.manifest)], { type: 'application/json' }),
       'manifest.json',
     );
-    form.append(PROJECT_PART, delivery.projectId);
-    for (const [path, blob] of delivery.bundle.files) form.append(path, blob, path);
+    form.append(PROJECT_PART, submission.projectId);
+    for (const [path, blob] of submission.bundle.files) form.append(path, blob, path);
 
     const response = await this.request(receiverRoutes.submitTask(), {
       method: 'POST',
-      headers: { [IDEMPOTENCY_KEY_HEADER]: delivery.idempotencyKey },
+      headers: { [IDEMPOTENCY_KEY_HEADER]: submission.idempotencyKey },
       body: form,
     });
     return this.parse(response, taskStateResponseSchema);
@@ -130,7 +148,7 @@ export class HttpReceiverClient implements ReceiverPort {
         headers,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      return response.ok ? ok(response) : err(httpError(response, this.now()));
+      return response.ok ? ok(response) : err(await httpError(response, this.now()));
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === 'TimeoutError') {
         return err(appError('timeout', 'The receiver did not answer in time'));

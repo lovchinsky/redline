@@ -16,6 +16,8 @@ const messageOf = (t: Translator, notice: TaskNotice): string => {
       return t.text('noticeRemoteFailed', notice.reason);
     case 'delivery-failed':
       return t.text('noticeDeliveryFailed', notice.reason);
+    case 'lost':
+      return t.text('noticeLost');
   }
 };
 

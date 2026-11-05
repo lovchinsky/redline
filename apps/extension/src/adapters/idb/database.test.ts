@@ -1,7 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { openDB } from 'idb';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Logger } from '@redline/core';
+import { taskSchema, type Logger } from '@redline/core';
 import {
   DatabaseConnection,
   MigrationConfigError,
@@ -104,6 +104,95 @@ describe('openDatabase', () => {
     const newer = await Promise.race([openDB('handover', migrations.length + 1), blockedFor(1000)]);
     expect(newer.version).toBe(migrations.length + 1);
     newer.close();
+  });
+});
+
+describe('migration to version 4', () => {
+  const v3Task = (id: string, state: Record<string, unknown>) => ({
+    id,
+    title: null,
+    state,
+    steps: [],
+    revision: 1,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+  const project = { projectId: 'acme', projectName: 'Acme' };
+
+  it('moves deliveries into one record, keeping the key already sent, and finds lost tasks', async () => {
+    const v3 = await openDatabase({
+      name: 'v4',
+      migrations: migrations.slice(0, 3),
+      logger: silentLogger,
+    });
+    await v3.put('tasks', v3Task('draft', { kind: 'draft' }));
+    await v3.put(
+      'tasks',
+      v3Task('queued', {
+        kind: 'queued',
+        ...project,
+        digest: 'q'.repeat(64),
+        queuedAt: 1,
+        attempts: 2,
+        nextAttemptAt: 3,
+        lastError: null,
+      }),
+    );
+    const submitted = {
+      kind: 'submitted',
+      ...project,
+      remoteId: 'r1',
+      submittedAt: 5,
+      status: { phase: 'working' },
+      checkedAt: 6,
+      pollAfterSec: 30,
+      nextCheckAt: 7,
+    };
+    await v3.put('tasks', v3Task('submitted', submitted));
+    await v3.put('bundles', {
+      taskId: 'submitted',
+      revision: 1,
+      clientVersion: '0.1.0',
+      manifest: {} as never,
+      digest: 's'.repeat(64),
+      files: [],
+      warnings: [],
+    });
+    await v3.put(
+      'tasks',
+      v3Task('forgotten', {
+        ...submitted,
+        remoteId: 'r2',
+        status: { phase: 'failed', reason: 'The receiver no longer knows this task' },
+        nextCheckAt: null,
+      }),
+    );
+    v3.close();
+
+    const db = await openDatabase({ name: 'v4', logger: silentLogger });
+    const stateOf = async (id: string) => taskSchema.parse(await db.get('tasks', id)).state;
+
+    expect(await stateOf('draft')).toEqual({ kind: 'draft' });
+    expect(await stateOf('queued')).toMatchObject({
+      kind: 'queued',
+      attempts: 2,
+      delivery: { id: 'queued', ...project, digest: 'q'.repeat(64) },
+    });
+    expect(await stateOf('submitted')).toMatchObject({
+      kind: 'submitted',
+      delivery: { id: 'submitted', digest: 's'.repeat(64) },
+      status: { phase: 'working' },
+      checkFailures: 0,
+      checkError: null,
+    });
+    expect(await stateOf('forgotten')).toEqual({
+      kind: 'lost',
+      delivery: { id: 'forgotten', ...project, digest: '' },
+      remoteId: 'r2',
+      submittedAt: 5,
+      lostAt: 6,
+    });
+    db.close();
   });
 });
 

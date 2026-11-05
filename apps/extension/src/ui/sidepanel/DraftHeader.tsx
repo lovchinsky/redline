@@ -1,4 +1,4 @@
-import { TaskId } from '@redline/core';
+import { MAX_TITLE_LENGTH, TaskId } from '@redline/core';
 import type { DraftSummary, DraftView } from '@redline/rpc';
 import { ChevronsUpDown, Ellipsis, Plus, Trash } from 'lucide-preact';
 import { useState } from 'preact/hooks';
@@ -54,6 +54,7 @@ export const DraftHeader = ({ drafts, draft, actions }: DraftHeaderProps) => {
             class="draft-title"
             data-testid="draft-title"
             type="text"
+            maxLength={MAX_TITLE_LENGTH}
             aria-label={t.text('untitledTask')}
             defaultValue={draft.title ?? ''}
             placeholder={draft.steps[0]?.comment ?? t.text('untitledTask')}

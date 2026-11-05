@@ -44,6 +44,9 @@
   "noticeDeliveryFailed": {
     "message": "The receiver did not accept the task: $1"
   },
+  "noticeLost": {
+    "message": "The receiver no longer knows this task"
+  },
   "overlayArmedHint": {
     "message": "Circle an area · click — one element · Tab — choose with the keyboard · Esc — exit"
   },
@@ -335,6 +338,12 @@
   "stateFailed": {
     "message": "The receiver did not accept the task: $1"
   },
+  "stateLost": {
+    "message": "The receiver no longer knows this task"
+  },
+  "stateCheckFailed": {
+    "message": "Could not check the status: $1. Next check at $2"
+  },
   "remoteQueued": {
     "message": "The receiver accepted the task"
   },
@@ -556,5 +565,8 @@
   },
   "errorTokenRefused": {
     "message": "The receiver refused the access token"
+  },
+  "errorDraftChanged": {
+    "message": "The draft changed while you were looking at it. Check it and send again"
   }
 }

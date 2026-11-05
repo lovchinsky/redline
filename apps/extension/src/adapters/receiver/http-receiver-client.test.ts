@@ -1,9 +1,9 @@
 import { startMockReceiver, type MockReceiver } from '@redline/mock-receiver';
 import { BUNDLE_ENTRY, BUNDLE_SCHEMA_VERSION } from '@redline/contract';
-import { ProjectId, TaskId, type Result } from '@redline/core';
+import { ProjectId, type Result } from '@redline/core';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Delivery } from '../../ports/delivery';
+import type { Submission } from '../../ports/delivery';
 import { StorageSettingsStore } from '../storage/storage-settings';
 import { memoryStorageArea } from '../storage/storage-area';
 import { HttpReceiverClient } from './http-receiver-client';
@@ -13,11 +13,11 @@ const value = <T>(result: Result<T, unknown>): T => {
   return result.value;
 };
 
-const delivery = (): Delivery => {
+const delivery = (): Submission => {
   const context = '# Redline task\n';
   return {
     projectId: ProjectId.parse('acme-web'),
-    idempotencyKey: TaskId.parse('task-1'),
+    idempotencyKey: 'delivery-1',
     bundle: {
       digest: 'd'.repeat(64),
       files: new Map([[BUNDLE_ENTRY, new Blob([context], { type: 'text/markdown' })]]),
@@ -125,6 +125,30 @@ describe('HttpReceiverClient against the mock receiver', () => {
     expect(await client.listProjects()).toMatchObject({
       ok: false,
       error: { code: 'not-configured' },
+    });
+  });
+
+  it('repeats an answer safely: the same answer again changes nothing', async () => {
+    const { remoteId } = value(await client.submit(delivery()));
+    value(await client.getTask(remoteId));
+    const asking = value(await client.getTask(remoteId));
+    if (asking.status.phase !== 'needs-input') throw new Error('expected a question');
+    const answer = { questionId: asking.status.question.id, text: 'Yes' };
+    const first = value(await client.reply(remoteId, answer));
+    expect(value(await client.reply(remoteId, answer))).toEqual(first);
+    expect([...receiver.tasks.values()][0]?.replies).toHaveLength(1);
+  });
+
+  it('calls a task unknown only when the receiver says so, not for any 404', async () => {
+    expect(await client.getTask('remote-404')).toMatchObject({
+      ok: false,
+      error: { code: 'not-found' },
+    });
+    // A wrong address answers 404 for everything: that is a receiver to fix, not a lost task.
+    value(await settings.setReceiver({ baseUrl: `${receiver.url}/wrong`, token: 'secret' }));
+    expect(await client.getTask('remote-1')).toMatchObject({
+      ok: false,
+      error: { code: 'receiver-unavailable', details: { status: 404 } },
     });
   });
 

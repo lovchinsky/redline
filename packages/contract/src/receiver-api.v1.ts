@@ -57,13 +57,32 @@ export const replyRequestSchema = z.object({
   text: z.string().check(z.minLength(1)),
 });
 
+/**
+ * Body of an error response. `message` is for people; `code` is for the extension, which acts
+ * on the codes below and treats any other (or a body it cannot read) by the HTTP status alone.
+ */
+export const ERROR_CODES = {
+  /** `404` for a task the receiver does not know, or no longer keeps: it stops being followed. */
+  unknownTask: 'unknown-task',
+} as const;
+
+export const errorResponseSchema = z.object({
+  error: z.object({ code: z.string().check(z.minLength(1)), message: z.string() }),
+});
+
 export type Project = z.infer<typeof projectSchema>;
 export type ListProjectsResponse = z.infer<typeof listProjectsResponseSchema>;
 export type Question = z.infer<typeof questionSchema>;
 export type RemoteStatus = z.infer<typeof remoteStatusSchema>;
 /**
  * Response of `POST /v1/tasks`, `GET /v1/tasks/:remoteId` and `POST /v1/tasks/:remoteId/replies`.
- * `POST /v1/tasks` with an `Idempotency-Key` already seen returns the existing task.
+ *
+ * `POST /v1/tasks` with an `Idempotency-Key` already seen returns the existing task. A key
+ * stands for one delivery of one bundle: retries of that delivery repeat it, and the extension
+ * sends a new key whenever it sends a bundle anew.
+ *
+ * `POST /v1/tasks/:remoteId/replies` answering a question already answered with the same text
+ * returns the current state, so a reply repeated after a lost response is harmless.
  */
 export type TaskStateResponse = z.infer<typeof taskStateResponseSchema>;
 export type ReplyRequest = z.infer<typeof replyRequestSchema>;

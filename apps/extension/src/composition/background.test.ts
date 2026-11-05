@@ -52,9 +52,20 @@ const record = (comment: string, url = 'https://acme.io/orders/42'): StepRecord 
   shapeIds: ['shape-1'],
 });
 
+interface SetupOptions {
+  /** The extension's version. */
+  readonly version?: string;
+  /** Start on the database the previous worker left, as after a restart or an update. */
+  readonly keepDatabase?: boolean;
+}
+
 /** The service worker over fakes; `fetch` can stand in for the network (e.g. one that hangs). */
-const setup = (network: typeof fetch = (input, init) => fetch(input, init)) => {
-  globalThis.indexedDB = new IDBFactory();
+const setup = (
+  network: typeof fetch = (input, init) => fetch(input, init),
+  { version = '0.1.0', keepDatabase = false }: SetupOptions = {},
+) => {
+  if (!keepDatabase) globalThis.indexedDB = new IDBFactory();
+  const idPrefix = keepDatabase ? `${version}-` : '';
   let now = 1_000_000;
   let n = 0;
   const bus = createInMemoryBus();
@@ -66,9 +77,9 @@ const setup = (network: typeof fetch = (input, init) => fetch(input, init)) => {
 
   const services = createBackgroundServices(
     {
-      version: '0.1.0',
+      version,
       clock: { now: () => now },
-      ids: { next: () => `id-${String(++n)}` },
+      ids: { next: () => `${idPrefix}id-${String(++n)}` },
       database: new DatabaseConnection(() => openDatabase({ name: 'sw', logger: silentLogger })),
       storage: memoryStorageArea(),
       fetch: (input, init) => network(input, init),
@@ -171,6 +182,16 @@ beforeEach(() => {
 
 const comments = async (taskId: TaskId) =>
   value(await app.rpc.call('drafts.get', { taskId })).steps.map((step) => step.comment);
+
+/** Sends a draft as the side panel does: the revision on screen, and the project shown. */
+const submit = async (
+  taskId: TaskId,
+  project: { readonly id: never; readonly name: string } | null,
+  rpc = app.rpc,
+) => {
+  const { revision } = value(await rpc.call('drafts.get', { taskId }));
+  return rpc.call('task.submit', { taskId, revision, project });
+};
 
 const stateOf = async (taskId: TaskId) => {
   const { tasks } = value(await app.rpc.call('tasks.list', {}));
@@ -364,13 +385,13 @@ describe('delivery', () => {
       sites: [{ origin: 'https://acme.io', binding: null }],
     });
 
-    value(await app.rpc.call('task.submit', { taskId, project: project() }));
+    value(await submit(taskId, project()));
     await delivered();
 
     expect(await stateOf(taskId)).toMatchObject({
       kind: 'submitted',
       remoteId: 'remote-1',
-      projectName: 'Acme Web',
+      delivery: { projectName: 'Acme Web', digest: preview.digest },
       status: { phase: 'queued' },
     });
     const [remote] = receiver.tasks.values();
@@ -396,7 +417,7 @@ describe('delivery', () => {
   it('offline: keeps the task queued, retries later, and delivers it once', async () => {
     const { taskId } = await app.commit('Fix it');
     receiver.fail('unavailable');
-    value(await app.rpc.call('task.submit', { taskId, project: project() }));
+    value(await submit(taskId, project()));
     await delivered();
 
     expect(await stateOf(taskId)).toMatchObject({
@@ -420,7 +441,7 @@ describe('delivery', () => {
     const hanging = setup(() => new Promise<Response>(() => undefined));
     value(await hanging.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
     const { taskId } = await hanging.commit('Fix it');
-    value(await hanging.rpc.call('task.submit', { taskId, project: project() }));
+    value(await submit(taskId, project(), hanging.rpc));
     // The worker stops while the request is in flight: only what was written before it counts.
     void hanging.services.outbox.run();
     await expect
@@ -435,7 +456,7 @@ describe('delivery', () => {
   it('a response lost after the receiver accepted creates no duplicate', async () => {
     const { taskId } = await app.commit('Fix it');
     receiver.fail('drop-after-accept');
-    value(await app.rpc.call('task.submit', { taskId, project: project() }));
+    value(await submit(taskId, project()));
     await delivered();
     expect(await stateOf(taskId)).toMatchObject({ kind: 'queued', attempts: 1 });
 
@@ -448,7 +469,7 @@ describe('delivery', () => {
 
   it('a refused task is reported and can be reopened as the active draft', async () => {
     const { taskId } = await app.commit('Fix it');
-    value(await app.rpc.call('task.submit', { taskId, project: project('unknown-project') }));
+    value(await submit(taskId, project('unknown-project')));
     await delivered();
     expect(await stateOf(taskId)).toMatchObject({ kind: 'failed', error: { code: 'validation' } });
     expect(app.notices).toMatchObject([{ kind: 'delivery-failed', taskId }]);
@@ -460,7 +481,7 @@ describe('delivery', () => {
 
   it('follows the agent to the result, answering its question on the way', async () => {
     const { taskId } = await app.commit('Fix it');
-    value(await app.rpc.call('task.submit', { taskId, project: project() }));
+    value(await submit(taskId, project()));
     await delivered();
 
     // The receiver asked for 1 s between checks: an earlier refresh changes nothing.
@@ -498,6 +519,102 @@ describe('delivery', () => {
     expect(app.wakeUps.get('check-statuses')).toBeNull();
   });
 
+  it('sends only the revision the user saw', async () => {
+    const { taskId } = await app.commit('Fix it');
+    const { revision } = value(await app.rpc.call('drafts.get', { taskId }));
+    await app.commit('Added from another tab meanwhile');
+    expect(
+      await app.rpc.call('task.submit', { taskId, revision, project: project() }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'conflict', details: { reason: 'draft-changed' } },
+    });
+    expect(await stateOf(taskId)).toBeUndefined(); // still a draft
+  });
+
+  it('sending a refused task again is a new delivery, under a new key', async () => {
+    value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'wrong' }));
+    const { taskId } = await app.commit('Fix it');
+    value(await submit(taskId, project()));
+    await delivered();
+    const refused = await stateOf(taskId);
+    if (refused?.kind !== 'failed') throw new Error('expected a refusal');
+    // Kept with the task, so the side panel can say what to do about it.
+    expect(refused.error).toMatchObject({ code: 'permission-denied', reason: 'token-refused' });
+
+    value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
+    value(await app.rpc.call('task.retry', { taskId }));
+    await delivered();
+    const sent = await stateOf(taskId);
+    if (sent?.kind !== 'submitted') throw new Error('expected a submission');
+    expect(sent.delivery.id).not.toBe(refused.delivery.id);
+    expect([...receiver.tasks.values()][0]?.idempotencyKey).toBe(sent.delivery.id);
+  });
+
+  it('an update while a task waits in the outbox still sends the bundle the user approved', async () => {
+    const { taskId } = await app.commit('Fix it');
+    receiver.fail('unavailable');
+    value(await submit(taskId, project()));
+    await delivered();
+    const queued = await stateOf(taskId);
+    if (queued?.kind !== 'queued') throw new Error('expected a queued task');
+
+    const updated = setup(undefined, { version: '0.2.0', keepDatabase: true });
+    value(await updated.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
+    // Looking at it does not assemble it again with the new version.
+    const shown = value(await updated.rpc.call('task.assemble', { taskId }));
+    expect(shown.digest).toBe(queued.delivery.digest);
+    updated.advance(30_000);
+    await updated.services.outbox.run();
+    const { tasks } = value(await updated.rpc.call('tasks.list', {}));
+    expect(tasks.find((task) => task.id === taskId)?.state).toMatchObject({ kind: 'submitted' });
+    const [remote] = receiver.tasks.values();
+    expect(remote?.manifest.client.version).toBe('0.1.0');
+  });
+
+  it('a task the receiver no longer knows is lost, not failed by the agent', async () => {
+    const { taskId } = await app.commit('Fix it');
+    value(await submit(taskId, project()));
+    await delivered();
+    // Another receiver now: it has never seen this task.
+    const other = await startMockReceiver({ token: 'secret' });
+    value(await app.rpc.call('receiver.configure', { baseUrl: other.url, token: 'secret' }));
+    app.advance(30_000);
+    await app.services.followRemote.checkStatuses();
+    expect(await stateOf(taskId)).toMatchObject({ kind: 'lost', remoteId: 'remote-1' });
+    expect(app.notices.at(-1)).toMatchObject({ kind: 'lost', taskId });
+    expect(app.activity.at(-1)).toEqual({ active: 0, needsInput: 0 });
+    expect(app.wakeUps.get('check-statuses')).toBeNull();
+    await other.close();
+  });
+
+  it('a failed status check keeps what is known and backs off', async () => {
+    const { taskId } = await app.commit('Fix it');
+    value(await submit(taskId, project()));
+    await delivered();
+    const check = async () => {
+      app.advance(10 * 60_000);
+      receiver.fail('unavailable');
+      await app.services.followRemote.checkStatuses();
+      return stateOf(taskId);
+    };
+    expect(await check()).toMatchObject({
+      kind: 'submitted',
+      status: { phase: 'queued' },
+      checkFailures: 1,
+      checkError: { code: 'receiver-unavailable' },
+      nextCheckAt: app.now() + 30_000,
+    });
+    expect(await check()).toMatchObject({ checkFailures: 2, nextCheckAt: app.now() + 60_000 });
+    app.advance(60_000);
+    await app.services.followRemote.checkStatuses();
+    expect(await stateOf(taskId)).toMatchObject({
+      status: { phase: 'working' },
+      checkFailures: 0,
+      checkError: null,
+    });
+  });
+
   it('refuses to mix projects in one task', async () => {
     value(await app.rpc.call('bindings.set', { pattern: 'https://acme.io', project: project() }));
     value(
@@ -512,7 +629,7 @@ describe('delivery', () => {
       project: null,
       conflict: true,
     });
-    expect(await app.rpc.call('task.submit', { taskId, project: null })).toMatchObject({
+    expect(await submit(taskId, null)).toMatchObject({
       ok: false,
       error: { code: 'conflict' },
     });

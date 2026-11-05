@@ -1,4 +1,9 @@
-import type { AppErrorCode, AppErrorDetails } from '@redline/core';
+import {
+  isErrorReason,
+  type AppErrorCode,
+  type AppErrorDetails,
+  type ErrorReason,
+} from '@redline/core';
 import type { MessageKey, Translator } from '../../ports/i18n';
 
 const BY_CODE: Readonly<Record<AppErrorCode, MessageKey>> = {
@@ -27,12 +32,16 @@ const detail = (details: Details, name: string): string => {
 };
 
 /**
- * Errors the user can act on carry a `reason` in their details; each has its own message,
- * filled from the details it names.
+ * Errors the user can act on carry a `reason`; each has its own message, filled from the
+ * details it names. Every reason has one: a new reason does not compile without its wording.
  */
 const BY_REASON: Readonly<
-  Record<string, { readonly key: MessageKey; readonly from?: readonly string[] }>
+  Record<ErrorReason, { readonly key: MessageKey; readonly from?: readonly string[] }>
 > = {
+  'browser-page': { key: 'unavailableBrowserPage' },
+  'web-store': { key: 'unavailableWebStore' },
+  'unsupported-scheme': { key: 'unavailableScheme' },
+  'no-access': { key: 'unavailableNoAccess' },
   'not-a-url': { key: 'errorNotAUrl' },
   'insecure-receiver': { key: 'errorInsecureReceiver' },
   'receiver-url-extras': { key: 'errorReceiverUrlExtras' },
@@ -42,6 +51,7 @@ const BY_REASON: Readonly<
   'project-required': { key: 'errorProjectRequired' },
   'projects-differ': { key: 'projectConflict' },
   'bound-elsewhere': { key: 'errorBoundElsewhere', from: ['projectName'] },
+  'draft-changed': { key: 'errorDraftChanged' },
   'comment-required': { key: 'errorCommentRequired' },
   'comment-too-long': { key: 'errorCommentTooLong', from: ['max'] },
   'title-too-long': { key: 'errorTitleTooLong', from: ['max'] },
@@ -50,10 +60,14 @@ const BY_REASON: Readonly<
   'token-refused': { key: 'errorTokenRefused' },
 };
 
-/** An application error, or one recorded on a task (whose code is kept as plain text). */
+/**
+ * An application error, or one recorded on a task: its code is kept as plain text, and its
+ * reason, if any, next to it rather than in details.
+ */
 export interface DescribableError {
   readonly code: string;
   readonly message: string;
+  readonly reason?: ErrorReason | undefined;
   readonly details?: AppErrorDetails | undefined;
 }
 
@@ -63,8 +77,10 @@ export interface DescribableError {
  */
 export const describeError = (t: Translator, error: DescribableError): string => {
   const details: Details = error.details ?? {};
-  const reason = BY_REASON[detail(details, 'reason')];
-  if (reason !== undefined) {
+  // Errors cross from the service worker as data: a reason this page does not know is ignored.
+  const known = error.reason ?? details['reason'];
+  if (isErrorReason(known)) {
+    const reason = BY_REASON[known];
     return t.text(reason.key, ...(reason.from ?? []).map((name) => detail(details, name)));
   }
   return t.text(

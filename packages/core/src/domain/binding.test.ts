@@ -3,9 +3,10 @@ import {
   ProjectId,
   formatBindingPattern,
   hostPermissionOf,
-  originPatternOf,
   parseBindingPattern,
+  patternMatches,
   resolveBinding,
+  sitePatternOf,
   type Binding,
 } from './binding';
 
@@ -45,10 +46,24 @@ describe('binding patterns', () => {
     expect(permission('https://*.acme.io')).toBe('https://*.acme.io/*');
   });
 
-  it('derives the exact origin pattern of a page', () => {
-    expect(originPatternOf(new URL('http://localhost:5173/pricing?x=1'))).toBe(
-      'http://localhost:5173',
-    );
+  it('derives the exact origin pattern of a web page, which reads back as itself', () => {
+    const site = (url: string) => {
+      const pattern = sitePatternOf(new URL(url));
+      return pattern === null ? null : formatBindingPattern(pattern);
+    };
+    expect(site('http://localhost:5173/pricing?x=1')).toBe('http://localhost:5173');
+    expect(site('https://acme.io:443/')).toBe('https://acme.io');
+    expect(site('http://[::1]:3000/admin')).toBe('http://[::1]:3000');
+    for (const url of ['http://localhost:5173/x', 'https://acme.io', 'http://[::1]:3000/a']) {
+      const text = site(url) ?? '';
+      const parsed = parseBindingPattern(text);
+      expect(parsed.ok && formatBindingPattern(parsed.value)).toBe(text);
+      expect(parsed.ok && patternMatches(parsed.value, new URL(url))).toBe(true);
+    }
+  });
+
+  it('binds no local files', () => {
+    expect(sitePatternOf(new URL('file:///home/me/index.html'))).toBeNull();
   });
 });
 

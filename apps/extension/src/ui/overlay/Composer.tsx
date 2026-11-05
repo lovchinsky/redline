@@ -1,4 +1,5 @@
 import { Keyboard, LassoSelect, Undo2 } from 'lucide-preact';
+import { MAX_COMMENT_LENGTH } from '@redline/core';
 import type { Ref } from 'preact';
 import { Button, IconButton } from '../kit/Button';
 import { useTranslator } from '../shared/i18n';
@@ -75,6 +76,7 @@ export const Composer = ({
         class="textarea"
         data-testid="comment"
         aria-label={t.text('commentLabel')}
+        maxLength={MAX_COMMENT_LENGTH}
         value={comment}
         placeholder={t.text('commentPlaceholder')}
         disabled={committing}

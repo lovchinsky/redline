@@ -24,7 +24,17 @@ export const describeTaskState = (t: Translator, { state }: TaskSummary): string
         : t.text('stateRetryAt', describeError(t, state.lastError), t.time(state.nextAttemptAt));
     case 'failed':
       return t.text('stateFailed', describeError(t, state.error));
+    case 'lost':
+      return t.text('stateLost');
     case 'submitted':
+      // What the receiver last said stays true; a failed check only delays news.
+      if (state.checkError !== null && state.nextCheckAt !== null) {
+        return t.text(
+          'stateCheckFailed',
+          describeError(t, state.checkError),
+          t.time(state.nextCheckAt),
+        );
+      }
       return state.status.phase === 'failed'
         ? t.text('remoteFailed', state.status.reason)
         : t.text(REMOTE_PHASES[state.status.phase]);
@@ -44,9 +54,10 @@ export const toneOf = ({ state }: TaskSummary): Tone => {
     case 'queued':
       return state.lastError === null ? 'neutral' : 'warning';
     case 'failed':
+    case 'lost':
       return 'danger';
     case 'submitted':
-      return REMOTE_TONES[state.status.phase];
+      return state.checkError === null ? REMOTE_TONES[state.status.phase] : 'warning';
   }
 };
 

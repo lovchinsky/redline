@@ -4,6 +4,7 @@ import {
   appError,
   deferStatusCheck,
   err,
+  loseTrack,
   mayRefresh,
   ok,
   type AppError,
@@ -16,7 +17,7 @@ import {
 import type { ReceiverPort, ReceiverReport } from '../../ports/delivery';
 import type { TaskRepository } from '../../ports/drafts';
 import type { TaskWriter } from '../tasks/task-writer';
-import { retryDelayMs } from './deliver-queued';
+import { nextRetryAt, toDeliveryError } from './retry-policy';
 
 export interface FollowRemoteDeps {
   readonly tasks: TaskRepository;
@@ -28,20 +29,12 @@ export interface FollowRemoteDeps {
 
 type Done = Result<Record<string, never>, AppError>;
 
-/** A receiver that forgot the task cannot report on it again: that is final. */
-const forgotten = (error: AppError, remoteId: string): ReceiverReport | null =>
-  error.code === 'not-found'
-    ? {
-        remoteId,
-        status: { phase: 'failed', reason: 'The receiver no longer knows this task' },
-        pollAfterSec: 1,
-      }
-    : null;
-
 /**
  * Follows submitted tasks on the receiver: scheduled checks for everything due, an explicit
  * refresh of one task, and answers to the agent's questions. Each report is applied in the
  * write queue against the task as it is then, so a deleted task simply stops being followed.
+ * A receiver that no longer knows a task ends the following; any other failure is retried
+ * with the same backoff as deliveries.
  */
 export class FollowRemote {
   private readonly runner = new CoalescingRunner(() => this.checkDue());
@@ -61,6 +54,10 @@ export class FollowRemote {
     return ok({});
   }
 
+  /**
+   * Sends the user's answer. The receiver treats a repeated answer to the same question as the
+   * same answer, so sending it again after a lost response is safe.
+   */
   async reply(taskId: TaskId, questionId: string, text: string): Promise<Done> {
     const task = await this.deps.tasks.get(taskId);
     if (!task.ok) return task;
@@ -102,38 +99,32 @@ export class FollowRemote {
     if (task.state.kind !== 'submitted') return;
     const report = await this.deps.receiver.getTask(task.state.remoteId);
     const applied = await this.apply(task.id, task.state.remoteId, report);
-    if (!applied.ok) this.deps.logger.error('Could not record a status', { ...applied.error });
+    if (!applied.ok && applied.error.code !== 'not-found') {
+      this.deps.logger.error('Could not record a status', { ...applied.error });
+    }
   }
 
-  private apply(
+  private async apply(
     taskId: TaskId,
     remoteId: string,
     report: Result<ReceiverReport, AppError>,
   ): Promise<Result<void, AppError>> {
-    return this.deps.writer.run(async () => {
-      const current = await this.deps.tasks.get(taskId);
-      if (
-        !current.ok ||
-        current.value.state.kind !== 'submitted' ||
-        current.value.state.remoteId !== remoteId
-      ) {
-        return ok(undefined);
+    if (!report.ok) this.deps.logger.warn('Status check failed', { taskId, ...report.error });
+    const applied = await this.deps.writer.update(taskId, (current) => {
+      // Deleted or no longer followed: the report is about a task that is gone.
+      if (current.state.kind !== 'submitted' || current.state.remoteId !== remoteId) {
+        return ok(current);
       }
       const now = this.deps.clock.now();
-      const known = report.ok ? report.value : forgotten(report.error, remoteId);
-      if (!report.ok && known === null) {
-        this.deps.logger.warn('Status check failed', { taskId, ...report.error });
-      }
-      const next =
-        known !== null
-          ? applyRemoteReport(current.value, known, now)
-          : deferStatusCheck(current.value, now + retryDelayMs(1), now);
-      if (!next.ok) return next;
-      if (next.value === current.value) return ok(undefined);
-      const saved = await this.deps.tasks.save(next.value);
-      if (!saved.ok) return saved;
-      await this.deps.writer.announce({ taskId, before: current.value, after: next.value });
-      return ok(undefined);
+      if (report.ok) return applyRemoteReport(current, report.value, now);
+      if (report.error.code === 'not-found') return loseTrack(current, now);
+      return deferStatusCheck(
+        current,
+        toDeliveryError(report.error),
+        nextRetryAt(current.state.checkFailures + 1, now, report.error),
+        now,
+      );
     });
+    return applied.ok ? ok(undefined) : applied;
   }
 }

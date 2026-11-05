@@ -12,17 +12,18 @@ export interface ReceiverReport extends RemoteReport {
   readonly remoteId: string;
 }
 
-export interface Delivery {
+/** One request to accept a bundle. */
+export interface Submission {
   readonly projectId: ProjectId;
   readonly bundle: Bundle;
   /** Same key → same remote task: a retry after a lost response never creates a duplicate. */
-  readonly idempotencyKey: TaskId;
+  readonly idempotencyKey: string;
 }
 
 /** The service that turns bundles into code changes. Knows nothing about GitHub here. */
 export interface ReceiverPort {
   listProjects(): Promise<Result<readonly ReceiverProject[], AppError>>;
-  submit(delivery: Delivery): Promise<Result<ReceiverReport, AppError>>;
+  submit(submission: Submission): Promise<Result<ReceiverReport, AppError>>;
   getTask(remoteId: string): Promise<Result<ReceiverReport, AppError>>;
   reply(
     remoteId: string,
@@ -67,6 +68,7 @@ export type TaskNotice = { readonly taskId: TaskId; readonly taskTitle: string }
   | { readonly kind: 'result-ready'; readonly resultUrl: string }
   | { readonly kind: 'remote-failed'; readonly reason: string }
   | { readonly kind: 'delivery-failed'; readonly reason: string }
+  | { readonly kind: 'lost' }
 );
 
 /** Tells the user about a task outside the page; the adapter owns the wording. */

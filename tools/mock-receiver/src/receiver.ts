@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import {
+  ERROR_CODES,
   IDEMPOTENCY_KEY_HEADER,
   MANIFEST_PART,
   PROJECT_PART,
@@ -71,10 +72,14 @@ class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The contract's error code; `request-failed` for errors it does not name. */
+    readonly code: string = 'request-failed',
   ) {
     super(message);
   }
 }
+
+const errorBody = (code: string, message: string) => ({ error: { code, message } });
 
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 
@@ -117,7 +122,7 @@ export const startMockReceiver = async (
 
   const taskOf = (remoteId: string): MockTask => {
     const task = tasks.get(remoteId);
-    if (task === undefined) throw new HttpError(404, 'Unknown task');
+    if (task === undefined) throw new HttpError(404, 'Unknown task', ERROR_CODES.unknownTask);
     return task;
   };
 
@@ -178,6 +183,9 @@ export const startMockReceiver = async (
   const reply = async (task: MockTask, request: Request) => {
     const body = replyRequestSchema.safeParse(await request.json());
     if (!body.success) throw new HttpError(400, 'Invalid reply');
+    const answered = task.replies.find((reply) => reply.questionId === body.data.questionId);
+    // The same answer again (its response was lost): nothing changes.
+    if (answered?.text === body.data.text) return;
     if (task.status.phase !== 'needs-input' || task.status.question.id !== body.data.questionId) {
       throw new HttpError(409, 'No such open question');
     }
@@ -240,12 +248,12 @@ export const startMockReceiver = async (
       const fault = faults.shift();
       if (fault === 'unavailable') {
         req.resume();
-        send(res, 503, { error: 'Unavailable' }, { 'Retry-After': '1' });
+        send(res, 503, errorBody('unavailable', 'Unavailable'), { 'Retry-After': '1' });
         return;
       }
       if (options.token !== undefined && req.headers.authorization !== `Bearer ${options.token}`) {
         req.resume();
-        send(res, 401, { error: 'Bad token' });
+        send(res, 401, errorBody('unauthorized', 'Bad token'));
         return;
       }
       try {
@@ -256,8 +264,9 @@ export const startMockReceiver = async (
         }
         send(res, 200, body);
       } catch (cause) {
-        if (cause instanceof HttpError) send(res, cause.status, { error: cause.message });
-        else send(res, 500, { error: String(cause) });
+        if (cause instanceof HttpError) {
+          send(res, cause.status, errorBody(cause.code, cause.message));
+        } else send(res, 500, errorBody('internal', String(cause)));
       }
     })();
   });
