@@ -30,6 +30,7 @@ import { DeriveImage, TakeSnapshot } from '../application/capture/capture-assets
 import { createCaptureHandlers } from '../application/capture/capture-handlers';
 import { InjectPageRuntime, SyncPageRuntime } from '../application/capture/page-runtime';
 import { StartCapture } from '../application/capture/start-capture';
+import { DeleteTask } from '../application/delivery/delete-task';
 import { DeliverQueued } from '../application/delivery/deliver-queued';
 import { createDeliveryHandlers } from '../application/delivery/delivery-handlers';
 import { createDiagnosticsHandlers } from '../application/diagnostics/diagnostics-handlers';
@@ -48,18 +49,19 @@ import {
   RetryDelivery,
   SubmitTask,
 } from '../application/delivery/submit-task';
+import { ListTasks } from '../application/delivery/task-queries';
 import { AssembleBundle, BundleAssembler } from '../application/drafts/assemble-bundle';
 import { CollectGarbage } from '../application/drafts/collect-garbage';
 import { CommitStep } from '../application/drafts/commit-step';
 import {
   ActivateDraft,
   CreateDraft,
-  DeleteTask,
+  DeleteDraft,
   EditDraft,
   RemoveStep,
 } from '../application/drafts/draft-commands';
 import { createDraftHandlers } from '../application/drafts/draft-handlers';
-import { GetDraft, ListDrafts, ListTasks } from '../application/drafts/draft-queries';
+import { GetDraft, ListDrafts } from '../application/drafts/draft-queries';
 import { StoredCaptures } from '../application/drafts/stored-captures';
 import { createSystemHandlers } from '../application/system/system-handlers';
 import { WorkspaceWriter } from '../application/workspace/workspace-writer';
@@ -181,8 +183,17 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     logger: logger.child('capture'),
   });
 
-  const commands = { drafts, tasks, active, bundles, captures, writer, ids, clock };
-  const queries = { drafts, tasks, active, captures, catalog };
+  const commands = {
+    drafts,
+    active,
+    bundles,
+    captures,
+    writer,
+    ids,
+    clock,
+    logger: logger.child('drafts'),
+  };
+  const queries = { drafts, active, captures, catalog };
   const deliveryActions = { tasks, outbox, writer, ids, clock };
 
   const handlers = {
@@ -217,12 +228,11 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     ...createDraftHandlers({
       listDrafts: new ListDrafts(queries),
       getDraft: new GetDraft(queries),
-      listTasks: new ListTasks(queries),
       createDraft: new CreateDraft(commands),
       activateDraft: new ActivateDraft(commands),
       editDraft: new EditDraft(commands),
       removeStep: new RemoveStep(commands),
-      deleteTask: new DeleteTask(commands),
+      deleteDraft: new DeleteDraft(commands),
       assembleBundle: new AssembleBundle(assembler, writer),
     }),
     ...createDeliveryHandlers({
@@ -242,6 +252,14 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
       retryDelivery: new RetryDelivery(deliveryActions),
       reopenDraft: new ReopenDraft(deliveryActions),
       followRemote,
+      listTasks: new ListTasks(tasks),
+      deleteTask: new DeleteTask({
+        tasks,
+        bundles,
+        captures,
+        writer,
+        logger: logger.child('tasks'),
+      }),
       settings: new ManageSettings({
         settings: settingsStore,
         bindings: bindingStore,
@@ -275,6 +293,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     collectGarbage: new CollectGarbage({
       drafts,
       tasks,
+      bundles,
       captures: captureRepository,
       assets,
       writer,

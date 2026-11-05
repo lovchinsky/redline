@@ -59,4 +59,13 @@ export class IdbBundleRepository implements BundleRepository {
       return err(storageError(cause, 'Deleting bundle'));
     }
   }
+
+  async taskIds(): Promise<Result<readonly TaskId[], AppError>> {
+    try {
+      const db = await this.connection.get();
+      return ok((await db.getAllKeys('bundles')).map((key) => TaskId.parse(key)));
+    } catch (cause) {
+      return err(storageError(cause, 'Listing bundles'));
+    }
+  }
 }

@@ -3,21 +3,19 @@ import {
   sameTarget,
   type AppError,
   type AssetRef,
+  type Draft,
   type FragmentCatalog,
   type Result,
   type Step,
-  type Draft,
   type StepCapture,
   type TaskId,
 } from '@redline/core';
-import type { DraftSummary, DraftView, StepView, TaskView } from '@redline/rpc';
-import { taskViewOf } from '../delivery/task-view';
-import type { ActiveDraftStore, DraftRepository, TaskRepository } from '../../ports/workspace';
+import type { DraftSummary, DraftView, StepView } from '@redline/rpc';
+import type { ActiveDraftStore, DraftRepository } from '../../ports/workspace';
 import type { StoredCaptures } from './stored-captures';
 
 export interface DraftQueryDeps {
   readonly drafts: DraftRepository;
-  readonly tasks: TaskRepository;
   readonly active: ActiveDraftStore;
   readonly captures: StoredCaptures;
   readonly catalog: FragmentCatalog;
@@ -86,18 +84,5 @@ export class GetDraft {
       if (thumbnail != null) return thumbnail;
     }
     return null;
-  }
-}
-
-/** Tasks past the draft stage, most recently changed first. */
-export class ListTasks {
-  constructor(private readonly deps: Pick<DraftQueryDeps, 'tasks'>) {}
-
-  async execute(): Promise<Result<{ tasks: readonly TaskView[] }, AppError>> {
-    const tasks = await this.deps.tasks.list();
-    if (!tasks.ok) return tasks;
-    return ok({
-      tasks: [...tasks.value].sort((a, b) => b.updatedAt - a.updatedAt).map(taskViewOf),
-    });
   }
 }

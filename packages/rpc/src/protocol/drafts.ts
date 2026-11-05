@@ -95,9 +95,11 @@ export const draftMethods = defineProtocol({
     callers: ['extension'],
   },
   'steps.remove': { request: stepRef, response: empty, callers: ['extension'] },
+  /** Deletes a draft with the context collected for it. */
+  'drafts.delete': { request: taskRef, response: empty, callers: ['extension'] },
   /**
-   * Assembles the task into a frozen bundle and describes it. The same bundle is delivered
+   * Assembles the draft into a frozen bundle and describes it. The same bundle is delivered
    * later, so the preview shows exactly what will be sent.
    */
-  'task.assemble': { request: taskRef, response: bundlePreviewSchema, callers: ['extension'] },
+  'drafts.assemble': { request: taskRef, response: bundlePreviewSchema, callers: ['extension'] },
 });

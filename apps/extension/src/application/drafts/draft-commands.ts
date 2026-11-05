@@ -10,24 +10,25 @@ import {
   type Clock,
   type Draft,
   type IdGenerator,
+  type Logger,
   type Result,
   type StepId,
-  type Task,
 } from '@redline/core';
 import type { BundleRepository } from '../../ports/drafts';
-import type { ActiveDraftStore, DraftRepository, TaskRepository } from '../../ports/workspace';
+import type { ActiveDraftStore, DraftRepository } from '../../ports/workspace';
 import type { WorkspaceWriter } from '../workspace/workspace-writer';
+import { discardCollected } from './discard-collected';
 import type { StoredCaptures } from './stored-captures';
 
 export interface DraftCommandDeps {
   readonly drafts: DraftRepository;
-  readonly tasks: TaskRepository;
   readonly active: ActiveDraftStore;
   readonly bundles: BundleRepository;
   readonly captures: StoredCaptures;
   readonly writer: WorkspaceWriter;
   readonly ids: IdGenerator;
   readonly clock: Clock;
+  readonly logger: Logger;
 }
 
 type Done = Result<Record<string, never>, AppError>;
@@ -108,41 +109,20 @@ export class RemoveStep {
   }
 }
 
-/**
- * Deletes a draft, or a sent task in any state, with everything collected for it. A task
- * already delivered keeps going on the receiver; the extension only stops following it.
- */
-export class DeleteTask {
+/** Deletes a draft with everything collected for it; new steps then start another one. */
+export class DeleteDraft {
   constructor(private readonly deps: DraftCommandDeps) {}
 
   execute(taskId: TaskId): Promise<Done> {
-    const { active, bundles, captures, writer } = this.deps;
+    const { drafts, active, writer } = this.deps;
     return writer.run(async (tx) => {
-      const found = await this.find(taskId);
-      if (!found.ok) return found;
-      const { draft, task } = found.value;
-      if (draft !== null) {
-        tx.saveDraft(draft, null);
-        const current = await active.get();
-        if (current.ok && current.value === taskId) tx.setActive(null);
-      }
-      if (task !== null) tx.saveTask(task, null);
-      const steps = (draft ?? task)?.steps ?? [];
-      tx.afterCommit(async () => {
-        await bundles.delete(taskId);
-        await captures.dispose(steps.map((step) => step.captureId));
-      });
+      const draft = await drafts.get(taskId);
+      if (!draft.ok) return draft;
+      tx.saveDraft(draft.value, null);
+      const current = await active.get();
+      if (current.ok && current.value === taskId) tx.setActive(null);
+      tx.afterCommit(() => discardCollected(this.deps, taskId, draft.value.steps));
       return done();
     });
-  }
-
-  private async find(
-    taskId: TaskId,
-  ): Promise<Result<{ draft: Draft | null; task: Task | null }, AppError>> {
-    const draft = await this.deps.drafts.get(taskId);
-    if (draft.ok) return ok({ draft: draft.value, task: null });
-    if (draft.error.code !== 'not-found') return draft;
-    const task = await this.deps.tasks.get(taskId);
-    return task.ok ? ok({ draft: null, task: task.value }) : task;
   }
 }

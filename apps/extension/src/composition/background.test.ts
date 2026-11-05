@@ -199,6 +199,9 @@ const stateOf = async (taskId: TaskId, worker: ReturnType<typeof setup> = app) =
   return stored.ok ? stored.value.state : undefined;
 };
 
+/** The service worker's database as stored, for what the RPC surface does not show. */
+const rawDatabase = () => openDatabase({ name: 'sw', logger: silentLogger });
+
 /** The task as the side panel gets it. */
 const viewOf = async (taskId: TaskId) => {
   const { tasks } = value(await app.rpc.call('tasks.list', {}));
@@ -287,7 +290,7 @@ describe('drafts', () => {
 
   it('deleting the active draft clears it; the next step starts a new one', async () => {
     const { taskId } = await app.commit('one');
-    value(await app.rpc.call('tasks.delete', { taskId }));
+    value(await app.rpc.call('drafts.delete', { taskId }));
     expect(value(await app.rpc.call('drafts.list', {}))).toEqual({ activeId: null, drafts: [] });
     expect((await app.commit('two')).taskId).not.toBe(taskId);
   });
@@ -308,20 +311,20 @@ describe('assembling', () => {
   it('reuses the frozen bundle until the task changes', async () => {
     const { taskId, stepId } = await app.commit('one');
     await app.commit('two');
-    const first = value(await app.rpc.call('task.assemble', { taskId }));
+    const first = value(await app.rpc.call('drafts.assemble', { taskId }));
     app.advance(60_000);
-    expect(value(await app.rpc.call('task.assemble', { taskId }))).toEqual(first);
+    expect(value(await app.rpc.call('drafts.assemble', { taskId }))).toEqual(first);
     expect(first.files.map((f) => f.path)).toContain('context.md');
 
     value(await app.rpc.call('steps.editComment', { taskId, stepId, comment: 'ONE' }));
-    const edited = value(await app.rpc.call('task.assemble', { taskId }));
+    const edited = value(await app.rpc.call('drafts.assemble', { taskId }));
     expect(edited.revision).toBeGreaterThan(first.revision);
     expect(edited.digest).not.toBe(first.digest);
   });
 
   it('refuses an empty draft', async () => {
     const { taskId } = value(await app.rpc.call('drafts.create', {}));
-    expect(await app.rpc.call('task.assemble', { taskId })).toMatchObject({
+    expect(await app.rpc.call('drafts.assemble', { taskId })).toMatchObject({
       ok: false,
       error: { code: 'validation' },
     });
@@ -335,11 +338,33 @@ describe('garbage collection', () => {
     const [kept] = value(await app.rpc.call('drafts.get', { taskId })).steps.map(
       (s) => s.thumbnail,
     );
-    expect(value(await app.services.collectGarbage.execute())).toEqual({ captures: 0, assets: 0 });
+    expect(value(await app.services.collectGarbage.execute())).toEqual({
+      bundles: 0,
+      captures: 0,
+      assets: 0,
+    });
     app.advance(GARBAGE_GRACE_MS + 1);
-    expect(value(await app.services.collectGarbage.execute())).toEqual({ captures: 0, assets: 1 });
+    expect(value(await app.services.collectGarbage.execute())).toEqual({
+      bundles: 0,
+      captures: 0,
+      assets: 1,
+    });
     expect(await app.services.assets.get(orphan.id)).toMatchObject({ ok: false });
     expect((await app.services.assets.get(kept?.id as AssetId)).ok).toBe(true);
+  });
+
+  it('removes a bundle whose draft is gone, as when the worker stopped before cleaning up', async () => {
+    const { taskId } = await app.commit('one');
+    value(await app.rpc.call('drafts.assemble', { taskId }));
+    const kept = value(await app.rpc.call('drafts.create', {}));
+    await app.commit('two');
+    value(await app.rpc.call('drafts.assemble', { taskId: kept.taskId }));
+    const db = await rawDatabase();
+    await db.delete('drafts', taskId);
+
+    expect(value(await app.services.collectGarbage.execute())).toMatchObject({ bundles: 1 });
+    expect(await db.getAllKeys('bundles')).toEqual([kept.taskId]);
+    db.close();
   });
 });
 
@@ -385,7 +410,7 @@ describe('delivery', () => {
 
   it('submits a draft: binds its site, delivers the frozen bundle, starts a new draft next', async () => {
     const { taskId } = await app.commit('Make the cards equal height');
-    const preview = value(await app.rpc.call('task.assemble', { taskId }));
+    const preview = value(await app.rpc.call('drafts.assemble', { taskId }));
     expect(value(await app.rpc.call('task.deliveryTarget', { taskId }))).toMatchObject({
       project: null,
       conflict: false,
@@ -496,6 +521,30 @@ describe('delivery', () => {
     expect(receiver.tasks.size).toBe(1);
   });
 
+  it('deletes a sent task with its bundle; drafts and tasks are deleted each by their own', async () => {
+    const { taskId } = await app.commit('Fix it');
+    value(await submit(taskId, project()));
+    await delivered();
+    expect(await app.rpc.call('drafts.delete', { taskId })).toMatchObject({
+      ok: false,
+      error: { code: 'not-found' },
+    });
+
+    value(await app.rpc.call('tasks.delete', { taskId }));
+    expect(value(await app.rpc.call('tasks.list', {}))).toEqual({ tasks: [] });
+    const db = await rawDatabase();
+    expect(await db.getAllKeys('bundles')).toEqual([]);
+    db.close();
+    // The receiver keeps the task it accepted; the extension only stopped following it.
+    expect(receiver.tasks.size).toBe(1);
+
+    const draft = await app.commit('Another');
+    expect(await app.rpc.call('tasks.delete', { taskId: draft.taskId })).toMatchObject({
+      ok: false,
+      error: { code: 'not-found' },
+    });
+  });
+
   it('a refused task is reported and can be reopened as the active draft', async () => {
     const { taskId } = await app.commit('Fix it');
     value(await submit(taskId, project('unknown-project')));
@@ -593,7 +642,7 @@ describe('delivery', () => {
     const updated = setup(undefined, { version: '0.2.0', keepDatabase: true });
     value(await updated.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
     // Sent, it is no draft: nothing can assemble it again with the new version.
-    expect(await updated.rpc.call('task.assemble', { taskId })).toMatchObject({
+    expect(await updated.rpc.call('drafts.assemble', { taskId })).toMatchObject({
       ok: false,
       error: { code: 'not-found' },
     });

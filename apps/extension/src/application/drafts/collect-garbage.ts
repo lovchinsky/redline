@@ -8,7 +8,7 @@ import {
   type Result,
 } from '@redline/core';
 import type { CaptureRepository } from '../../ports/capture';
-import type { AssetInventory } from '../../ports/drafts';
+import type { AssetInventory, BundleRepository } from '../../ports/drafts';
 import type { DraftRepository, TaskRepository } from '../../ports/workspace';
 import type { WorkspaceWriter } from '../workspace/workspace-writer';
 
@@ -19,6 +19,7 @@ export interface CollectGarbageDeps {
   readonly drafts: DraftRepository;
   readonly tasks: TaskRepository;
   readonly captures: CaptureRepository;
+  readonly bundles: BundleRepository;
   readonly assets: AssetStore & AssetInventory;
   readonly writer: WorkspaceWriter;
   readonly clock: Clock;
@@ -26,17 +27,17 @@ export interface CollectGarbageDeps {
 }
 
 /**
- * Deletes what nothing refers to: captures no draft (or task that may become one again) uses,
- * and assets no capture uses (viewport snapshots once their crops are made, leftovers of failed
- * commits). Reachability is the only rule, so no use case has to remember to clean up after
- * itself for correctness.
+ * Deletes what nothing refers to: bundles of drafts and tasks that are gone, captures no draft
+ * (or task that may become one again) uses, and assets no capture uses (viewport snapshots
+ * once their crops are made, leftovers of failed commits). Reachability is the only rule, so
+ * no use case has to remember to clean up after itself for correctness.
  */
 export class CollectGarbage {
   constructor(private readonly deps: CollectGarbageDeps) {}
 
-  execute(): Promise<Result<{ captures: number; assets: number }, AppError>> {
+  execute(): Promise<Result<{ bundles: number; captures: number; assets: number }, AppError>> {
     return this.deps.writer.exclusive(async () => {
-      const { drafts, tasks, captures, assets, clock, logger } = this.deps;
+      const { drafts, tasks, bundles, captures, assets, clock, logger } = this.deps;
       const cutoff = clock.now() - GARBAGE_GRACE_MS;
 
       const [allDrafts, allTasks] = await Promise.all([drafts.list(), tasks.list()]);
@@ -48,6 +49,17 @@ export class CollectGarbage {
           entry.steps.map((step) => step.captureId),
         ),
       );
+
+      // Bundles are written in the workspace's turn for an existing draft: no grace needed.
+      const owners = new Set<string>([...allDrafts.value, ...allTasks.value].map((e) => e.id));
+      const stored = await bundles.taskIds();
+      if (!stored.ok) return stored;
+      let deletedBundles = 0;
+      for (const id of stored.value.filter((taskId) => !owners.has(taskId))) {
+        const deleted = await bundles.delete(id);
+        if (deleted.ok) deletedBundles += 1;
+        else logger.warn('Could not delete an unused bundle', { ...deleted.error });
+      }
 
       const allCaptures = await captures.list();
       if (!allCaptures.ok) return allCaptures;
@@ -73,7 +85,7 @@ export class CollectGarbage {
         if (released.ok) deletedAssets += 1;
         else logger.warn('Could not delete an unused asset', { ...released.error });
       }
-      return ok({ captures: deletedCaptures, assets: deletedAssets });
+      return ok({ bundles: deletedBundles, captures: deletedCaptures, assets: deletedAssets });
     });
   }
 }

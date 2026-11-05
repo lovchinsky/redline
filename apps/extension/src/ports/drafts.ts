@@ -17,6 +17,8 @@ export interface BundleRepository {
   get(taskId: TaskId): Promise<Result<StoredBundle | null, AppError>>;
   put(bundle: StoredBundle): Promise<Result<void, AppError>>;
   delete(taskId: TaskId): Promise<Result<void, AppError>>;
+  /** Tasks that have a stored bundle, for garbage collection. */
+  taskIds(): Promise<Result<readonly TaskId[], AppError>>;
 }
 
 /** Lists stored assets for garbage collection. */

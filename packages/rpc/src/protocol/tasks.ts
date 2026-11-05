@@ -118,6 +118,6 @@ export const taskMethods = defineProtocol({
     response: z.object({ tasks: z.readonly(z.array(taskViewSchema)) }),
     callers: ['extension'],
   },
-  /** Deletes a task in any state, with its collected context. */
+  /** Deletes a sent task in any state; one the receiver accepted keeps going there. */
   'tasks.delete': { request: taskRef, response: empty, callers: ['extension'] },
 });

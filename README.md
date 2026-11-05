@@ -73,4 +73,5 @@ pnpm test:e2e     # збірка + Playwright з завантаженим роз
 - Міграції IndexedDB лише додаються (`apps/extension/src/adapters/idb/schema.ts`).
 - Новий тип контексту — це нова папка в `packages/modules/src` (типи, descriptor, collector) і рядок
   у `descriptors.ts`, `collectors.ts` та потрібних профілях. Golden-тести показують, як зміниться `context.md`.
-- Нове RPC-повідомлення описується в `packages/rpc/src/protocol.ts`; обробник обов'язковий на рівні типів.
+- Нове RPC-повідомлення описується в модулі своєї функції в `packages/rpc/src/protocol/`, який
+  збирає `protocol/index.ts`; обробник обов'язковий на рівні типів.

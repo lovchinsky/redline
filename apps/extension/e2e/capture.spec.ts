@@ -12,7 +12,7 @@ interface StoredCapture {
   };
 }
 
-interface StoredTask {
+interface StoredDraft {
   steps: { comment: string; captureId: string }[];
 }
 
@@ -77,10 +77,10 @@ test('circling cards collects context and adds the step to a draft with real scr
     .poll(() => logs.some((line) => line.includes('[redline:capture] Step added to draft')))
     .toBe(true);
 
-  const [task] = await readStore<StoredTask>(serviceWorker, 'drafts');
-  expect(task?.steps).toMatchObject([{ comment: 'Make the cards equal height' }]);
+  const [draft] = await readStore<StoredDraft>(serviceWorker, 'drafts');
+  expect(draft?.steps).toMatchObject([{ comment: 'Make the cards equal height' }]);
   const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
-    (record) => record.id === task?.steps[0]?.captureId,
+    (record) => record.id === draft?.steps[0]?.captureId,
   );
   // A plain static page: no framework, no errors, no failed requests. Nothing failed.
   expect(stored?.capture.diagnostics.map((d) => [d.source, d.outcome]).sort()).toEqual([
@@ -279,11 +279,11 @@ test('a page that re-renders while the user types still gives the context of wha
   await expect(page.locator('redline-overlay')).toHaveCount(0);
 
   await expect
-    .poll(async () => (await readStore<StoredTask>(serviceWorker, 'drafts')).length)
+    .poll(async () => (await readStore<StoredDraft>(serviceWorker, 'drafts')).length)
     .toBe(1);
-  const [task] = await readStore<StoredTask>(serviceWorker, 'drafts');
+  const [draft] = await readStore<StoredDraft>(serviceWorker, 'drafts');
   const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
-    (record) => record.id === task?.steps[0]?.captureId,
+    (record) => record.id === draft?.steps[0]?.captureId,
   );
   const styles = stored?.capture.fragments.find((f) => f.kind === 'computed-styles')?.data as
     { elements: { styles: Record<string, string> }[] } | undefined;
@@ -349,11 +349,11 @@ test('shapes drawn at different scroll positions each enclose what was under the
   await composer.getByTestId('submit').click();
   await expect(page.locator('redline-overlay')).toHaveCount(0);
   await expect
-    .poll(async () => (await readStore<StoredTask>(serviceWorker, 'drafts')).length)
+    .poll(async () => (await readStore<StoredDraft>(serviceWorker, 'drafts')).length)
     .toBe(1);
-  const [task] = await readStore<StoredTask>(serviceWorker, 'drafts');
+  const [draft] = await readStore<StoredDraft>(serviceWorker, 'drafts');
   const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
-    (record) => record.id === task?.steps[0]?.captureId,
+    (record) => record.id === draft?.steps[0]?.captureId,
   );
   // Each area got its own screenshot, taken at the scroll it was drawn at.
   expect(stored?.capture.fragments.filter((f) => f.kind === 'screenshot')).toHaveLength(2);

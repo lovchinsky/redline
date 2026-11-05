@@ -36,7 +36,7 @@ export const PreviewSheet = ({ services, draft, onClose }: PreviewSheetProps) =>
   const assemble = useCallback(async () => {
     const isLatest = begin();
     setState({ kind: 'assembling' });
-    const preview = await services.rpc.call('task.assemble', { taskId: draft.id });
+    const preview = await services.rpc.call('drafts.assemble', { taskId: draft.id });
     if (!isLatest()) return;
     if (!preview.ok) {
       setState({ kind: 'failed', error: preview.error });

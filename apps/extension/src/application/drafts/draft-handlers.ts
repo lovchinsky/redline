@@ -3,11 +3,11 @@ import type { AssembleBundle } from './assemble-bundle';
 import type {
   ActivateDraft,
   CreateDraft,
-  DeleteTask,
+  DeleteDraft,
   EditDraft,
   RemoveStep,
 } from './draft-commands';
-import type { GetDraft, ListDrafts, ListTasks } from './draft-queries';
+import type { GetDraft, ListDrafts } from './draft-queries';
 
 export interface DraftUseCases {
   readonly listDrafts: ListDrafts;
@@ -16,8 +16,7 @@ export interface DraftUseCases {
   readonly activateDraft: ActivateDraft;
   readonly editDraft: EditDraft;
   readonly removeStep: RemoveStep;
-  readonly deleteTask: DeleteTask;
-  readonly listTasks: ListTasks;
+  readonly deleteDraft: DeleteDraft;
   readonly assembleBundle: AssembleBundle;
 }
 
@@ -30,9 +29,8 @@ type DraftMethods =
   | 'steps.editComment'
   | 'steps.move'
   | 'steps.remove'
-  | 'task.assemble'
-  | 'tasks.list'
-  | 'tasks.delete';
+  | 'drafts.delete'
+  | 'drafts.assemble';
 
 export const createDraftHandlers = (
   useCases: DraftUseCases,
@@ -48,7 +46,6 @@ export const createDraftHandlers = (
   'steps.move': ({ taskId, stepId, toIndex }) =>
     useCases.editDraft.execute(taskId, { kind: 'move-step', stepId, toIndex }),
   'steps.remove': ({ taskId, stepId }) => useCases.removeStep.execute(taskId, stepId),
-  'task.assemble': ({ taskId }) => useCases.assembleBundle.execute(taskId),
-  'tasks.list': () => useCases.listTasks.execute(),
-  'tasks.delete': ({ taskId }) => useCases.deleteTask.execute(taskId),
+  'drafts.delete': ({ taskId }) => useCases.deleteDraft.execute(taskId),
+  'drafts.assemble': ({ taskId }) => useCases.assembleBundle.execute(taskId),
 });
