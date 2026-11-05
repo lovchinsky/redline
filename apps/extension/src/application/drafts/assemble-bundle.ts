@@ -38,8 +38,8 @@ const previewOf = ({ taskId, revision, bundle, warnings }: StoredBundle): Bundle
  * The frozen bundle of a draft's current content: the stored one while the draft is unchanged
  * (and assembled by this version), otherwise a fresh assembly that replaces it. Preview and
  * sending both go through here, so what the user saw is what gets sent; once sent, the task
- * owns the bundle and no draft of that id exists to assemble it again. Callers run it in a
- * unit of work, so an edit cannot slip between reading the draft and storing its bundle.
+ * owns the bundle and no draft of that id exists to assemble it again. Callers run it in the
+ * workspace's turn, so an edit cannot slip between reading the draft and storing its bundle.
  */
 export class BundleAssembler {
   constructor(private readonly deps: BundleAssemblerDeps) {}
@@ -93,7 +93,7 @@ export class AssembleBundle {
   ) {}
 
   execute(taskId: TaskId): Promise<Result<BundlePreview, AppError>> {
-    return this.writer.run(async () => {
+    return this.writer.exclusive(async () => {
       const stored = await this.assembler.frozen(taskId);
       return stored.ok ? ok(previewOf(stored.value)) : stored;
     });

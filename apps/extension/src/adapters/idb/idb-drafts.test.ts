@@ -99,12 +99,14 @@ describe('the workspace in IndexedDB', () => {
     const store = new IdbWorkspaceStore(connection);
     // A function cannot be stored: IndexedDB refuses the write.
     const unstorable = { ...sent, title: (() => 'x') as unknown as string };
+    value(await store.apply([{ kind: 'draft', id: taskId, value: draft }]));
     const result = await store.apply([
       { kind: 'draft', id: taskId, value: null },
       { kind: 'task', id: taskId, value: unstorable },
     ]);
     expect(result).toMatchObject({ ok: false, error: { code: 'storage' } });
     expect(value(await new IdbTaskRepository(connection, logger).list())).toEqual([]);
+    expect(value(await new IdbDraftRepository(connection, logger).get(taskId))).toEqual(draft);
   });
 
   it('reports a corrupted record instead of trusting it, and lists past it once', async () => {

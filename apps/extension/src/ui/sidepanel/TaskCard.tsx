@@ -134,8 +134,8 @@ export const TaskCard = ({
           />
         )}
       </div>
-      <p class="task-meta">
-        {task.projectName} ·{t.count('stepCount', task.stepCount)} · {t.time(task.updatedAt)}
+      <p class="task-meta" data-testid="task-meta">
+        {`${task.projectName} · ${t.count('stepCount', task.stepCount)} · ${t.time(task.updatedAt)}`}
       </p>
       <Badge tone={toneOf(status)} data-testid="task-state">
         {describeStatus(t, status)}

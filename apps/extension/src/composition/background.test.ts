@@ -476,8 +476,8 @@ describe('delivery', () => {
     await sent.promise;
     value(await slow.rpc.call('task.retry', { taskId }));
     gate.resolve(undefined);
+    // The retry asked for a pass after this one; the runner makes it before `pass` resolves.
     await pass;
-    await slow.services.outbox.run();
     expect(await stateOf(taskId, slow)).toMatchObject({ kind: 'submitted' });
     expect(receiver.submissions()).toBe(2);
   });

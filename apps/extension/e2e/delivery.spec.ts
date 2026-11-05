@@ -51,6 +51,7 @@ test('from lasso to result: send, answer the agent, open the result', async ({ c
   await expect(panel.getByTestId('empty-draft')).toBeVisible();
   await panel.getByTestId('tab-active').click();
   await expect(task(panel)).toHaveAttribute('data-phase', 'queued');
+  await expect(task(panel).getByTestId('task-meta')).toContainText('Acme Web · 1 ');
   expect(receiver.tasks.size).toBe(1);
   const [remote] = receiver.tasks.values();
   expect(remote?.files.get('context.md')?.toString()).toContain('Make the cards equal height');

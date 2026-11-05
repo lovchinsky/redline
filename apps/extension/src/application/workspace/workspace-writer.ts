@@ -42,14 +42,17 @@ export interface WorkspaceObserver {
 }
 
 /**
- * What a unit of work may do. Writes are collected and applied together when the work
- * succeeds; a work that fails writes nothing.
+ * What a unit of work may do. Workspace writes are collected and applied together when the
+ * work succeeds; a work that fails writes nothing to the workspace.
  */
 export interface WorkspaceTransaction {
   saveDraft(before: Draft | null, after: Draft | null): void;
   saveTask(before: Task | null, after: Task | null): void;
   setActive(id: TaskId | null): void;
-  /** Runs once the writes are saved, e.g. disposing of what a deleted step collected. */
+  /**
+   * Runs once the writes are saved, e.g. disposing of what a deleted step collected. It cannot
+   * undo them: an effect handles its own failures, and one that throws is only reported.
+   */
   afterCommit(effect: () => Promise<void>): void;
 }
 
@@ -88,7 +91,7 @@ export class WorkspaceWriter {
   async run<T>(
     work: (tx: WorkspaceTransaction) => Promise<Result<T, AppError>>,
   ): Promise<Result<T, AppError>> {
-    const changes: WorkspaceChange[] = [];
+    let announced: Promise<void> = Promise.resolve();
     const result = await this.deps.queue.run(async () => {
       const writes: WorkspaceWrite[] = [];
       const pending: WorkspaceChange[] = [];
@@ -118,12 +121,22 @@ export class WorkspaceWriter {
       if (!outcome.ok) return outcome;
       const saved = await this.deps.store.apply(writes);
       if (!saved.ok) return saved;
-      changes.push(...pending);
       for (const effect of effects) await this.runEffect(effect);
+      // Queued while still in turn, so announcements follow commit order by construction.
+      if (pending.length > 0) announced = this.announcements.run(() => this.announce(pending));
       return outcome;
     });
-    if (changes.length > 0) await this.announcements.run(() => this.announce(changes));
+    await announced;
     return result;
+  }
+
+  /**
+   * Runs work in the workspace's turn without writing to it: reads that must see one state
+   * throughout, and writes beside the workspace (bundles, bindings, garbage collection) that
+   * must not interleave with units of work.
+   */
+  exclusive<T>(work: () => Promise<T>): Promise<T> {
+    return this.deps.queue.run(work);
   }
 
   /**
@@ -163,7 +176,7 @@ export class WorkspaceWriter {
     try {
       await effect();
     } catch (cause) {
-      // The writes are saved; what follows them is cleanup that the garbage collector repeats.
+      // The writes are saved and stay so; a failed effect is only worth knowing about.
       this.deps.logger.error('An after-commit effect failed', { cause: String(cause) });
     }
   }

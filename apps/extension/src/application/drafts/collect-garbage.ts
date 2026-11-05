@@ -35,7 +35,7 @@ export class CollectGarbage {
   constructor(private readonly deps: CollectGarbageDeps) {}
 
   execute(): Promise<Result<{ captures: number; assets: number }, AppError>> {
-    return this.deps.writer.run(async () => {
+    return this.deps.writer.exclusive(async () => {
       const { drafts, tasks, captures, assets, clock, logger } = this.deps;
       const cutoff = clock.now() - GARBAGE_GRACE_MS;
 

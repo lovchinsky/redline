@@ -23,14 +23,16 @@ const silent: Logger = {
 
 const notFound = () => Promise.resolve(err(appError('not-found', 'missing')));
 
-/** A store that records what it applied, and can be told to fail. */
+/** A store that records what it applied, can be told to fail, and tells when it has saved. */
 const recordingStore = () => {
   const applied: (readonly WorkspaceWrite[])[] = [];
+  const saves: ((count: number) => void)[] = [];
   let failing = false;
   const store: WorkspaceStore = {
     apply: (writes) => {
       if (failing) return Promise.resolve(err(appError('storage', 'disk full')));
       applied.push(writes);
+      for (const saved of saves) saved(applied.length);
       return Promise.resolve(ok(undefined));
     },
   };
@@ -40,6 +42,13 @@ const recordingStore = () => {
     fail: () => {
       failing = true;
     },
+    /** Resolves once `count` units of work have been saved. */
+    saved: (count: number) =>
+      new Promise<void>((resolve) => {
+        saves.push((n) => {
+          if (n >= count) resolve();
+        });
+      }),
   };
 };
 
@@ -126,7 +135,7 @@ describe('WorkspaceWriter', () => {
   });
 
   it('lets the next unit of work go while observers still work, and keeps their order', async () => {
-    const { store } = recordingStore();
+    const { store, saved } = recordingStore();
     const order: string[] = [];
     const gate = Promise.withResolvers<undefined>();
     const writer = writerWith(store, async (change) => {
@@ -143,8 +152,8 @@ describe('WorkspaceWriter', () => {
       tx.saveDraft(null, createDraft(TaskId.parse('b'), 0));
       return Promise.resolve(ok(undefined));
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    // b is written while a's observer is still busy; b is announced only after a.
+    // b is saved while a's observer is still busy; b is announced only after a.
+    await saved(2);
     expect(order).toContain('write b');
     expect(order).not.toContain('announce b');
     gate.resolve(undefined);
@@ -153,5 +162,24 @@ describe('WorkspaceWriter', () => {
       'announce a',
       'announce b',
     ]);
+  });
+
+  it('runs exclusive work in turn with units of work, writing nothing', async () => {
+    const { store, applied } = recordingStore();
+    const order: string[] = [];
+    const writer = writerWith(store, () => Promise.resolve());
+    const unit = writer.run((tx) => {
+      order.push('unit');
+      tx.saveDraft(null, draft);
+      return Promise.resolve(ok(undefined));
+    });
+    const exclusive = writer.exclusive(() => {
+      order.push(`exclusive after ${String(applied.length)} apply`);
+      return Promise.resolve('done');
+    });
+    expect(await exclusive).toBe('done');
+    await unit;
+    expect(order).toEqual(['unit', 'exclusive after 1 apply']);
+    expect(applied).toHaveLength(1);
   });
 });

@@ -13,6 +13,7 @@ import {
   type Task,
   type TaskId,
 } from '@redline/core';
+import type { IDBPTransaction } from 'idb';
 import type * as z from 'zod/mini';
 import type {
   DraftRepository,
@@ -23,6 +24,7 @@ import type {
 import type { DatabaseConnection } from './database';
 import { storageError } from './errors';
 import { ACTIVE_DRAFT_KEY } from './idb-active-draft-store';
+import type { VfDatabaseSchema } from './schema';
 
 /**
  * Reads the records of one store through their domain schema. A record that no longer matches
@@ -45,7 +47,7 @@ class SchemaReader<T> {
       const db = await this.connection.get();
       const raw: unknown = await db.get(this.store, id);
       return raw === undefined
-        ? err(appError('not-found', 'Task not found', { id }))
+        ? err(appError('not-found', `Not found in ${this.store}`, { id }))
         : this.parse(raw);
     } catch (cause) {
       return err(storageError(cause, `Reading from ${this.store}`));
@@ -121,6 +123,28 @@ export class IdbTaskRepository implements TaskRepository {
   }
 }
 
+const STORES = ['drafts', 'tasks', 'workspace'] as const;
+
+type WorkspaceTransaction = IDBPTransaction<VfDatabaseSchema, typeof STORES, 'readwrite'>;
+
+/** Queues one write; IndexedDB may refuse it right away (a value it cannot store). */
+const request = (tx: WorkspaceTransaction, write: WorkspaceWrite): Promise<unknown> => {
+  switch (write.kind) {
+    case 'draft':
+      return write.value === null
+        ? tx.objectStore('drafts').delete(write.id)
+        : tx.objectStore('drafts').put(write.value);
+    case 'task':
+      return write.value === null
+        ? tx.objectStore('tasks').delete(write.id)
+        : tx.objectStore('tasks').put(write.value);
+    case 'active':
+      return write.id === null
+        ? tx.objectStore('workspace').delete(ACTIVE_DRAFT_KEY)
+        : tx.objectStore('workspace').put(write.id, ACTIVE_DRAFT_KEY);
+  }
+};
+
 /** Writes a unit of work in one IndexedDB transaction: all of it lands, or none. */
 export class IdbWorkspaceStore implements WorkspaceStore {
   constructor(private readonly connection: DatabaseConnection) {}
@@ -129,24 +153,18 @@ export class IdbWorkspaceStore implements WorkspaceStore {
     if (writes.length === 0) return okVoid();
     try {
       const db = await this.connection.get();
-      const tx = db.transaction(['drafts', 'tasks', 'workspace'], 'readwrite');
-      for (const write of writes) {
-        switch (write.kind) {
-          case 'draft':
-            if (write.value === null) void tx.objectStore('drafts').delete(write.id);
-            else void tx.objectStore('drafts').put(write.value);
-            break;
-          case 'task':
-            if (write.value === null) void tx.objectStore('tasks').delete(write.id);
-            else void tx.objectStore('tasks').put(write.value);
-            break;
-          case 'active':
-            if (write.id === null) void tx.objectStore('workspace').delete(ACTIVE_DRAFT_KEY);
-            else void tx.objectStore('workspace').put(write.id, ACTIVE_DRAFT_KEY);
-            break;
-        }
+      const tx = db.transaction(STORES, 'readwrite');
+      const pending: Promise<unknown>[] = [tx.done];
+      try {
+        for (const write of writes) pending.push(request(tx, write));
+      } catch (refused) {
+        // Writes queued before the refused one would otherwise commit on their own.
+        tx.abort();
+        await Promise.allSettled(pending);
+        throw refused;
       }
-      await tx.done;
+      // A write that fails later aborts the transaction by itself; every request is awaited.
+      await Promise.all(pending);
       return okVoid();
     } catch (cause) {
       return err(storageError(cause, 'Saving the workspace'));

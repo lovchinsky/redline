@@ -125,7 +125,7 @@ export class ManageSettings {
   }
 
   private async write(change: () => Promise<Result<void, AppError>>): Promise<Done> {
-    const result = await this.deps.writer.run(change);
+    const result = await this.deps.writer.exclusive(change);
     if (!result.ok) return result;
     const published = this.deps.events.publish('settings.changed', {});
     if (!published.ok)

@@ -108,7 +108,8 @@ export class DeliverQueued {
       if (outcome.ok) return markSubmitted(current, outcome.value, now);
       const error = toDeliveryError(outcome.error);
       if (!isTransient(outcome.error)) return markDeliveryFailed(current, error, now);
-      // Moved while this attempt was in flight (the user asked to retry now): that time stands.
+      // The schedule this attempt wrote down is replaced only if it is still in place: one
+      // moved meanwhile (the user asked to retry now) is newer than this outcome and stands.
       const moved = current.state.nextAttemptAt !== queued.nextAttemptAt;
       const retryAt = moved
         ? current.state.nextAttemptAt
