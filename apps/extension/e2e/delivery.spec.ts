@@ -109,8 +109,9 @@ test('offline while sending: nothing is lost, nothing is sent twice', async ({ c
   // The receiver comes back but loses its answer after accepting: the extension cannot tell.
   receiver.fail('drop-after-accept', { on: 'submitTask' });
   await task(panel).getByRole('button', { name: 'Спробувати зараз' }).click();
+  // The attempt is counted before it is made, so the receiver's side is awaited on its own.
   await expect(task(panel)).toHaveAttribute('data-attempts', '2');
-  expect(receiver.tasks.size).toBe(1);
+  await expect.poll(() => receiver.tasks.size).toBe(1);
 
   await task(panel).getByRole('button', { name: 'Спробувати зараз' }).click();
   await expect(task(panel)).toHaveAttribute('data-state', 'with-agent');

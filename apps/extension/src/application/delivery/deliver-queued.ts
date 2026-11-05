@@ -107,14 +107,13 @@ export class DeliverQueued {
       const now = this.deps.clock.now();
       if (outcome.ok) return markSubmitted(current, outcome.value, now);
       const error = toDeliveryError(outcome.error);
-      return isTransient(outcome.error)
-        ? recordFailedAttempt(
-            current,
-            error,
-            nextRetryAt(current.state.attempts, now, outcome.error),
-            now,
-          )
-        : markDeliveryFailed(current, error, now);
+      if (!isTransient(outcome.error)) return markDeliveryFailed(current, error, now);
+      // Moved while this attempt was in flight (the user asked to retry now): that time stands.
+      const moved = current.state.nextAttemptAt !== queued.nextAttemptAt;
+      const retryAt = moved
+        ? current.state.nextAttemptAt
+        : nextRetryAt(current.state.attempts, now, outcome.error);
+      return recordFailedAttempt(current, error, retryAt, now);
     });
     if (!saved.ok && saved.error.code !== 'not-found') {
       this.deps.logger.error('Could not record a delivery attempt', { ...saved.error });

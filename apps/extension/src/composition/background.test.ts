@@ -458,6 +458,30 @@ describe('delivery', () => {
     expect(hanging.wakeUps.get('deliver')).toBe(hanging.now() + 30_000);
   });
 
+  it('a retry asked for while an attempt is in flight is not pushed back by its failure', async () => {
+    const gate = Promise.withResolvers<undefined>();
+    const sent = Promise.withResolvers<undefined>();
+    const slow = setup(async (input, init) => {
+      if (init?.method === 'POST') {
+        sent.resolve(undefined);
+        await gate.promise;
+      }
+      return fetch(input, init);
+    });
+    value(await slow.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
+    const { taskId } = await slow.commit('Fix it');
+    receiver.fail('unavailable', { on: 'submitTask' });
+    value(await submit(taskId, project(), slow.rpc));
+    const pass = slow.services.outbox.run();
+    await sent.promise;
+    value(await slow.rpc.call('task.retry', { taskId }));
+    gate.resolve(undefined);
+    await pass;
+    await slow.services.outbox.run();
+    expect(await stateOf(taskId, slow)).toMatchObject({ kind: 'submitted' });
+    expect(receiver.submissions()).toBe(2);
+  });
+
   it('a response lost after the receiver accepted creates no duplicate', async () => {
     const { taskId } = await app.commit('Fix it');
     receiver.fail('drop-after-accept', { on: 'submitTask' });
