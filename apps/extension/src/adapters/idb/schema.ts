@@ -1,5 +1,6 @@
-import type { DBSchema, IDBPDatabase, IDBPTransaction, StoreNames } from 'idb';
+import type { DBSchema, IDBPCursorWithValue, IDBPDatabase, IDBPTransaction, StoreNames } from 'idb';
 import type { BundleManifest } from '@redline/contract';
+import type { Logger } from '@redline/core';
 import type { CaptureRecord } from '../../ports/capture';
 import { upgradeTaskRecord } from './task-records-v4';
 import { draftOf } from './task-records-v5';
@@ -51,8 +52,39 @@ export interface Migration {
   /** Database version this migration produces. Versions start at 1 and have no gaps. */
   readonly version: number;
   readonly description: string;
-  migrate(db: VfDatabase, transaction: UpgradeTransaction): void;
+  migrate(db: VfDatabase, transaction: UpgradeTransaction, logger: Logger): void;
 }
+
+type TaskCursor = IDBPCursorWithValue<
+  VfDatabaseSchema,
+  StoreNames<VfDatabaseSchema>[],
+  'tasks',
+  unknown,
+  'versionchange'
+>;
+
+/**
+ * Visits every record of the `tasks` store within the upgrade. Any failure is reported and
+ * aborts the whole upgrade, so the database stays at the version it had.
+ */
+const eachTaskRecord = (
+  transaction: UpgradeTransaction,
+  logger: Logger,
+  visit: (cursor: TaskCursor) => Promise<void>,
+): void => {
+  void (async () => {
+    let cursor = await transaction.objectStore('tasks').openCursor();
+    while (cursor !== null) {
+      await visit(cursor);
+      cursor = await cursor.continue();
+    }
+  })().catch((cause: unknown) => {
+    logger.error('A database migration failed; keeping the previous version', {
+      cause: String(cause),
+    });
+    transaction.abort();
+  });
+};
 
 /**
  * Append-only. Never edit a released migration: add a new one with the next version.
@@ -85,41 +117,26 @@ export const migrations: readonly Migration[] = [
   {
     version: 4,
     description: 'Tasks: one delivery record per send, counted status checks, lost tasks',
-    migrate(_db, transaction) {
-      // Rewrites every task within the upgrade; any failure aborts it, leaving version 3 intact.
-      void (async () => {
-        const bundles = transaction.objectStore('bundles');
-        let cursor = await transaction.objectStore('tasks').openCursor();
-        while (cursor !== null) {
-          const bundle = await bundles.get(cursor.key);
-          const upgraded = upgradeTaskRecord(cursor.value, bundle?.digest ?? null);
-          if (upgraded !== cursor.value) await cursor.update(upgraded);
-          cursor = await cursor.continue();
-        }
-      })().catch(() => {
-        transaction.abort();
+    migrate(_db, transaction, logger) {
+      const bundles = transaction.objectStore('bundles');
+      eachTaskRecord(transaction, logger, async (cursor) => {
+        const bundle = await bundles.get(cursor.key);
+        const upgraded = upgradeTaskRecord(cursor.value, bundle?.digest ?? null);
+        if (upgraded !== cursor.value) await cursor.update(upgraded);
       });
     },
   },
   {
     version: 5,
     description: 'Drafts move to a store of their own; tasks keep only what was sent',
-    migrate(db, transaction) {
+    migrate(db, transaction, logger) {
       db.createObjectStore('drafts', { keyPath: 'id' }).createIndex('updatedAt', 'updatedAt');
-      // Moves every draft within the upgrade; any failure aborts it, leaving version 4 intact.
-      void (async () => {
-        const drafts = transaction.objectStore('drafts');
-        let cursor = await transaction.objectStore('tasks').openCursor();
-        while (cursor !== null) {
-          const draft = draftOf(cursor.value);
-          if (draft !== null) {
-            await drafts.put(draft);
-            await cursor.delete();
-          }
-          cursor = await cursor.continue();
-        }
-      })().catch(() => {
-        transaction.abort();
+      const drafts = transaction.objectStore('drafts');
+      eachTaskRecord(transaction, logger, async (cursor) => {
+        const draft = draftOf(cursor.value);
+        if (draft === null) return;
+        await drafts.put(draft);
+        await cursor.delete();
       });
     },
   },

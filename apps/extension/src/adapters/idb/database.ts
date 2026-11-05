@@ -45,7 +45,7 @@ export const openDatabase = (options: DatabaseOptions): Promise<VfDatabase> => {
           version: migration.version,
           description: migration.description,
         });
-        migration.migrate(db, transaction);
+        migration.migrate(db, transaction, logger);
       }
     },
   }).then((db) => {

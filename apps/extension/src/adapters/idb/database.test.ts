@@ -235,6 +235,42 @@ describe('migration to version 5', () => {
   });
 });
 
+describe('upgrade from version 3 to the latest', () => {
+  it('runs every migration in one upgrade: drafts move, sent tasks are rewritten', async () => {
+    const v3 = await openDatabase({
+      name: 'v3-to-latest',
+      migrations: migrations.slice(0, 3),
+      logger: silentLogger,
+    });
+    const content = { title: null, steps: [], revision: 1, createdAt: 0, updatedAt: 0 };
+    await v3.put('tasks', { id: 'draft', ...content, state: { kind: 'draft' } });
+    await v3.put('tasks', {
+      id: 'sent',
+      ...content,
+      state: {
+        kind: 'queued',
+        projectId: 'acme',
+        projectName: 'Acme',
+        digest: 'q'.repeat(64),
+        queuedAt: 1,
+        attempts: 0,
+        nextAttemptAt: 1,
+        lastError: null,
+      },
+    });
+    v3.close();
+
+    const db = await openDatabase({ name: 'v3-to-latest', logger: silentLogger });
+    expect(draftSchema.parse(await db.get('drafts', 'draft'))).toEqual({ id: 'draft', ...content });
+    expect(await db.getAllKeys('tasks')).toEqual(['sent']);
+    expect(taskSchema.parse(await db.get('tasks', 'sent')).state).toMatchObject({
+      kind: 'queued',
+      delivery: { id: 'sent', projectId: 'acme', digest: 'q'.repeat(64) },
+    });
+    db.close();
+  });
+});
+
 describe('DatabaseConnection', () => {
   it('opens once and shares the connection', async () => {
     const open = vi.fn(() => openDatabase({ name: 'shared', logger: silentLogger }));
