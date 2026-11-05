@@ -16,7 +16,13 @@ export const remoteStatusSchema = z.discriminatedUnion('phase', [
   z.readonly(z.object({ phase: z.literal('queued') })),
   z.readonly(z.object({ phase: z.literal('working') })),
   z.readonly(z.object({ phase: z.literal('needs-input'), question: questionSchema })),
-  z.readonly(z.object({ phase: z.literal('result-ready'), resultUrl: z.url() })),
+  z.readonly(
+    z.object({
+      phase: z.literal('result-ready'),
+      // Opened for the user: a web page only, never `javascript:`, `data:` or extension pages.
+      resultUrl: z.url({ protocol: /^https?$/ }),
+    }),
+  ),
   z.readonly(z.object({ phase: z.literal('failed'), reason: z.string() })),
   z.readonly(z.object({ phase: z.literal('closed') })),
 ]);

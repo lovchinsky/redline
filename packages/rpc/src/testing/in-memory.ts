@@ -12,19 +12,21 @@ import type {
  * In-process transports for tests. Messages are structured-cloned to reproduce
  * the serialization boundary between extension contexts.
  */
-export const createInMemoryBus = (caller: CallerInfo = {}) => {
+export const createInMemoryBus = (caller: CallerInfo = { kind: 'extension' }) => {
   const handlers = new Set<RequestHandler>();
   const listeners = new Set<(message: unknown) => void>();
 
-  const client: ClientTransport = {
+  /** A client whose requests arrive as sent by `as`, e.g. a content script in some tab. */
+  const clientAs = (as: CallerInfo): ClientTransport => ({
     async send(request) {
       for (const handler of handlers) {
-        const reply = handler(structuredClone(request), caller);
+        const reply = handler(structuredClone(request), as);
         if (reply !== undefined) return ok(structuredClone(await reply));
       }
       return err(appError('transport', 'No receiver for request'));
     },
-  };
+  });
+  const client = clientAs(caller);
 
   const server: ServerTransport = {
     listen(handler) {
@@ -46,5 +48,5 @@ export const createInMemoryBus = (caller: CallerInfo = {}) => {
     },
   };
 
-  return { client, server, sink, source };
+  return { client, clientAs, server, sink, source };
 };

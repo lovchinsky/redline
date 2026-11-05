@@ -17,7 +17,7 @@ export const pageMetaFragment = defineFragment({
     summarize: ({ data }) => {
       const viewport = `${String(data.viewport.width)}×${String(data.viewport.height)} @${String(data.devicePixelRatio)}x`;
       const facts = [viewport, data.colorScheme, ENVIRONMENT_LABELS[data.environment]];
-      if (data.language !== null) facts.push(`lang ${data.language}`);
+      if (data.language !== null) facts.push(`lang ${md.escapeText(data.language)}`);
       return [
         {
           section: 'page',

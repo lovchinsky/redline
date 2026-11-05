@@ -40,6 +40,11 @@ export default defineConfig({
     // e2e builds only: see E2E_HOST_PERMISSIONS.
     ...(mode === E2E_MODE ? { host_permissions: E2E_HOST_PERMISSIONS } : {}),
     action: { default_title: '__MSG_extName__' },
+    // The composer frame: pages embed it, so what the user types never enters the page.
+    // A dynamic URL keeps pages from detecting the extension by probing for it.
+    web_accessible_resources: [
+      { resources: ['composer.html'], matches: ['<all_urls>'], use_dynamic_url: true },
+    ],
     commands: {
       'start-capture': {
         suggested_key: { default: 'Alt+Shift+A' },

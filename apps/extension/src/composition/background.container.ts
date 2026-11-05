@@ -147,10 +147,6 @@ export const createBackgroundContainer = () => {
           logger.warn('Could not open a task from a notification', { cause: String(cause) });
         });
       };
-      // A notice explains why capture failed on one page; it should not outlive that page.
-      const onTabUpdated = (tabId: number, change: Browser.tabs.OnUpdatedInfo) => {
-        if (change.status === 'loading') void services.notice.clear(tabId);
-      };
       const onStartup = () => {
         runGarbageCollection();
       };
@@ -168,7 +164,6 @@ export const createBackgroundContainer = () => {
       browser.runtime.onStartup.addListener(onStartup);
       browser.alarms.onAlarm.addListener(onAlarm);
       browser.notifications.onClicked.addListener(onNotificationClick);
-      browser.tabs.onUpdated.addListener(onTabUpdated);
       browser.storage.onChanged.addListener(onStorageChanged);
       browser.permissions.onAdded.addListener(onPermissionsChanged);
       browser.permissions.onRemoved.addListener(onPermissionsChanged);
@@ -188,7 +183,6 @@ export const createBackgroundContainer = () => {
         browser.runtime.onStartup.removeListener(onStartup);
         browser.alarms.onAlarm.removeListener(onAlarm);
         browser.notifications.onClicked.removeListener(onNotificationClick);
-        browser.tabs.onUpdated.removeListener(onTabUpdated);
         browser.storage.onChanged.removeListener(onStorageChanged);
         browser.permissions.onAdded.removeListener(onPermissionsChanged);
         browser.permissions.onRemoved.removeListener(onPermissionsChanged);

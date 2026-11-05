@@ -3,9 +3,8 @@ import type { Page } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { captureStep, drawLassoAround, startCapture } from './capture-helpers';
+import { captureStep, composerOf, drawLassoAround, startCapture } from './capture-helpers';
 import { SITE_ORIGIN, expect, launchExtension, openOptions, openSidePanel, test } from './fixtures';
-import { OverlayProbe } from './overlay-probe';
 
 /**
  * Screenshots of every UI surface in its main states, for design review. Not a test of
@@ -50,9 +49,8 @@ test('UI gallery', async () => {
     const card = await site.getByTestId('enterprise-card').boundingBox();
     if (card === null) throw new Error('no card');
     await drawLassoAround(site, card);
-    const probe = await OverlayProbe.attach(site);
-    await expect.poll(() => probe.text('shape-summaries')).not.toBe('');
-    await expect.poll(() => probe.focused('comment')).toBe(true);
+    const composer = await composerOf(site);
+    await expect(composer.getByTestId('comment')).toBeFocused();
     await site.keyboard.type('Зроби кнопку основним кольором');
     await shot(site, '02-overlay-composer');
     await context.close();

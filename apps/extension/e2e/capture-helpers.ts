@@ -1,7 +1,6 @@
 import { REQUEST_TYPE } from '@redline/rpc';
-import type { Page, Worker } from '@playwright/test';
+import type { Frame, Page, Worker } from '@playwright/test';
 import { expect } from './fixtures';
-import { OverlayProbe } from './overlay-probe';
 
 /** Asks the service worker to start capture in the tab showing `url`, as a UI page would. */
 export const startCapture = async (extensionPage: Page, url: string): Promise<unknown> =>
@@ -45,6 +44,22 @@ export const drawLassoAround = async (
     await page.mouse.move(next.x, next.y);
   }
   await page.mouse.up();
+};
+
+/**
+ * The composer frame of the capture overlay in `page`. It runs on the extension's origin, so
+ * Playwright reaches it as a frame of its own, the way the page itself cannot.
+ */
+export const composerOf = async (page: Page): Promise<Frame> => {
+  let frame: Frame | undefined;
+  await expect
+    .poll(() => {
+      frame = page.frames().find((candidate) => candidate.url().includes('/composer.html'));
+      return frame !== undefined;
+    })
+    .toBe(true);
+  if (frame === undefined) throw new Error('No composer frame');
+  return frame;
 };
 
 /** Every record of an object store, read straight from the service worker's database. */
@@ -94,17 +109,17 @@ export const captureStep = async (
     height: Math.max(...boxes.map((b) => b.bottom)) - top,
   });
 
-  const probe = await OverlayProbe.attach(page);
+  const composer = await composerOf(page);
   await expect
     .poll(async () => {
-      const summary = await probe.text('shape-summaries');
+      const summary = await composer.getByTestId('shape-summaries').textContent();
       return summary !== null && summary !== '' && !summary.startsWith('Визначаю');
     })
     .toBe(true);
   // Type into the comment field itself rather than wherever focus happens to be.
-  await probe.click('comment');
+  await composer.getByTestId('comment').click();
   await page.keyboard.type(step.comment);
-  await probe.click('submit');
+  await composer.getByTestId('submit').click();
   await expect(page.locator('redline-overlay')).toHaveCount(0);
 };
 

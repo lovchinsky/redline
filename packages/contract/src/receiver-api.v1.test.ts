@@ -38,6 +38,19 @@ describe('receiver api v1', () => {
     ).toBe(false);
   });
 
+  it('accepts a result only as a web page', () => {
+    const report = (resultUrl: string) =>
+      taskStateResponseSchema.safeParse({
+        remoteId: 'r1',
+        status: { phase: 'result-ready', resultUrl },
+        pollAfterSec: 30,
+      }).success;
+    expect(report('https://github.com/acme/web/pull/1')).toBe(true);
+    for (const unsafe of ['javascript:alert(1)', 'data:text/html,x', 'chrome-extension://id/x']) {
+      expect({ unsafe, accepted: report(unsafe) }).toEqual({ unsafe, accepted: false });
+    }
+  });
+
   it('encodes remote ids in routes', () => {
     expect(receiverRoutes.getTask('a/b')).toBe('/v1/tasks/a%2Fb');
     expect(receiverRoutes.replyToTask('r1')).toBe('/v1/tasks/r1/replies');

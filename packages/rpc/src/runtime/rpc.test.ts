@@ -12,12 +12,21 @@ const protocol = defineProtocol({
   'math.double': {
     request: z.object({ n: z.number() }),
     response: z.object({ result: z.number() }),
+    callers: ['content-script'],
   },
   'math.fail': {
     request: z.object({}),
     response: z.object({}),
+    callers: ['extension', 'content-script'],
+  },
+  'math.admin': {
+    request: z.object({ n: z.number() }),
+    response: z.object({}),
+    callers: ['extension'],
   },
 });
+
+const tab = { kind: 'content-script', tabId: 7, frameId: 0, url: 'https://acme.io/' } as const;
 
 const events = defineEvents({
   'math.doubled': z.object({ n: z.number() }),
@@ -43,11 +52,12 @@ const createLogger = (): Logger & { errors: unknown[] } => {
 };
 
 const setup = (overrides: Partial<ProtocolHandlers<typeof protocol>> = {}) => {
-  const bus = createInMemoryBus({ tabId: 7 });
+  const bus = createInMemoryBus(tab);
   const logger = createLogger();
   const handlers: ProtocolHandlers<typeof protocol> = {
     'math.double': ({ n }) => Promise.resolve(ok({ result: n * 2 })),
     'math.fail': () => Promise.resolve(err(appError('not-found', 'nothing here'))),
+    'math.admin': () => Promise.resolve(ok({})),
     ...overrides,
   };
   new RpcServer(protocol, handlers, logger).listen(bus.server);
@@ -65,7 +75,24 @@ describe('RpcClient ↔ RpcServer', () => {
     const handler = vi.fn(() => Promise.resolve(ok({ result: 0 })));
     const { client } = setup({ 'math.double': handler });
     await client.call('math.double', { n: 1 });
-    expect(handler).toHaveBeenCalledWith({ n: 1 }, { tabId: 7 });
+    expect(handler).toHaveBeenCalledWith({ n: 1 }, tab);
+  });
+
+  it('refuses a method to callers outside its audience, before reading the request', async () => {
+    const admin = vi.fn(() => Promise.resolve(ok({})));
+    const { client, bus } = setup({ 'math.admin': admin });
+    const result = await client.call('math.admin', { n: 1 });
+    expect(result.ok ? null : result.error.code).toBe('permission-denied');
+    expect(admin).not.toHaveBeenCalled();
+
+    const fromExtension = new RpcClient(
+      protocol,
+      bus.clientAs({ kind: 'extension' }),
+      sequentialIds(),
+    );
+    await expect(fromExtension.call('math.admin', { n: 1 })).resolves.toEqual(ok({}));
+    const refused = await fromExtension.call('math.double', { n: 1 });
+    expect(refused.ok ? null : refused.error.code).toBe('permission-denied');
   });
 
   it('propagates handler errors as AppError', async () => {

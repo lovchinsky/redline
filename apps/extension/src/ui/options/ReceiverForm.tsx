@@ -36,6 +36,11 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
     void load();
   }, [load]);
 
+  // The stored token stays only while the address points to the same server.
+  const keepsToken =
+    stored?.hasToken === true &&
+    URL.parse(url.trim())?.origin === URL.parse(stored.baseUrl)?.origin;
+
   const save = async () => {
     // Asked first, while the click still counts as a user gesture.
     let origin: string | null = null;
@@ -114,7 +119,7 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
             type="password"
             autocomplete="off"
             value={token}
-            placeholder={stored?.hasToken === true ? t.text('tokenKept') : t.text('tokenNone')}
+            placeholder={keepsToken ? t.text('tokenKept') : t.text('tokenNone')}
             onInput={(event) => {
               setToken(event.currentTarget.value);
             }}

@@ -141,7 +141,12 @@ export const TaskCard = ({
         {describeTaskState(t, task)}
       </Badge>
       {status?.phase === 'needs-input' && (
-        <QuestionForm task={task} question={status.question} actions={actions} />
+        <QuestionForm
+          key={status.question.id}
+          task={task}
+          question={status.question}
+          actions={actions}
+        />
       )}
       {(status?.phase === 'result-ready' || state.kind === 'queued' || state.kind === 'failed') && (
         <div class="task-actions">

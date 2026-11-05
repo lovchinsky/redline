@@ -32,8 +32,17 @@ beforeEach(() => {
 const taskId = TaskId.parse('task-1');
 
 describe('IdbTaskRepository', () => {
+  const logged: unknown[] = [];
+  const logger: Logger = {
+    debug: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
+    error: (message, context) => logged.push({ message, context }),
+    child: () => logger,
+  };
+
   it('round-trips tasks through the domain schema', async () => {
-    const tasks = new IdbTaskRepository(connection);
+    const tasks = new IdbTaskRepository(connection, logger);
     const task = createDraft(taskId, 5);
     value(await tasks.save(task));
     expect(value(await tasks.get(taskId))).toEqual(task);
@@ -45,8 +54,21 @@ describe('IdbTaskRepository', () => {
   it('reports a corrupted record instead of trusting it', async () => {
     const db = await connection.get();
     await db.put('tasks', { id: 'task-1', steps: 'not an array' });
-    const read = await new IdbTaskRepository(connection).get(taskId);
+    const read = await new IdbTaskRepository(connection, logger).get(taskId);
     expect(read).toMatchObject({ ok: false, error: { code: 'storage' } });
+  });
+
+  it('lists the readable tasks past a corrupted one, reporting it once', async () => {
+    const tasks = new IdbTaskRepository(connection, logger);
+    const good = createDraft(TaskId.parse('task-2'), 5);
+    value(await tasks.save(good));
+    const db = await connection.get();
+    await db.put('tasks', { id: 'task-1', steps: 'not an array' });
+    logged.length = 0;
+
+    expect(value(await tasks.list())).toEqual([good]);
+    expect(value(await tasks.list())).toEqual([good]);
+    expect(logged).toHaveLength(1);
   });
 });
 

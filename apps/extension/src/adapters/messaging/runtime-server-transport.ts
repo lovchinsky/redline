@@ -1,15 +1,24 @@
 import type { CallerInfo, RequestHandler, ServerTransport, Unsubscribe } from '@redline/rpc';
 import { browser, type Browser } from 'wxt/browser';
 
-const toCallerInfo = (sender: Browser.runtime.MessageSender): CallerInfo => ({
-  ...(sender.tab?.id === undefined ? {} : { tabId: sender.tab.id }),
-  ...(sender.frameId === undefined ? {} : { frameId: sender.frameId }),
-  ...(sender.url === undefined ? {} : { url: sender.url }),
-});
+/**
+ * Who sent a message, from what Chrome vouches for: the extension's own pages are on its
+ * origin; anything else of ours runs as a content script in a tab's frame. Messages from
+ * other extensions, or without a frame to answer to, have no caller and are ignored.
+ */
+const callerOf = (sender: Browser.runtime.MessageSender): CallerInfo | null => {
+  if (sender.id !== browser.runtime.id || sender.url === undefined) return null;
+  if (URL.parse(sender.url)?.origin === new URL(browser.runtime.getURL('/')).origin) {
+    return { kind: 'extension' };
+  }
+  const tabId = sender.tab?.id;
+  if (tabId === undefined || sender.frameId === undefined) return null;
+  return { kind: 'content-script', tabId, frameId: sender.frameId, url: sender.url };
+};
 
 /**
- * Serves RPC requests from `runtime.onMessage` in the service worker.
- * Must be attached synchronously during worker start-up so wake-up messages are not lost.
+ * Serves RPC requests from `runtime.onMessage`, in the service worker and in content scripts.
+ * Must be attached synchronously during start-up so wake-up messages are not lost.
  */
 export class RuntimeServerTransport implements ServerTransport {
   listen(handler: RequestHandler): Unsubscribe {
@@ -18,7 +27,9 @@ export class RuntimeServerTransport implements ServerTransport {
       sender: Browser.runtime.MessageSender,
       sendResponse: (response: unknown) => void,
     ): boolean => {
-      const reply = handler(message, toCallerInfo(sender));
+      const caller = callerOf(sender);
+      if (caller === null) return false;
+      const reply = handler(message, caller);
       if (reply === undefined) return false;
       void reply.then(sendResponse);
       return true; // keeps the channel open for the asynchronous response

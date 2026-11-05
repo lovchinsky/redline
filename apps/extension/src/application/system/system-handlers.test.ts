@@ -26,7 +26,7 @@ describe('system.ping', () => {
       logger: silentLogger,
     });
 
-    const result = await handlers['system.ping']({ nonce: 'n1' }, {});
+    const result = await handlers['system.ping']({ nonce: 'n1' }, { kind: 'extension' });
 
     expect(result).toEqual({ ok: true, value: { nonce: 'n1', version: '0.1.0', receivedAt: 123 } });
     expect(announced).toEqual([{ nonce: 'n1', at: 123 }]);

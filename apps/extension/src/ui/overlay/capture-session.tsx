@@ -31,6 +31,8 @@ import type { ViewportSnapshots } from '../../ports/capture';
 import type { Translator } from '../../ports/i18n';
 import { TranslatorProvider } from '../shared/i18n';
 import type { OverlayHost } from './overlay-host';
+import { ComposerFrame } from './composer-frame';
+import type { ComposerView, FromComposer } from './composer-messages';
 import { OverlayView } from './OverlayView';
 
 /** What a shape resolved to: live elements (content script only) and the page it was drawn on. */
@@ -56,6 +58,8 @@ export interface CaptureSessionDeps {
   readonly initialSnapshot: ViewportSnapshot | null;
   /** Hands a finished step over for context collection. Failure keeps the composer open. */
   readonly commit: (step: StepSubject) => Promise<Result<unknown, AppError>>;
+  /** The composer page and the extension's origin: what the user types never enters the page. */
+  readonly composer: { readonly url: string; readonly origin: string };
   readonly config?: MachineConfig;
 }
 
@@ -96,18 +100,41 @@ export class CaptureSession {
   private frame: number | null = null;
   /** The element keyboard picking is on, while picking. */
   private cursor: Element | null = null;
+  /** What had focus on the page when capture started: where keyboard picking begins. */
+  private readonly pageFocus: Element | null;
+  /** The overlay's markup (hints), beside the composer frame. */
+  private hints: HTMLElement | null = null;
+  private composer: ComposerFrame | null = null;
+  private composerOpen = false;
   private viewDirty = true;
   private ended = false;
   private readonly outcome = Promise.withResolvers<SessionOutcome>();
 
   constructor(private readonly deps: CaptureSessionDeps) {
     this.snapshot = deps.initialSnapshot;
+    const focused = deps.view.document.activeElement;
+    this.pageFocus =
+      focused === null || focused === deps.view.document.body || deps.host.owns(focused)
+        ? null
+        : focused;
     this.renderer = new LassoRenderer(deps.host.canvas, deps.view);
     this.reducedMotion = deps.view.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
   /** Attaches input handling and resolves once the session has ended. */
   run(): Promise<SessionOutcome> {
+    const { ui } = this.deps.host;
+    this.hints = ui.ownerDocument.createElement('div');
+    ui.append(this.hints);
+    this.composer = new ComposerFrame(this.deps.host.ui, {
+      url: this.deps.composer.url,
+      origin: this.deps.composer.origin,
+      token: this.deps.ids.next(),
+      title: this.deps.i18n.text('overlayLabel'),
+      onMessage: (message) => {
+        this.onComposer(message);
+      },
+    });
     this.listen();
     this.update();
     return this.outcome.promise;
@@ -367,12 +394,38 @@ export class CaptureSession {
     }
   }
 
-  /** Keyboard picking starts on the focused element, or the first one on screen. */
+  /** What the user did in the composer frame. */
+  private onComposer(message: FromComposer): void {
+    switch (message.type) {
+      case 'comment':
+        this.dispatch({ type: 'comment-changed', comment: message.text });
+        return;
+      case 'submit':
+        this.dispatch({ type: 'submit' });
+        return;
+      case 'cancel':
+        this.dispatch({ type: 'escape' });
+        return;
+      case 'remove-last-shape':
+        this.dispatch({ type: 'remove-last-shape' });
+        return;
+      case 'pick-keyboard':
+        this.startPicking();
+        return;
+      case 'size':
+        return;
+    }
+  }
+
+  /**
+   * Keyboard picking starts on what had focus on the page when capture began (the overlay's own
+   * focus says nothing about the page), or on the first element on screen.
+   */
   private startPicking(): void {
     const { view, dom, traversal } = this.deps;
-    const focused = view.document.activeElement;
+    const focused = this.pageFocus;
     const start =
-      focused !== null && focused !== view.document.body && dom.isVisible(focused)
+      focused !== null && focused.isConnected && dom.isVisible(focused)
         ? focused
         : traversal.first({ x: 0, y: 0, width: view.innerWidth, height: view.innerHeight });
     if (start === null) return;
@@ -394,6 +447,7 @@ export class CaptureSession {
     if (this.state.kind !== 'picking') this.cursor = null;
     // Pointer input stays on the canvas while picking, so a stray click never reaches the page.
     this.deps.host.setDrawingEnabled(this.state.kind !== 'committing');
+    this.updateComposer(this.state);
     this.viewDirty = true;
     this.requestFrame();
   }
@@ -417,33 +471,43 @@ export class CaptureSession {
     if (!this.reducedMotion && scene.outlines.length > 0) this.requestFrame();
   }
 
+  /** Opens, updates or closes the composer frame to match the state. */
+  private updateComposer(state: Exclude<CaptureState, { kind: 'closed' }>): void {
+    const composer = this.composer;
+    if (composer === null) return;
+    if (state.kind !== 'composing' && state.kind !== 'committing') {
+      if (this.composerOpen) composer.close();
+      this.composerOpen = false;
+      return;
+    }
+    const view: ComposerView = {
+      shapes: state.shapes.map((entry) => entry.resolution),
+      comment: state.draft.comment,
+      problem: state.draft.problem,
+      committing: state.kind === 'committing',
+    };
+    if (this.composerOpen) composer.update(view);
+    else composer.open(view);
+    this.composerOpen = true;
+  }
+
   private renderView(state: Exclude<CaptureState, { kind: 'closed' }>): void {
-    const { view } = this.deps;
+    const anchor = this.anchorOf(state);
+    if (this.composerOpen && anchor !== null) {
+      this.composer?.placeNear(anchor, {
+        width: this.deps.view.innerWidth,
+        height: this.deps.view.innerHeight,
+      });
+    }
+    if (this.hints === null) return;
     render(
       <TranslatorProvider translator={this.deps.i18n}>
         <OverlayView
           state={state}
-          anchor={this.anchorOf(state)}
-          viewport={{ width: view.innerWidth, height: view.innerHeight }}
           cursor={this.cursor === null ? null : describeElement(this.cursor)}
-          onPickWithKeyboard={() => {
-            this.startPicking();
-          }}
-          onCommentChange={(comment) => {
-            this.dispatch({ type: 'comment-changed', comment });
-          }}
-          onRemoveLastShape={() => {
-            this.dispatch({ type: 'remove-last-shape' });
-          }}
-          onSubmit={() => {
-            this.dispatch({ type: 'submit' });
-          }}
-          onCancel={() => {
-            this.dispatch({ type: 'escape' });
-          }}
         />
       </TranslatorProvider>,
-      this.deps.host.ui,
+      this.hints,
     );
   }
 
@@ -511,8 +575,13 @@ export class CaptureSession {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     if (this.frame !== null) this.deps.view.cancelAnimationFrame(this.frame);
     this.frame = null;
-    render(null, this.deps.host.ui);
+    if (this.hints !== null) render(null, this.hints);
+    this.composer?.dispose();
     this.deps.host.remove();
+    // Focus goes back to where the user was on the page, not to the document body.
+    if (this.pageFocus instanceof HTMLElement && this.pageFocus.isConnected) {
+      this.pageFocus.focus({ preventScroll: true });
+    }
     this.outcome.resolve(outcome);
   }
 }

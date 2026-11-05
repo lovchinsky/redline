@@ -22,7 +22,8 @@ export const DraftsPanel = ({ services }: { services: UiServices }) => {
     <>
       <div class="panel-content">
         <ErrorAlert error={state.error} />
-        <DraftHeader drafts={state.drafts} draft={draft} actions={actions} />
+        {/* Keyed by draft: a pending confirmation belongs to the draft it was started on. */}
+        <DraftHeader key={draft?.id} drafts={state.drafts} draft={draft} actions={actions} />
         {hasSteps ? (
           <>
             <ol class="steps" data-testid="steps" aria-label={t.text('stepsLabel')}>
@@ -46,6 +47,8 @@ export const DraftsPanel = ({ services }: { services: UiServices }) => {
       </div>
       {hasSteps && (
         <ActionBar
+          // Keyed by draft: a project chosen for one draft never carries over to the next.
+          key={draft.id}
           services={services}
           draft={draft}
           onPreview={() => {

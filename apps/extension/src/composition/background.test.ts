@@ -52,11 +52,12 @@ const record = (comment: string, url = 'https://acme.io/orders/42'): StepRecord 
   shapeIds: ['shape-1'],
 });
 
-const setup = () => {
+/** The service worker over fakes; `fetch` can stand in for the network (e.g. one that hangs). */
+const setup = (network: typeof fetch = (input, init) => fetch(input, init)) => {
   globalThis.indexedDB = new IDBFactory();
   let now = 1_000_000;
   let n = 0;
-  const bus = createInMemoryBus({});
+  const bus = createInMemoryBus();
   const notices: TaskNotice[] = [];
   const wakeUps = new Map<WakeUpReason, number | null>();
   const activity: { active: number; needsInput: number }[] = [];
@@ -70,7 +71,7 @@ const setup = () => {
       ids: { next: () => `id-${String(++n)}` },
       database: new DatabaseConnection(() => openDatabase({ name: 'sw', logger: silentLogger })),
       storage: memoryStorageArea(),
-      fetch: (input, init) => fetch(input, init),
+      fetch: (input, init) => network(input, init),
       eventSink: bus.sink,
       wakeUps: {
         schedule: (reason, time) => {
@@ -111,12 +112,23 @@ const setup = () => {
     changes.push(payload),
   );
   const rpc = new RpcClient(protocol, bus.client, { next: () => `rpc-${String(++n)}` });
+  /** The capture content script in a page: a narrower audience than extension pages. */
+  const page = new RpcClient(
+    protocol,
+    bus.clientAs({
+      kind: 'content-script',
+      tabId: 1,
+      frameId: 0,
+      url: 'https://acme.io/orders/42',
+    }),
+    { next: () => `page-${String(++n)}` },
+  );
 
   /** Commits a step whose context is a screenshot with a stored crop, as a page would. */
   const commit = async (comment: string, url?: string) => {
     const crop = value(await services.assets.put(new Blob([comment], { type: 'image/png' })));
     return value(
-      await rpc.call('capture.commitStep', {
+      await page.call('capture.commitStep', {
         step: record(comment, url),
         capture: {
           fragments: [
@@ -137,6 +149,7 @@ const setup = () => {
 
   return {
     rpc,
+    page,
     services,
     commit,
     notices,
@@ -194,7 +207,7 @@ describe('drafts', () => {
 
   it('rejects context that does not match its schema and stores nothing', async () => {
     const { taskId } = await app.commit('valid');
-    const bad = await app.rpc.call('capture.commitStep', {
+    const bad = await app.page.call('capture.commitStep', {
       step: record('bad'),
       capture: {
         fragments: [
@@ -332,6 +345,16 @@ describe('delivery', () => {
     expect(value(await app.rpc.call('projects.list', {})).projects).toEqual([acme]);
   });
 
+  it('keeps the token for the same server only, never carrying it to another origin', async () => {
+    value(await app.rpc.call('receiver.configure', { baseUrl: `${receiver.url}/v1` }));
+    expect(value(await app.rpc.call('receiver.get', {})).receiver?.hasToken).toBe(true);
+    value(await app.rpc.call('receiver.configure', { baseUrl: 'https://other.acme.io' }));
+    expect(value(await app.rpc.call('receiver.get', {})).receiver).toEqual({
+      baseUrl: 'https://other.acme.io',
+      hasToken: false,
+    });
+  });
+
   it('submits a draft: binds its site, delivers the frozen bundle, starts a new draft next', async () => {
     const { taskId } = await app.commit('Make the cards equal height');
     const preview = value(await app.rpc.call('task.assemble', { taskId }));
@@ -391,6 +414,22 @@ describe('delivery', () => {
     expect(await stateOf(taskId)).toMatchObject({ kind: 'submitted' });
     expect(receiver.tasks.size).toBe(1);
     expect(app.wakeUps.get('deliver')).toBeNull();
+  });
+
+  it('an attempt that never returns still counts, so the next one backs off', async () => {
+    const hanging = setup(() => new Promise<Response>(() => undefined));
+    value(await hanging.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
+    const { taskId } = await hanging.commit('Fix it');
+    value(await hanging.rpc.call('task.submit', { taskId, project: project() }));
+    // The worker stops while the request is in flight: only what was written before it counts.
+    void hanging.services.outbox.run();
+    await expect
+      .poll(async () => {
+        const { tasks } = value(await hanging.rpc.call('tasks.list', {}));
+        return tasks.find((task) => task.id === taskId)?.state;
+      })
+      .toMatchObject({ kind: 'queued', attempts: 1, nextAttemptAt: hanging.now() + 30_000 });
+    expect(hanging.wakeUps.get('deliver')).toBe(hanging.now() + 30_000);
   });
 
   it('a response lost after the receiver accepted creates no duplicate', async () => {
@@ -516,7 +555,7 @@ describe('diagnostics journal', () => {
   it('keeps the most recent captures first, up to its capacity', async () => {
     await Promise.all(
       Array.from({ length: 55 }, (_, index) =>
-        app.rpc.call('diagnostics.record', report(`https://acme.io/${String(index)}`)),
+        app.page.call('diagnostics.record', report(`https://acme.io/${String(index)}`)),
       ),
     );
     const { records } = value(await app.rpc.call('diagnostics.list', {}));
@@ -527,8 +566,22 @@ describe('diagnostics journal', () => {
   });
 
   it('empties on request', async () => {
-    value(await app.rpc.call('diagnostics.record', report('https://acme.io/')));
+    value(await app.page.call('diagnostics.record', report('https://acme.io/')));
     value(await app.rpc.call('diagnostics.clear', {}));
     expect(value(await app.rpc.call('diagnostics.list', {})).records).toEqual([]);
+  });
+});
+
+describe('caller audiences', () => {
+  it('keeps settings and tasks away from content scripts in web pages', async () => {
+    const configured = await app.page.call('receiver.configure', { baseUrl: 'https://evil.io' });
+    expect(configured.ok ? null : configured.error.code).toBe('permission-denied');
+    const listed = await app.page.call('tasks.list', {});
+    expect(listed.ok ? null : listed.error.code).toBe('permission-denied');
+  });
+
+  it('keeps capture plumbing away from extension pages', async () => {
+    const snapshot = await app.rpc.call('capture.snapshot', {});
+    expect(snapshot.ok ? null : snapshot.error.code).toBe('permission-denied');
   });
 });

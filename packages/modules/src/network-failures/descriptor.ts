@@ -17,7 +17,7 @@ export const networkFailuresFragment = defineFragment({
           ...data.requests.map((request) => {
             const status = request.status === 0 ? 'no response' : String(request.status);
             const repeated = request.count > 1 ? ` ×${String(request.count)}` : '';
-            return `- ${status} ${md.code(request.url)} (${request.initiator})${repeated}, ${String(request.secondsAgo)} s ago`;
+            return `- ${status} ${md.code(request.url)} (${md.escapeText(request.initiator)})${repeated}, ${String(request.secondsAgo)} s ago`;
           }),
         ].join('\n'),
       },

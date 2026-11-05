@@ -1,3 +1,5 @@
+import { decodeOrKeep } from '../shared/uri';
+
 /** Recognizes a path segment that is data (an id), not part of the route itself. */
 export interface RouteRule {
   readonly id: string;
@@ -26,7 +28,7 @@ const normalizePath = (path: string, rules: readonly RouteRule[]): string => {
     .split('/')
     .filter((segment) => segment !== '')
     .map((segment) => {
-      const decoded = decodeURIComponent(segment);
+      const decoded = decodeOrKeep(segment);
       return rules.some((rule) => rule.matches(decoded)) ? PARAM : segment;
     });
   return `/${segments.join('/')}`;

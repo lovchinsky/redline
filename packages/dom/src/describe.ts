@@ -1,7 +1,10 @@
 import type { DomQuery } from './dom-query';
-import { isGeneratedToken, semanticClasses } from './tokens';
+import { authoredClassTokens, readToken, semanticClasses, type TokenReading } from './tokens';
 
 const MAX_LABEL = 60;
+
+/** Worth showing a person: written by hand, as far as can be told. */
+const meaningful = (kind: TokenReading['kind']): boolean => kind === 'plain' || kind === 'scoped';
 
 /** Short human-readable label: `button.cta`, `section#pricing`, `div[data-testid=plan-card]`. */
 export const describeElement = (element: Element): string => {
@@ -11,11 +14,11 @@ export const describeElement = (element: Element): string => {
   const label =
     testId !== null && testId !== ''
       ? `${tag}[data-testid=${testId}]`
-      : id !== '' && !isGeneratedToken(id)
+      : id !== '' && meaningful(readToken(id).kind)
         ? `${tag}#${id}`
         : (() => {
-            const [first] = semanticClasses(element);
-            return first === undefined ? tag : `${tag}.${first}`;
+            const first = authoredClassTokens(element).find((token) => meaningful(token.kind));
+            return first === undefined ? tag : `${tag}.${first.authored}`;
           })();
   return label.length > MAX_LABEL ? `${label.slice(0, MAX_LABEL - 1)}…` : label;
 };

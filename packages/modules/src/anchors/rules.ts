@@ -1,4 +1,4 @@
-import { isGeneratedToken } from '@redline/dom';
+import { readToken } from '@redline/dom';
 import type { AnchorRule } from './candidate';
 import type { AnchorKind } from './types';
 
@@ -17,13 +17,25 @@ export const BASE_SCORES: Readonly<Record<AnchorKind, number>> = {
   class: 30,
 };
 
-const TOKEN_KINDS = new Set<AnchorKind>(['id', 'class', 'name', 'test-id']);
+/** Kinds a build tool may have named. Test ids are not among them: people write those for tools. */
+const TOKEN_KINDS = new Set<AnchorKind>(['id', 'class', 'name']);
 const WORDING_KINDS = new Set<AnchorKind>(['text', 'aria-label', 'title', 'placeholder', 'alt']);
 
-/** Build tools generate ids and classes that never appear in source. */
+/** Enough to sink a class below the cut and an id below wording. */
+const DIGEST_LIKE_PENALTY = -40;
+
+/**
+ * Build tools generate ids and classes that never appear in source. A known generator's token
+ * is rejected; one merely shaped like a digest is only distrusted, as it may be hand-written.
+ */
 export const generatedTokenRule: AnchorRule = {
   id: 'generated-token',
-  evaluate: ({ kind, raw }) => (TOKEN_KINDS.has(kind) && isGeneratedToken(raw) ? 'reject' : 0),
+  evaluate: ({ kind, raw }) => {
+    if (!TOKEN_KINDS.has(kind)) return 0;
+    const reading = readToken(raw);
+    if (reading.kind === 'generated') return 'reject';
+    return reading.kind === 'digest-like' ? DIGEST_LIKE_PENALTY : 0;
+  },
 };
 
 const GENERIC_WORDS = new Set([

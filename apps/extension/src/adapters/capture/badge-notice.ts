@@ -27,14 +27,20 @@ export class BadgeNotice implements CaptureUnavailableNotice {
     );
   }
 
+  /**
+   * Chrome drops tab-specific values itself when the tab navigates, so a notice never outlives
+   * its page. This clears it sooner, when capture works on the tab after all: leaving `text` out
+   * hands the badge back to the global count; the title has no such reset, so it takes the
+   * global one.
+   */
   async clear(tabId: number): Promise<void> {
-    // An empty tab-specific value falls back to the global badge and title.
-    await this.apply('clear', () =>
-      Promise.all([
-        browser.action.setBadgeText({ tabId, text: '' }),
-        browser.action.setTitle({ tabId, title: '' }),
-      ]),
-    );
+    await this.apply('clear', async () => {
+      const title = await browser.action.getTitle({});
+      await Promise.all([
+        browser.action.setBadgeText({ tabId }),
+        browser.action.setTitle({ tabId, title }),
+      ]);
+    });
   }
 
   private async apply(operation: string, run: () => Promise<unknown>): Promise<void> {

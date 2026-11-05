@@ -4,6 +4,7 @@ import {
   markSubmitted,
   ok,
   recordFailedAttempt,
+  startDeliveryAttempt,
   type AppError,
   type Clock,
   type DeliveryError,
@@ -61,7 +62,9 @@ export interface DeliverQueuedDeps {
  * The outbox: delivers every queued task whose attempt is due. Queued tasks are the durable
  * record of what still has to be sent, so a stopped worker, a crash or being offline loses
  * nothing; the task id as `Idempotency-Key` makes a repeated send of an accepted bundle return
- * the same remote task instead of a duplicate. Network calls run outside the write queue.
+ * the same remote task instead of a duplicate. Each attempt is written down before the request
+ * (write-ahead), so one that never returns still counts and backs off; network calls run
+ * outside the write queue.
  */
 export class DeliverQueued {
   private readonly runner = new CoalescingRunner(() => this.pass());
@@ -86,8 +89,41 @@ export class DeliverQueued {
     for (const task of due) await this.deliver(task);
   }
 
-  private async deliver(task: Task): Promise<void> {
-    if (task.state.kind !== 'queued') return;
+  /** Records the attempt before making it; null when the task is no longer due for one. */
+  private async begin(task: Task): Promise<Task | null> {
+    const started = await this.deps.writer.run(async () => {
+      const current = await this.deps.tasks.get(task.id);
+      const now = this.deps.clock.now();
+      // Changed meanwhile (deleted, sent, rescheduled): not this pass's to deliver.
+      if (
+        !current.ok ||
+        current.value.state.kind !== 'queued' ||
+        current.value.state.nextAttemptAt > now
+      ) {
+        return ok(null);
+      }
+      const attempt = current.value.state.attempts + 1;
+      const next = startDeliveryAttempt(current.value, now + retryDelayMs(attempt), now);
+      if (!next.ok) return next;
+      const written = await this.deps.tasks.save(next.value);
+      if (!written.ok) return written;
+      await this.deps.writer.announce({
+        taskId: task.id,
+        before: current.value,
+        after: next.value,
+      });
+      return ok(next.value);
+    });
+    if (!started.ok) {
+      this.deps.logger.error('Could not start a delivery attempt', { ...started.error });
+      return null;
+    }
+    return started.value;
+  }
+
+  private async deliver(due: Task): Promise<void> {
+    const task = await this.begin(due);
+    if (task?.state.kind !== 'queued') return;
     const { projectId, digest } = task.state;
     const stored = await this.deps.bundles.get(task.id);
     const outcome: Result<ReceiverReport, AppError> = !stored.ok
@@ -120,7 +156,7 @@ export class DeliverQueued {
           ? recordFailedAttempt(
               current.value,
               asDeliveryError(outcome.error),
-              now + retryDelayMs(current.value.state.attempts + 1, retryAfterOf(outcome.error)),
+              now + retryDelayMs(current.value.state.attempts, retryAfterOf(outcome.error)),
               now,
             )
           : markDeliveryFailed(current.value, asDeliveryError(outcome.error), now);

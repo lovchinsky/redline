@@ -1,5 +1,5 @@
 import type { Worker } from '@playwright/test';
-import { drawLassoAround, readStore, startCapture } from './capture-helpers';
+import { composerOf, drawLassoAround, readStore, startCapture } from './capture-helpers';
 import { SITE_ORIGIN, expect, openOptions, test } from './fixtures';
 import { OverlayProbe } from './overlay-probe';
 
@@ -63,11 +63,14 @@ test('circling cards collects context and adds the step to a draft with real scr
     height: first.height,
   });
 
-  const probe = await OverlayProbe.attach(page);
-  await expect.poll(() => probe.text('shape-summaries')).toBe('article[data-testid=plan-card] ×3');
-
+  const composer = await composerOf(page);
+  await expect(composer.getByTestId('shape-summaries')).toHaveText(
+    'article[data-testid=plan-card] ×3',
+  );
+  // The comment field takes focus by itself.
+  await expect(composer.getByTestId('comment')).toBeFocused();
   await page.keyboard.type('Make the cards equal height');
-  await probe.click('submit');
+  await composer.getByTestId('submit').click();
 
   await expect(page.locator('redline-overlay')).toHaveCount(0);
   await expect
@@ -117,13 +120,13 @@ test('submitting without a description keeps the composer open with a hint', asy
   if (card === null) throw new Error('fixture card is not rendered');
   await drawLassoAround(page, card);
 
-  const probe = await OverlayProbe.attach(page);
-  await expect
-    .poll(() => probe.text('shape-summaries'))
-    .toBe('article[data-testid=enterprise-card]');
-  await probe.click('submit');
+  const composer = await composerOf(page);
+  await expect(composer.getByTestId('shape-summaries')).toHaveText(
+    'article[data-testid=enterprise-card]',
+  );
+  await composer.getByTestId('submit').click();
 
-  await expect.poll(() => probe.text('problem')).toBe('Опишіть, що потрібно змінити');
+  await expect(composer.getByTestId('problem')).toHaveText('Опишіть, що потрібно змінити');
   await expect(page.locator('redline-overlay')).toHaveCount(1);
 });
 
@@ -173,11 +176,12 @@ test('choosing an element with the keyboard instead of drawing, then Diagnostics
     .toBe('Елемент: article[data-testid=enterprise-card]');
   await page.keyboard.press('Enter');
 
-  await expect
-    .poll(() => probe.text('shape-summaries'))
-    .toBe('article[data-testid=enterprise-card]');
+  const composer = await composerOf(page);
+  await expect(composer.getByTestId('shape-summaries')).toHaveText(
+    'article[data-testid=enterprise-card]',
+  );
   // The comment field takes focus: the step is described and saved without the pointer.
-  await expect.poll(() => probe.focused('comment')).toBe(true);
+  await expect(composer.getByTestId('comment')).toBeFocused();
   await page.keyboard.type('Rename Enterprise to Business');
   await page.keyboard.press('Enter');
   await expect(page.locator('redline-overlay')).toHaveCount(0);
@@ -188,4 +192,60 @@ test('choosing an element with the keyboard instead of drawing, then Diagnostics
   await record.locator('summary').click();
   await expect(record.locator('tr[data-outcome="collected"]').first()).toBeVisible();
   await expect(record.getByText('anchors')).toBeVisible();
+});
+
+test('a page cannot see what the user types in the composer', async ({
+  context,
+  extensionPage,
+}) => {
+  const page = await context.newPage();
+  // What session-replay and analytics scripts do: listen to every key in the capture phase.
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    Object.assign(window, { seen });
+    for (const target of [window, document]) {
+      for (const type of ['keydown', 'keyup', 'keypress', 'beforeinput', 'input']) {
+        target.addEventListener(
+          type,
+          (event) => {
+            seen.push(
+              event instanceof KeyboardEvent ? event.key : ((event as InputEvent).data ?? ''),
+            );
+          },
+          { capture: true },
+        );
+      }
+    }
+  });
+  await page.goto(pageUrl);
+  await startCapture(extensionPage, pageUrl);
+  await page.bringToFront();
+  const card = await page.getByTestId('enterprise-card').boundingBox();
+  if (card === null) throw new Error('fixture card is not rendered');
+  await drawLassoAround(page, card);
+
+  const composer = await composerOf(page);
+  await expect(composer.getByTestId('comment')).toBeFocused();
+  await page.keyboard.type('secret plan');
+  await expect(composer.getByTestId('comment')).toHaveValue('secret plan');
+  expect(await page.evaluate(() => (window as unknown as { seen: string[] }).seen)).toEqual([]);
+});
+
+test('choosing with the keyboard from the composer starts where the page had focus', async ({
+  context,
+  extensionPage,
+}) => {
+  const page = await context.newPage();
+  await page.goto(pageUrl);
+  await page.getByRole('link', { name: 'Pricing' }).focus();
+  await startCapture(extensionPage, pageUrl);
+  await page.bringToFront();
+  const card = await page.getByTestId('enterprise-card').boundingBox();
+  if (card === null) throw new Error('fixture card is not rendered');
+  await drawLassoAround(page, card);
+
+  const composer = await composerOf(page);
+  await composer.getByRole('button', { name: 'Вибрати з клавіатури' }).click();
+  const probe = await OverlayProbe.attach(page);
+  await expect.poll(() => probe.text('cursor')).toBe('Елемент: a');
 });

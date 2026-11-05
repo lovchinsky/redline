@@ -17,7 +17,11 @@ import type {
   SettingsStore,
 } from '../../ports/delivery';
 
-const REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * Below the 30 s Chrome gives a service worker waiting on a `fetch()` response before stopping
+ * it: a slow receiver ends as a recorded timeout, not as a worker killed mid-request.
+ */
+const REQUEST_TIMEOUT_MS = 25_000;
 
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 

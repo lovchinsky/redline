@@ -1,19 +1,15 @@
-import type { Point, Rect, Size } from '@redline/geometry';
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import type { CaptureState } from './capture-machine';
 import { Keyboard, LassoSelect, Undo2 } from 'lucide-preact';
+import type { Ref } from 'preact';
 import { Button, IconButton } from '../kit/Button';
 import { useTranslator } from '../shared/i18n';
+import type { ComposerView } from './composer-messages';
 import { PROBLEM_MESSAGES, describeResolution } from './copy';
-import { placePanel } from './placement';
-
-export type ComposerState = Extract<CaptureState, { kind: 'composing' | 'committing' }>;
 
 export interface ComposerProps {
-  readonly state: ComposerState;
-  /** Where the latest shape is on screen; the panel floats next to it. */
-  readonly anchor: Rect;
-  readonly viewport: Size;
+  readonly view: ComposerView;
+  readonly comment: string;
+  readonly commentRef: Ref<HTMLTextAreaElement>;
+  readonly panelRef: Ref<HTMLFormElement>;
   readonly onCommentChange: (comment: string) => void;
   readonly onRemoveLastShape: () => void;
   readonly onPickWithKeyboard: () => void;
@@ -21,10 +17,12 @@ export interface ComposerProps {
   readonly onCancel: () => void;
 }
 
+/** What was circled and what to change: the panel inside the composer frame. */
 export const Composer = ({
-  state,
-  anchor,
-  viewport,
+  view,
+  comment,
+  commentRef,
+  panelRef,
   onCommentChange,
   onRemoveLastShape,
   onPickWithKeyboard,
@@ -32,43 +30,13 @@ export const Composer = ({
   onCancel,
 }: ComposerProps) => {
   const t = useTranslator();
-  const panel = useRef<HTMLFormElement>(null);
-  const comment = useRef<HTMLTextAreaElement>(null);
-  const [position, setPosition] = useState<Point | null>(null);
-  const committing = state.kind === 'committing';
-
-  useLayoutEffect(() => {
-    const element = panel.current;
-    if (element === null) return;
-    setPosition(
-      placePanel(anchor, { width: element.offsetWidth, height: element.offsetHeight }, viewport),
-    );
-  }, [anchor, viewport, state]);
-
-  // A hidden element cannot take focus, so focus the comment once the panel is placed.
-  const placed = position !== null;
-  useEffect(() => {
-    if (placed) comment.current?.focus();
-  }, [placed]);
-
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-      event.preventDefault();
-      onSubmit();
-    }
-  };
+  const { committing } = view;
 
   return (
     <form
-      ref={panel}
+      ref={panelRef}
       class="composer"
       data-testid="composer"
-      data-placed={String(position !== null)}
-      style={
-        position === null
-          ? undefined
-          : { left: `${String(position.x)}px`, top: `${String(position.y)}px` }
-      }
       aria-label={t.text('overlayLabel')}
       onSubmit={(event) => {
         event.preventDefault();
@@ -78,7 +46,7 @@ export const Composer = ({
       <div class="composer-head">
         <span class="composer-count">
           <LassoSelect size={15} aria-hidden="true" />
-          {t.count('areaCount', state.shapes.length)}
+          {t.count('areaCount', view.shapes.length)}
         </span>
         <span class="composer-tools">
           <IconButton
@@ -98,26 +66,31 @@ export const Composer = ({
         </span>
       </div>
       <ul class="shapes" data-testid="shape-summaries">
-        {state.shapes.map((entry) => (
-          <li key={entry.shape.id}>{describeResolution(t, entry.resolution)}</li>
+        {view.shapes.map((resolution, index) => (
+          <li key={index}>{describeResolution(t, resolution)}</li>
         ))}
       </ul>
       <textarea
-        ref={comment}
+        ref={commentRef}
         class="textarea"
         data-testid="comment"
         aria-label={t.text('commentLabel')}
-        value={state.draft.comment}
+        value={comment}
         placeholder={t.text('commentPlaceholder')}
         disabled={committing}
         onInput={(event) => {
           onCommentChange(event.currentTarget.value);
         }}
-        onKeyDown={onKeyDown}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
       />
-      {state.draft.problem !== null && (
+      {view.problem !== null && (
         <p class="alert" role="alert" data-testid="problem">
-          {t.text(PROBLEM_MESSAGES[state.draft.problem])}
+          {t.text(PROBLEM_MESSAGES[view.problem])}
         </p>
       )}
       <div class="composer-foot">

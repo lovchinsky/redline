@@ -6,6 +6,7 @@ import { fragmentDescriptors } from '@redline/modules/descriptors';
 import { captureProfile } from '@redline/profiles';
 import { redactionProcessor } from '@redline/processors';
 import { RpcClient, RpcServer, protocol, tabProtocol } from '@redline/rpc';
+import { browser } from 'wxt/browser';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { pageInfoOf } from '../adapters/capture/page-info';
 import {
@@ -92,6 +93,11 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
         logger: logger.child('session'),
         snapshots,
         initialSnapshot,
+        // A per-session URL (use_dynamic_url), but the frame's document has the extension's origin.
+        composer: {
+          url: browser.runtime.getURL('/composer.html'),
+          origin: `chrome-extension://${browser.runtime.id}`,
+        },
         commit: async (step) => {
           const recorded = await recordStep.execute(step);
           if (recorded.ok) logger.info('Step added to draft', { ...recorded.value });

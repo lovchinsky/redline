@@ -22,7 +22,7 @@
 - text `Most popular` on `span.badge`
 - class `badge` on `span.badge`
 - class `card` on `article[data-testid=plan-card]`
-- class `Card_root` on `article[data-testid=plan-card]`
+- class `root` on `article[data-testid=plan-card]`
 
 **Layout of `article[data-testid=plan-card]`:** `display: block; overflow: hidden`
 

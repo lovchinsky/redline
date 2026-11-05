@@ -1,8 +1,7 @@
 /* The overlay's own layout; tokens and components come from tokens.css and kit.css. */
 
-/* The host resets every inherited property (all: initial), so the panels set their own type. */
-.hint,
-.composer {
+/* The host resets every inherited property (all: initial), so the hint sets its own type. */
+.hint {
   font: 13px/1.5 var(--rl-font);
   color: var(--rl-text);
   text-align: left;
@@ -77,85 +76,15 @@ ul {
   display: none;
 }
 
-/* The composer: what was circled and what to change. */
-.composer {
+/* The composer lives in a frame of the extension's origin (see composer-frame.ts). */
+.composer-frame {
   position: fixed;
-  display: grid;
-  /* One column no wider than the panel: long summaries truncate instead of stretching it. */
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-  width: 384px;
-  padding: 12px;
-  border: 1px solid var(--rl-border);
-  border-radius: var(--rl-radius-lg);
-  background: var(--rl-surface);
-  box-shadow: var(--rl-shadow-lg);
+  border: 0;
+  background: transparent;
+  color-scheme: light dark;
   pointer-events: auto;
 }
 
-.composer[data-placed='false'] {
+.composer-frame[data-visible='false'] {
   visibility: hidden;
-}
-
-.composer-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.composer-count {
-  display: inline-flex;
-  flex: 1;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.composer-count svg {
-  color: var(--rl-brand);
-}
-
-.composer-tools {
-  display: flex;
-  margin-right: -4px;
-}
-
-.shapes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 0;
-  list-style: none;
-}
-
-.shapes li {
-  max-width: 100%;
-  overflow: hidden;
-  padding: 2px 8px;
-  border-radius: var(--rl-radius-sm);
-  background: var(--rl-hover);
-  color: var(--rl-text-muted);
-  font: 11.5px/1.5 var(--rl-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.composer .textarea {
-  min-height: 76px;
-}
-
-.composer-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.composer-keys {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--rl-text-faint);
-  font-size: 11.5px;
 }

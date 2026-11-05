@@ -6,6 +6,7 @@ import {
   parseWith,
   taskSchema,
   type AppError,
+  type Logger,
   type Result,
   type Task,
   type TaskId,
@@ -23,7 +24,13 @@ const parseTask = (raw: unknown): Result<Task, AppError> => {
 };
 
 export class IdbTaskRepository implements TaskRepository {
-  constructor(private readonly connection: DatabaseConnection) {}
+  /** Corrupt records already reported, so each is logged once per worker life. */
+  private readonly reported = new Set<string>();
+
+  constructor(
+    private readonly connection: DatabaseConnection,
+    private readonly logger: Logger,
+  ) {}
 
   async get(id: TaskId): Promise<Result<Task, AppError>> {
     try {
@@ -37,14 +44,18 @@ export class IdbTaskRepository implements TaskRepository {
     }
   }
 
+  /**
+   * Every task that can be read. A corrupt record is left in place (it is still the user's data)
+   * and reported, but never stops the rest: the outbox, status checks and lists keep working.
+   */
   async list(): Promise<Result<readonly Task[], AppError>> {
     try {
       const db = await this.connection.get();
       const tasks: Task[] = [];
       for (const raw of await db.getAll('tasks')) {
         const task = parseTask(raw);
-        if (!task.ok) return task;
-        tasks.push(task.value);
+        if (task.ok) tasks.push(task.value);
+        else this.report(raw, task.error);
       }
       return ok(tasks);
     } catch (cause) {
@@ -70,5 +81,15 @@ export class IdbTaskRepository implements TaskRepository {
     } catch (cause) {
       return err(storageError(cause, 'Deleting task'));
     }
+  }
+
+  private report(raw: unknown, error: AppError): void {
+    const id =
+      typeof raw === 'object' && raw !== null && typeof (raw as { id?: unknown }).id === 'string'
+        ? (raw as { id: string }).id
+        : '(no id)';
+    if (this.reported.has(id)) return;
+    this.reported.add(id);
+    this.logger.error('Skipping a corrupt stored task', { id, ...error });
   }
 }

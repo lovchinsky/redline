@@ -70,7 +70,10 @@ export class ManageSettings {
     });
   }
 
-  /** `token` undefined keeps the stored token; `null` or empty removes it. */
+  /**
+   * `token` undefined keeps the stored token, but only for the same server: a token is a
+   * credential for one origin and never follows the address elsewhere. `null` or empty removes it.
+   */
   configureReceiver(baseUrl: string, token: string | null | undefined): Promise<Done> {
     return this.write(async () => {
       const url = normalizeReceiverUrl(baseUrl);
@@ -79,7 +82,10 @@ export class ManageSettings {
       if (token === undefined) {
         const stored = await this.deps.settings.receiver();
         if (!stored.ok) return stored;
-        nextToken = stored.value?.token ?? null;
+        const sameServer =
+          stored.value !== null &&
+          new URL(stored.value.baseUrl).origin === new URL(url.value).origin;
+        nextToken = sameServer ? stored.value.token : null;
       }
       return this.deps.settings.setReceiver({ baseUrl: url.value, token: nextToken });
     });

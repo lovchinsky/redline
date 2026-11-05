@@ -18,7 +18,7 @@ export const frameworkFragment = defineFragment({
     summarize: ({ data }) => {
       const framework = [
         FRAMEWORK_NAMES[data.framework],
-        data.version,
+        data.version === null ? null : md.escapeText(data.version),
         data.mode === 'unknown' ? null : `${data.mode} build`,
       ]
         .filter((part) => part !== null)

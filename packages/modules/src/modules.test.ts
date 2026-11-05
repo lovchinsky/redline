@@ -39,6 +39,22 @@ describe('anchors', () => {
     expect(anchors.some((a) => a.includes('css-1x2y3z'))).toBe(false);
   });
 
+  it('trusts test ids as written and distrusts ids shaped like digests', async () => {
+    mount(
+      '<section id="a8F3xq"><button data-testid="card2" id="checkout" class="_3xK9a">Pay now</button></section>',
+      '',
+    );
+    const set = await collect('anchors', [shapeAround('s1', [get('button')])]);
+    const anchors = first(set.ofKind('anchors')).data.anchors;
+    const scoreOf = (kind: string) => anchors.find((a) => a.kind === kind)?.score;
+
+    expect(anchors.map((a) => `${a.kind}:${a.value}`)).toEqual(
+      expect.arrayContaining(['test-id:card2', 'id:checkout']),
+    );
+    expect(anchors.some((a) => a.value === '_3xK9a')).toBe(false);
+    expect(scoreOf('test-id')).toBeGreaterThan(scoreOf('id') ?? Number.POSITIVE_INFINITY);
+  });
+
   it('drops utility classes with several segments, like Tailwind colours', async () => {
     mount(
       '<div class="rounded-lg border-gray-200 bg-white"><p class="text-sm text-red-600 hover:bg-indigo-50">Churn rate</p></div>',

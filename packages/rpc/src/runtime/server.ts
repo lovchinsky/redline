@@ -9,6 +9,7 @@ import {
   type Result,
 } from '@redline/core';
 import type {
+  CallerKindOf,
   MethodDefinition,
   MethodName,
   ProtocolDefinition,
@@ -22,11 +23,12 @@ import {
   requestEnvelopeSchema,
   type ResponseEnvelope,
 } from './envelope';
-import type { CallerInfo, ServerTransport, Unsubscribe } from './transport';
+import type { CallerInfo, CallerOf, ServerTransport, Unsubscribe } from './transport';
 
+/** A handler only ever sees the callers its method admits. */
 export type MethodHandler<P extends ProtocolDefinition<P>, M extends MethodName<P>> = (
   request: RequestOf<P, M>,
-  caller: CallerInfo,
+  caller: CallerOf<CallerKindOf<P, M>>,
 ) => Promise<Result<ResponseOf<P, M>, AppError>>;
 
 /** Exhaustive: a protocol method without a handler is a compile-time error. */
@@ -55,7 +57,8 @@ export class RpcServer<P extends ProtocolDefinition<P>> {
         method,
         {
           definition,
-          // Sound: the request is parsed with this method's own schema before the handler runs.
+          // Sound: the caller is checked against the method's audience and the request parsed
+          // with the method's own schema before the handler runs.
           handler: handlers[method as MethodName<P>] as UntypedHandler,
         },
       ]),
@@ -76,6 +79,14 @@ export class RpcServer<P extends ProtocolDefinition<P>> {
     const route = this.routes.get(method);
     if (route === undefined) {
       return respond(id, err(appError('validation', `Unknown RPC method: ${method}`)));
+    }
+
+    if (!route.definition.callers.includes(caller.kind)) {
+      this.logger.warn('RPC call refused for this caller', { method, caller: caller.kind });
+      return respond(
+        id,
+        err(appError('permission-denied', `${method} is not available to ${caller.kind}`)),
+      );
     }
 
     const request = parseWith(route.definition.request, payload);

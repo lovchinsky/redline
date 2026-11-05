@@ -1,13 +1,5 @@
-import {
-  appError,
-  err,
-  ok,
-  type AppError,
-  type AssetRef,
-  type AssetStore,
-  type Result,
-} from '@redline/core';
-import type { CallerInfo, ImageDerivationRequest } from '@redline/rpc';
+import { ok, type AppError, type AssetRef, type AssetStore, type Result } from '@redline/core';
+import type { ContentScriptCaller, ImageDerivationRequest } from '@redline/rpc';
 import type { CapturedImage, ImageDeriver, ViewportCapturer } from '../../ports/capture';
 
 export interface StoredImage {
@@ -27,17 +19,14 @@ const store = async (
     : asset;
 };
 
-/** Screenshots the calling tab's viewport. Only a content script in a tab may ask. */
+/** Screenshots the calling tab's viewport. */
 export class TakeSnapshot {
   constructor(
     private readonly capturer: ViewportCapturer,
     private readonly assets: AssetStore,
   ) {}
 
-  async execute(caller: CallerInfo): Promise<Result<StoredImage, AppError>> {
-    if (caller.tabId === undefined) {
-      return err(appError('validation', 'Snapshots can only be requested from a tab'));
-    }
+  async execute(caller: ContentScriptCaller): Promise<Result<StoredImage, AppError>> {
     return store(this.assets, await this.capturer.capture(caller.tabId));
   }
 }

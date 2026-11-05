@@ -171,16 +171,19 @@ export const protocol = defineProtocol({
   'system.ping': {
     request: z.object({ nonce: z.string().check(z.minLength(1)) }),
     response: z.object({ nonce: z.string(), version: z.string(), receivedAt: z.number() }),
+    callers: ['extension'],
   },
-  /** Screenshot of the calling tab's viewport, stored as an asset. Content scripts only. */
+  /** Screenshot of the calling tab's viewport, stored as an asset. */
   'capture.snapshot': {
     request: z.object({}),
     response: imageSchema,
+    callers: ['content-script'],
   },
   /** Crops, outlines and masks a stored snapshot into a new asset. */
   'capture.deriveImage': {
     request: imageDerivationSchema,
     response: imageSchema,
+    callers: ['content-script'],
   },
   /** Stores a captured step: its facts plus the collected fragments, validated per kind. */
   /** Adds a captured step to the active draft (creating one if needed). */
@@ -191,13 +194,15 @@ export const protocol = defineProtocol({
       stepId: StepId,
       stepCount: z.int().check(z.positive()),
     }),
+    callers: ['content-script'],
   },
-  /** Runs the page runtime in the calling frame's MAIN world. Content scripts only. */
-  'capture.injectPageRuntime': { request: empty, response: empty },
+  /** Runs the page runtime in the calling frame's MAIN world. */
+  'capture.injectPageRuntime': { request: empty, response: empty, callers: ['content-script'] },
   /** Starts capture in a tab the extension may access (activeTab grant or host permission). */
   'capture.start': {
     request: z.object({ tabId: z.int().check(z.nonnegative()) }),
     response: captureStartResponseSchema,
+    callers: ['extension'],
   },
   /** Drafts, most recently changed first, and the one new steps go to. */
   'drafts.list': {
@@ -206,15 +211,17 @@ export const protocol = defineProtocol({
       activeId: z.nullable(TaskId),
       drafts: z.readonly(z.array(draftSummarySchema)),
     }),
+    callers: ['extension'],
   },
-  'drafts.get': { request: taskRef, response: draftViewSchema },
+  'drafts.get': { request: taskRef, response: draftViewSchema, callers: ['extension'] },
   /** Creates an empty draft and makes it active. */
-  'drafts.create': { request: empty, response: taskRef },
+  'drafts.create': { request: empty, response: taskRef, callers: ['extension'] },
   /** Makes a draft the one new steps go to. */
-  'drafts.activate': { request: taskRef, response: empty },
+  'drafts.activate': { request: taskRef, response: empty, callers: ['extension'] },
   'drafts.rename': {
     request: z.object({ taskId: TaskId, title: z.string().check(z.maxLength(MAX_TITLE_LENGTH)) }),
     response: empty,
+    callers: ['extension'],
   },
 
   'steps.editComment': {
@@ -224,19 +231,25 @@ export const protocol = defineProtocol({
       comment: z.string().check(z.maxLength(MAX_COMMENT_LENGTH)),
     }),
     response: empty,
+    callers: ['extension'],
   },
   'steps.move': {
     request: z.object({ taskId: TaskId, stepId: StepId, toIndex: z.int().check(z.nonnegative()) }),
     response: empty,
+    callers: ['extension'],
   },
-  'steps.remove': { request: stepRef, response: empty },
+  'steps.remove': { request: stepRef, response: empty, callers: ['extension'] },
   /**
    * Assembles the task into a frozen bundle and describes it. The same bundle is delivered
    * later, so the preview shows exactly what will be sent.
    */
-  'task.assemble': { request: taskRef, response: bundlePreviewSchema },
+  'task.assemble': { request: taskRef, response: bundlePreviewSchema, callers: ['extension'] },
   /** Which project a draft would be delivered to, from the bindings of its sites. */
-  'task.deliveryTarget': { request: taskRef, response: deliveryTargetSchema },
+  'task.deliveryTarget': {
+    request: taskRef,
+    response: deliveryTargetSchema,
+    callers: ['extension'],
+  },
   /**
    * Queues a draft for delivery. `project` binds the draft's unbound sites to it; `null`
    * relies on the existing bindings. The frozen bundle of the draft is what gets sent.
@@ -244,13 +257,14 @@ export const protocol = defineProtocol({
   'task.submit': {
     request: z.object({ taskId: TaskId, project: z.nullable(projectSchema) }),
     response: empty,
+    callers: ['extension'],
   },
   /** Sends a refused or waiting task again now. */
-  'task.retry': { request: taskRef, response: empty },
+  'task.retry': { request: taskRef, response: empty, callers: ['extension'] },
   /** Turns a refused task back into the active draft. */
-  'task.reopen': { request: taskRef, response: empty },
+  'task.reopen': { request: taskRef, response: empty, callers: ['extension'] },
   /** Asks the receiver for news now, if its polling interval allows. */
-  'task.refresh': { request: taskRef, response: empty },
+  'task.refresh': { request: taskRef, response: empty, callers: ['extension'] },
   'task.reply': {
     request: z.object({
       taskId: TaskId,
@@ -258,46 +272,62 @@ export const protocol = defineProtocol({
       text: z.string().check(z.minLength(1), z.maxLength(MAX_COMMENT_LENGTH)),
     }),
     response: empty,
+    callers: ['extension'],
   },
   /** Tasks past the draft stage, most recently changed first. */
   'tasks.list': {
     request: empty,
     response: z.object({ tasks: z.readonly(z.array(taskSummarySchema)) }),
+    callers: ['extension'],
   },
   /** Deletes a task in any state, with its collected context. */
-  'tasks.delete': { request: taskRef, response: empty },
+  'tasks.delete': { request: taskRef, response: empty, callers: ['extension'] },
   'receiver.get': {
     request: empty,
     response: z.object({ receiver: z.nullable(receiverViewSchema) }),
+    callers: ['extension'],
   },
   /** `token` omitted keeps the stored one; `null` removes it. */
   'receiver.configure': {
     request: z.object({ baseUrl: z.string(), token: z.optional(z.nullable(z.string())) }),
     response: empty,
+    callers: ['extension'],
   },
-  'receiver.clear': { request: empty, response: empty },
+  'receiver.clear': { request: empty, response: empty, callers: ['extension'] },
   'projects.list': {
     request: empty,
     response: z.object({ projects: z.readonly(z.array(projectSchema)) }),
+    callers: ['extension'],
   },
   'bindings.list': {
     request: empty,
     response: z.object({ bindings: z.readonly(z.array(bindingSchema)) }),
+    callers: ['extension'],
   },
   /** Binds a site pattern to a project; responds with the pattern in canonical form. */
   'bindings.set': {
     request: z.object({ pattern: z.string(), project: projectSchema }),
     response: z.object({ pattern: z.string() }),
+    callers: ['extension'],
   },
-  'bindings.remove': { request: z.object({ pattern: z.string() }), response: empty },
-  /** Adds a capture to the local Diagnostics journal. Content scripts only. */
-  'diagnostics.record': { request: captureReportSchema, response: empty },
+  'bindings.remove': {
+    request: z.object({ pattern: z.string() }),
+    response: empty,
+    callers: ['extension'],
+  },
+  /** Adds a capture to the local Diagnostics journal. */
+  'diagnostics.record': {
+    request: captureReportSchema,
+    response: empty,
+    callers: ['content-script'],
+  },
   /** The journal, most recent first. */
   'diagnostics.list': {
     request: empty,
     response: z.object({ records: z.readonly(z.array(captureRecordSchema)) }),
+    callers: ['extension'],
   },
-  'diagnostics.clear': { request: empty, response: empty },
+  'diagnostics.clear': { request: empty, response: empty, callers: ['extension'] },
 });
 
 /** Every request a tab's content script serves. Sent by the service worker. */
@@ -305,6 +335,7 @@ export const tabProtocol = defineProtocol({
   'capture.start': {
     request: z.object({}),
     response: captureStartResponseSchema,
+    callers: ['extension'],
   },
 });
 

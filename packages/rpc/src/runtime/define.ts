@@ -1,8 +1,17 @@
 import type * as z from 'zod/mini';
 
+/**
+ * Who may call a method. `extension`: the extension's own pages and service worker.
+ * `content-script`: code running inside a web page, whose messages may come from a compromised
+ * renderer, so it only gets the few methods capture needs.
+ */
+export type CallerKind = 'extension' | 'content-script';
+
 export interface MethodDefinition {
   readonly request: z.ZodMiniType;
   readonly response: z.ZodMiniType;
+  /** Checked by the server before the request is even parsed. */
+  readonly callers: readonly CallerKind[];
 }
 
 /**
@@ -23,6 +32,10 @@ export type RequestOf<P extends ProtocolDefinition<P>, M extends MethodName<P>> 
 export type ResponseOf<P extends ProtocolDefinition<P>, M extends MethodName<P>> = z.output<
   P[M]['response']
 >;
+export type CallerKindOf<
+  P extends ProtocolDefinition<P>,
+  M extends MethodName<P>,
+> = P[M]['callers'][number];
 
 export type EventName<E extends EventsDefinition<E>> = Extract<keyof E, string>;
 export type PayloadOf<E extends EventsDefinition<E>, N extends EventName<E>> = z.output<E[N]>;

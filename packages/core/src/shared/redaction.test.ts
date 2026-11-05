@@ -8,6 +8,18 @@ describe('redactText', () => {
     ['Call +380 (67) 123-45-67 now', 'Call [phone] now'],
     ['Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.abcdefghijk', 'Bearer [token]'],
     ['key sk_live_4eC39HqLyjWDarjtT1zdp7dc', 'key [secret]'],
+    // URLs inside text: relative links, markup, error messages.
+    ['/account/reset?token=8c1f2e9a&step=2', '/account/reset?token=[redacted]&step=2'],
+    [
+      '<a href="https://app.acme.io/invite?ref=mail&amp;invite_code=Zx81">Join</a>',
+      '<a href="https://app.acme.io/invite?ref=mail&amp;invite_code=[redacted]">Join</a>',
+    ],
+    [
+      'Failed to load https://api.acme.io/v1/me?api_key=AbC123 (401)',
+      'Failed to load https://api.acme.io/v1/me?api_key=[redacted] (401)',
+    ],
+    ['GET https://bob:hunter2@db.acme.io/status', 'GET https://db.acme.io/status'],
+    ['callback#access_token=xyz&state=1', 'callback#access_token=[redacted]&state=1'],
   ])('%s', (input, expected) => {
     expect(redactText(input)).toBe(expected);
   });
@@ -19,6 +31,8 @@ describe('redactText', () => {
     'grid-cols-3 Card_root__x9f2a',
     'Ticket 1234 5678 9012 3456', // fails Luhn: an id, not a card
     'Version 1.23.456',
+    '/orders?page=2&sort=name',
+    'R&D team',
   ])('keeps %s', (input) => {
     expect(redactText(input)).toBe(input);
   });

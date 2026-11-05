@@ -1,3 +1,5 @@
+import { decodeOrKeep } from './uri';
+
 /**
  * Removes personal data and secrets from text before it leaves the page: what an agent needs
  * is the shape of the UI and where it lives in code, never the people or credentials in it.
@@ -5,10 +7,20 @@
  * code identifiers survive.
  */
 interface Rule {
-  readonly label: string;
   readonly pattern: RegExp;
-  readonly accept?: (match: string) => boolean;
+  /** What a match becomes, given the pattern's groups (all required); returning it unchanged keeps it. */
+  readonly replace: (match: string, ...groups: string[]) => string;
 }
+
+/** A labelled placeholder for matches that `accept` confirms (all of them by default). */
+const labelled =
+  (label: string, accept: (match: string) => boolean = () => true) =>
+  (match: string): string =>
+    accept(match) ? `[${label}]` : match;
+
+/** Query and fragment parameters that carry credentials or identities by name. */
+const SENSITIVE_PARAM =
+  /token|key|secret|pass(word|wd)?|pwd|auth|session|sig(nature)?|code|otp|email|jwt|credential/i;
 
 const passesLuhn = (digits: string): boolean => {
   let sum = 0;
@@ -24,48 +36,42 @@ const passesLuhn = (digits: string): boolean => {
 };
 
 const RULES: readonly Rule[] = [
-  { label: 'token', pattern: /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g },
+  // Text carries URLs too (links in markup, failed requests in errors, relative paths): their
+  // credentials go, and sensitive parameters lose their values wherever a query appears.
   {
-    label: 'secret',
+    pattern: /\b([a-z][a-z\d+.-]*:\/\/)[^\s/@:]+(?::[^\s/@]*)?@/gi,
+    replace: (_, scheme) => scheme,
+  },
+  {
+    pattern: /([?&#;]|&amp;)([\w.%[\]-]+)=([^&#\s"'<>]+)/g,
+    replace: (match, separator, name) =>
+      SENSITIVE_PARAM.test(name) ? `${separator}${name}=[redacted]` : match,
+  },
+  { pattern: /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}/g, replace: labelled('token') },
+  {
+    replace: labelled('secret'),
     pattern:
       /\b(?:[sprk]k_(?:live|test)_[A-Za-z0-9]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[abpr]-[A-Za-z0-9-]{10,})\b/g,
   },
-  { label: 'email', pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g },
   {
-    label: 'card',
-    pattern: /\b\d(?:[ -]?\d){12,18}\b/g,
-    accept: (match) => passesLuhn(match.replace(/\D/g, '')),
+    pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g,
+    replace: labelled('email'),
   },
   {
-    label: 'phone',
+    pattern: /\b\d(?:[ -]?\d){12,18}\b/g,
+    replace: labelled('card', (match) => passesLuhn(match.replace(/\D/g, ''))),
+  },
+  {
     pattern: /\+\d[\d ().-]{7,18}\d/g,
-    accept: (match) => {
+    replace: labelled('phone', (match) => {
       const digits = match.replace(/\D/g, '').length;
       return digits >= 10 && digits <= 15;
-    },
+    }),
   },
 ];
 
 export const redactText = (text: string): string =>
-  RULES.reduce(
-    (current, rule) =>
-      current.replace(rule.pattern, (match) =>
-        rule.accept === undefined || rule.accept(match) ? `[${rule.label}]` : match,
-      ),
-    text,
-  );
-
-const safeDecode = (decode: (text: string) => string, text: string): string => {
-  try {
-    return decode(text);
-  } catch {
-    return text;
-  }
-};
-
-/** Query and fragment parameters that carry credentials or identities by name. */
-const SENSITIVE_PARAM =
-  /token|key|secret|pass(word|wd)?|pwd|auth|session|sig(nature)?|code|otp|email|jwt|credential/i;
+  RULES.reduce((current, rule) => current.replace(rule.pattern, rule.replace), text);
 
 const redactParams = (params: URLSearchParams): void => {
   for (const [name, value] of [...params]) {
@@ -94,7 +100,7 @@ export const redactUrl = (text: string): string => {
     redactParams(fragment);
     url.hash = fragment.toString();
   }
-  url.pathname = redactText(safeDecode(decodeURIComponent, url.pathname));
+  url.pathname = redactText(decodeOrKeep(url.pathname));
   // Readable in context.md: brackets and non-ASCII letters, not percent escapes.
-  return safeDecode(decodeURI, url.toString());
+  return decodeOrKeep(url.toString(), decodeURI);
 };

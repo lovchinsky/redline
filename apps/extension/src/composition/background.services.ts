@@ -108,7 +108,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
   // Storage
   const assets = new IdbAssetStore(database, ids, clock);
   const captureRepository = new IdbCaptureRepository(database);
-  const tasks = new IdbTaskRepository(database);
+  const tasks = new IdbTaskRepository(database, logger.child('tasks-store'));
   const active = new IdbActiveDraftStore(database);
   const bundles = new IdbBundleRepository(database);
   const settingsStore = new StorageSettingsStore(platform.storage);

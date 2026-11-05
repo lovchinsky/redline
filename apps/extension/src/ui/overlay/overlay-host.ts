@@ -1,7 +1,9 @@
 /**
  * The overlay's only footprint in the page: one element holding a closed shadow root.
- * Page styles cannot reach in, page scripts cannot read the user's comment, and the host
- * never intercepts hit-testing except on the drawing canvas while drawing is possible.
+ * Page styles cannot reach in and page scripts cannot read its markup; the host never
+ * intercepts hit-testing except on the drawing canvas while drawing is possible. A closed
+ * shadow root does not hide events, so what the user types goes into the composer frame,
+ * a document of the extension's own origin (see composer-frame.ts).
  */
 export class OverlayHost {
   static readonly TAG = 'redline-overlay';

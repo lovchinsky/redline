@@ -65,7 +65,28 @@ export const queueForDelivery = (
   );
 };
 
-/** A delivery attempt failed for a reason that may pass (offline, receiver down). */
+/**
+ * A delivery attempt starts: it is counted, and the next one is scheduled for `retryAt`, before
+ * any request goes out. If the attempt never reports back (the worker stopped mid-request), the
+ * task already says when to try again, so retries keep their backoff.
+ */
+export const startDeliveryAttempt = (
+  task: Task,
+  retryAt: number,
+  now: number,
+): Result<Task, AppError> => {
+  const queued = inState(task, 'queued');
+  if (!queued.ok) return queued;
+  return ok(
+    withState(
+      task,
+      { ...queued.value, attempts: queued.value.attempts + 1, nextAttemptAt: retryAt },
+      now,
+    ),
+  );
+};
+
+/** The started attempt failed for a reason that may pass (offline, receiver down). */
 export const recordFailedAttempt = (
   task: Task,
   error: DeliveryError,
@@ -74,13 +95,7 @@ export const recordFailedAttempt = (
 ): Result<Task, AppError> => {
   const queued = inState(task, 'queued');
   if (!queued.ok) return queued;
-  return ok(
-    withState(
-      task,
-      { ...queued.value, attempts: queued.value.attempts + 1, nextAttemptAt, lastError: error },
-      now,
-    ),
-  );
+  return ok(withState(task, { ...queued.value, nextAttemptAt, lastError: error }, now));
 };
 
 /** Moves the next attempt to `at`, e.g. when the user asks to retry now. */

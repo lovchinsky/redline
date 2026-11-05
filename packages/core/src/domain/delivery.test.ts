@@ -11,6 +11,7 @@ import {
   needsInput,
   queueForDelivery,
   recordFailedAttempt,
+  startDeliveryAttempt,
   reopenDraft,
   retryDelivery,
 } from './delivery';
@@ -57,9 +58,25 @@ describe('delivery lifecycle', () => {
     expect(renameTask(queued(), 'x', 11)).toMatchObject({ ok: false, error: { code: 'conflict' } });
   });
 
-  it('counts failed attempts and keeps the bundle digest', () => {
+  it('counts an attempt before it is made, so a lost one still backs off', () => {
+    const started = value(startDeliveryAttempt(queued(), 50, 20));
+    expect(started.state).toMatchObject({ kind: 'queued', attempts: 1, nextAttemptAt: 50 });
+    expect(
+      startDeliveryAttempt(
+        value(markDeliveryFailed(started, { code: 'validation', message: '422' }, 21)),
+        60,
+        22,
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'conflict' },
+    });
+  });
+
+  it('records why the started attempt failed, keeping the bundle digest', () => {
+    const started = value(startDeliveryAttempt(queued(), 50, 20));
     const retried = value(
-      recordFailedAttempt(queued(), { code: 'receiver-unavailable', message: '503' }, 70, 20),
+      recordFailedAttempt(started, { code: 'receiver-unavailable', message: '503' }, 70, 21),
     );
     expect(retried.state).toMatchObject({
       kind: 'queued',

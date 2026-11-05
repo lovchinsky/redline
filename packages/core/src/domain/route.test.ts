@@ -14,4 +14,10 @@ describe('routePatternOf', () => {
   ])('%s → %s', (url, pattern) => {
     expect(routePatternOf(new URL(url))).toBe(pattern);
   });
+
+  it('keeps a segment with malformed escapes instead of failing the step', () => {
+    expect(routePatternOf(new URL('https://acme.io/docs/%E0%A4%A/intro'))).toBe(
+      '/docs/%E0%A4%A/intro',
+    );
+  });
 });

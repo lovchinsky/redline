@@ -23,7 +23,7 @@
 - text `Basic` on `h3`
 - class `plans` on `section[data-testid=plans]`
 - class `card` on `article[data-testid=plan-card]`
-- class `Card_root` on `article[data-testid=plan-card]`
+- class `root` on `article[data-testid=plan-card]`
 - class `price` on `p.price`
 - text `Choose` on `button`
 
@@ -67,7 +67,7 @@ _Page: same as Step 1._
 - text `Most popular` on `span.badge`
 - class `badge` on `span.badge`
 - class `card` on `article[data-testid=plan-card]`
-- class `Card_root` on `article[data-testid=plan-card]`
+- class `root` on `article[data-testid=plan-card]`
 
 **Layout of `article[data-testid=plan-card]`:** `display: block; overflow: hidden`
 

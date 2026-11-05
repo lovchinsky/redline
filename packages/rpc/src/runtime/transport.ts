@@ -1,14 +1,22 @@
 import type { AppError, Result } from '@redline/core';
+import type { CallerKind } from './define';
 import type { EventEnvelope, RequestEnvelope, ResponseEnvelope } from './envelope';
 
 export type Unsubscribe = () => void;
 
 /** Who sent a request. Filled in by the transport from trusted runtime data, never from the payload. */
-export interface CallerInfo {
-  readonly tabId?: number;
-  readonly frameId?: number;
-  readonly url?: string;
-}
+export type CallerInfo =
+  | { readonly kind: 'extension' }
+  | {
+      readonly kind: 'content-script';
+      readonly tabId: number;
+      readonly frameId: number;
+      /** The frame's URL. */
+      readonly url: string;
+    };
+
+export type CallerOf<K extends CallerKind> = Extract<CallerInfo, { readonly kind: K }>;
+export type ContentScriptCaller = CallerOf<'content-script'>;
 
 /** Client side of request/response messaging. Resolves with the raw, still untrusted reply. */
 export interface ClientTransport {

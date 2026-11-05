@@ -1,6 +1,4 @@
 import {
-  appError,
-  err,
   hostPermissionOf,
   ok,
   parseBindingPattern,
@@ -8,7 +6,7 @@ import {
   type Logger,
   type Result,
 } from '@redline/core';
-import type { CallerInfo } from '@redline/rpc';
+import type { ContentScriptCaller } from '@redline/rpc';
 import type {
   GrantedHosts,
   PageRuntimeInjector,
@@ -20,14 +18,8 @@ import type { BindingStore } from '../../ports/delivery';
 export class InjectPageRuntime {
   constructor(private readonly injector: PageRuntimeInjector) {}
 
-  async execute(caller: CallerInfo): Promise<Result<Record<string, never>, AppError>> {
-    if (caller.tabId === undefined) {
-      return err(appError('validation', 'Only a page can ask for its runtime'));
-    }
-    const injected = await this.injector.inject({
-      tabId: caller.tabId,
-      frameId: caller.frameId ?? 0,
-    });
+  async execute(caller: ContentScriptCaller): Promise<Result<Record<string, never>, AppError>> {
+    const injected = await this.injector.inject({ tabId: caller.tabId, frameId: caller.frameId });
     return injected.ok ? ok({}) : injected;
   }
 }
