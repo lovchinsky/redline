@@ -240,6 +240,10 @@ export const isActive = (task: Task): boolean =>
   task.state.kind === 'queued' ||
   (task.state.kind === 'submitted' && !isTerminal(task.state.status));
 
+/** Nothing more will happen to it: done on the receiver, or no longer known there. */
+export const isFinished = (task: Task): boolean =>
+  task.state.kind === 'lost' || (task.state.kind === 'submitted' && isTerminal(task.state.status));
+
 /** The agent is waiting for the user's answer. */
 export const needsInput = (task: Task): boolean =>
   task.state.kind === 'submitted' && task.state.status.phase === 'needs-input';

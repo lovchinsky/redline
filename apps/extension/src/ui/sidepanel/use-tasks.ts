@@ -1,5 +1,5 @@
-import { isTerminal, type AppError, type Result, type TaskId } from '@redline/core';
-import type { TaskSummary } from '@redline/rpc';
+import type { AppError, Result, TaskId } from '@redline/core';
+import type { TaskView } from '@redline/rpc';
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
 import { useLatestLoad } from '../shared/use-latest-load';
@@ -7,9 +7,9 @@ import { useLatestLoad } from '../shared/use-latest-load';
 export interface TasksState {
   readonly loading: boolean;
   /** In flight, or waiting for the user (refused by the receiver). */
-  readonly active: readonly TaskSummary[];
+  readonly active: readonly TaskView[];
   /** Finished on the receiver, or lost there. */
-  readonly history: readonly TaskSummary[];
+  readonly history: readonly TaskView[];
   readonly error: AppError | null;
 }
 
@@ -20,10 +20,6 @@ export interface TaskActions {
   readonly reply: (taskId: TaskId, questionId: string, text: string) => Promise<boolean>;
   readonly remove: (taskId: TaskId) => void;
 }
-
-/** Nothing more will happen to it: done on the receiver, or no longer known there. */
-const finished = (task: TaskSummary): boolean =>
-  task.state.kind === 'lost' || (task.state.kind === 'submitted' && isTerminal(task.state.status));
 
 /** Tasks past the draft stage, re-read whenever the service worker announces a change. */
 export const useTasks = (services: UiServices): readonly [TasksState, TaskActions] => {
@@ -44,8 +40,8 @@ export const useTasks = (services: UiServices): readonly [TasksState, TaskAction
         ? {
             ...s,
             loading: false,
-            active: list.value.tasks.filter((task) => !finished(task)),
-            history: list.value.tasks.filter(finished),
+            active: list.value.tasks.filter((task) => !task.finished),
+            history: list.value.tasks.filter((task) => task.finished),
           }
         : { ...s, loading: false, error: list.error },
     );

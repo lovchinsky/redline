@@ -1,5 +1,5 @@
-import { MAX_COMMENT_LENGTH, isTerminal } from '@redline/core';
-import type { TaskSummary } from '@redline/rpc';
+import { MAX_COMMENT_LENGTH } from '@redline/core';
+import type { TaskView } from '@redline/rpc';
 import { Ellipsis, ExternalLink, RefreshCw, RotateCcw, Send, Trash, Undo2 } from 'lucide-preact';
 import { useState } from 'preact/hooks';
 import { Badge } from '../kit/Badge';
@@ -7,7 +7,7 @@ import { Button, IconButton } from '../kit/Button';
 import { Menu } from '../kit/Menu';
 import type { UiServices } from '../services';
 import { useTranslator } from '../shared/i18n';
-import { describeTaskState, titleOf, toneOf } from './task-state';
+import { describeStatus, titleOf, toneOf } from './task-state';
 import type { TaskActions } from './use-tasks';
 
 const QuestionForm = ({
@@ -15,7 +15,7 @@ const QuestionForm = ({
   question,
   actions,
 }: {
-  task: TaskSummary;
+  task: TaskView;
   question: { id: string; text: string; options?: readonly string[] | undefined };
   actions: TaskActions;
 }) => {
@@ -81,26 +81,26 @@ export const TaskCard = ({
   actions,
   services,
 }: {
-  task: TaskSummary;
+  task: TaskView;
   actions: TaskActions;
   services: UiServices;
 }) => {
   const t = useTranslator();
-  const { state } = task;
-  const status = state.kind === 'submitted' ? state.status : null;
-  const followable = status !== null && !isTerminal(status);
+  const { status } = task;
+  const remote = status.kind === 'with-agent' ? status.remote : null;
+  const can = (action: TaskView['actions'][number]) => task.actions.includes(action);
 
   return (
     <li
       class="task"
       data-testid="task"
-      data-state={state.kind}
-      data-phase={status?.phase}
-      data-attempts={state.kind === 'queued' ? state.attempts : undefined}
+      data-state={status.kind}
+      data-phase={remote?.phase}
+      data-attempts={status.kind === 'sending' ? status.attempts : undefined}
     >
       <div class="task-head">
         <h3 class="task-title">{titleOf(t, task)}</h3>
-        {followable && (
+        {can('refresh') && (
           <IconButton
             label={t.text('refresh')}
             data-testid="refresh"
@@ -111,7 +111,7 @@ export const TaskCard = ({
             <RefreshCw size={14} />
           </IconButton>
         )}
-        {state.kind !== 'queued' && (
+        {can('delete') && (
           <Menu
             label={t.text('moreActions')}
             align="end"
@@ -135,33 +135,32 @@ export const TaskCard = ({
         )}
       </div>
       <p class="task-meta">
-        {state.kind === 'draft' ? '' : `${state.delivery.projectName} · `}
-        {t.count('stepCount', task.stepCount)} · {t.time(task.updatedAt)}
+        {task.projectName} ·{t.count('stepCount', task.stepCount)} · {t.time(task.updatedAt)}
       </p>
-      <Badge tone={toneOf(task)} data-testid="task-state">
-        {describeTaskState(t, task)}
+      <Badge tone={toneOf(status)} data-testid="task-state">
+        {describeStatus(t, status)}
       </Badge>
-      {status?.phase === 'needs-input' && (
+      {can('answer') && remote?.phase === 'needs-input' && (
         <QuestionForm
-          key={status.question.id}
+          key={remote.question.id}
           task={task}
-          question={status.question}
+          question={remote.question}
           actions={actions}
         />
       )}
-      {(status?.phase === 'result-ready' || state.kind === 'queued' || state.kind === 'failed') && (
+      {(can('open-result') || can('send-now') || can('send-again') || can('reopen')) && (
         <div class="task-actions">
-          {status?.phase === 'result-ready' && (
+          {can('open-result') && remote?.phase === 'result-ready' && (
             <Button
               variant="primary"
               size="sm"
               icon={<ExternalLink size={14} aria-hidden="true" />}
-              onClick={() => void services.navigation.openUrl(status.resultUrl)}
+              onClick={() => void services.navigation.openUrl(remote.resultUrl)}
             >
               {t.text('openResult')}
             </Button>
           )}
-          {state.kind === 'queued' && (
+          {can('send-now') && (
             <Button
               size="sm"
               icon={<RotateCcw size={14} aria-hidden="true" />}
@@ -172,29 +171,29 @@ export const TaskCard = ({
               {t.text('retry')}
             </Button>
           )}
-          {state.kind === 'failed' && (
-            <>
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<RotateCcw size={14} aria-hidden="true" />}
-                onClick={() => {
-                  actions.retry(task.id);
-                }}
-              >
-                {t.text('retrySend')}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<Undo2 size={14} aria-hidden="true" />}
-                onClick={() => {
-                  actions.reopen(task.id);
-                }}
-              >
-                {t.text('reopen')}
-              </Button>
-            </>
+          {can('send-again') && (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<RotateCcw size={14} aria-hidden="true" />}
+              onClick={() => {
+                actions.retry(task.id);
+              }}
+            >
+              {t.text('retrySend')}
+            </Button>
+          )}
+          {can('reopen') && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<Undo2 size={14} aria-hidden="true" />}
+              onClick={() => {
+                actions.reopen(task.id);
+              }}
+            >
+              {t.text('reopen')}
+            </Button>
           )}
         </div>
       )}

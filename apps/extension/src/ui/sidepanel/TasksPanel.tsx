@@ -1,4 +1,4 @@
-import type { TaskSummary } from '@redline/rpc';
+import type { TaskView } from '@redline/rpc';
 import { Inbox } from 'lucide-preact';
 import type { UiServices } from '../services';
 import { TaskCard } from './TaskCard';
@@ -11,7 +11,7 @@ export const TasksPanel = ({
   empty,
 }: {
   services: UiServices;
-  tasks: readonly TaskSummary[];
+  tasks: readonly TaskView[];
   actions: TaskActions;
   empty: string;
 }) =>

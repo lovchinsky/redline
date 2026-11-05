@@ -113,7 +113,7 @@ test('offline while sending: nothing is lost, nothing is sent twice', async ({ c
   expect(receiver.tasks.size).toBe(1);
 
   await task(panel).getByRole('button', { name: 'Спробувати зараз' }).click();
-  await expect(task(panel)).toHaveAttribute('data-state', 'submitted');
+  await expect(task(panel)).toHaveAttribute('data-state', 'with-agent');
   expect(receiver.submissions()).toBe(3);
   expect(receiver.tasks.size).toBe(1);
 });

@@ -10,7 +10,8 @@ import {
   type Task,
   type TaskId,
 } from '@redline/core';
-import type { DraftSummary, DraftView, StepView, TaskSummary } from '@redline/rpc';
+import type { DraftSummary, DraftView, StepView, TaskView } from '@redline/rpc';
+import { taskViewOf } from '../delivery/task-view';
 import type { ActiveDraftStore, TaskRepository } from '../../ports/drafts';
 import type { StoredCaptures } from './stored-captures';
 
@@ -91,14 +92,13 @@ export class GetDraft {
 export class ListTasks {
   constructor(private readonly deps: Pick<DraftQueryDeps, 'tasks'>) {}
 
-  async execute(): Promise<Result<{ tasks: readonly TaskSummary[] }, AppError>> {
+  async execute(): Promise<Result<{ tasks: readonly TaskView[] }, AppError>> {
     const tasks = await this.deps.tasks.list();
     if (!tasks.ok) return tasks;
     return ok({
-      tasks: tasks.value
-        .filter((task) => task.state.kind !== 'draft')
+      tasks: [...tasks.value]
         .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map((task) => ({ ...summaryOf(task), state: task.state })),
+        .flatMap((task) => taskViewOf(task) ?? []),
     });
   }
 }

@@ -193,9 +193,16 @@ const submit = async (
   return rpc.call('task.submit', { taskId, revision, project });
 };
 
-const stateOf = async (taskId: TaskId) => {
+/** The task's stored state, as the service worker keeps it (the UI only gets a view of it). */
+const stateOf = async (taskId: TaskId, worker: ReturnType<typeof setup> = app) => {
+  const stored = await worker.services.tasks.get(taskId);
+  return stored.ok ? stored.value.state : undefined;
+};
+
+/** The task as the side panel gets it. */
+const viewOf = async (taskId: TaskId) => {
   const { tasks } = value(await app.rpc.call('tasks.list', {}));
-  return tasks.find((task) => task.id === taskId)?.state;
+  return tasks.find((task) => task.id === taskId);
 };
 
 describe('drafts', () => {
@@ -446,10 +453,7 @@ describe('delivery', () => {
     // The worker stops while the request is in flight: only what was written before it counts.
     void hanging.services.outbox.run();
     await expect
-      .poll(async () => {
-        const { tasks } = value(await hanging.rpc.call('tasks.list', {}));
-        return tasks.find((task) => task.id === taskId)?.state;
-      })
+      .poll(() => stateOf(taskId, hanging))
       .toMatchObject({ kind: 'queued', attempts: 1, nextAttemptAt: hanging.now() + 30_000 });
     expect(hanging.wakeUps.get('deliver')).toBe(hanging.now() + 30_000);
   });
@@ -530,7 +534,7 @@ describe('delivery', () => {
       ok: false,
       error: { code: 'conflict', details: { reason: 'draft-changed' } },
     });
-    expect(await stateOf(taskId)).toBeUndefined(); // still a draft
+    expect(await stateOf(taskId)).toEqual({ kind: 'draft' });
   });
 
   it('sending a refused task again is a new delivery, under a new key', async () => {
@@ -567,8 +571,7 @@ describe('delivery', () => {
     expect(shown.digest).toBe(queued.delivery.digest);
     updated.advance(30_000);
     await updated.services.outbox.run();
-    const { tasks } = value(await updated.rpc.call('tasks.list', {}));
-    expect(tasks.find((task) => task.id === taskId)?.state).toMatchObject({ kind: 'submitted' });
+    expect(await stateOf(taskId, updated)).toMatchObject({ kind: 'submitted' });
     const [remote] = receiver.tasks.values();
     expect(remote?.manifest.client.version).toBe('0.1.0');
   });
@@ -613,6 +616,36 @@ describe('delivery', () => {
       status: { phase: 'working' },
       checkFailures: 0,
       checkError: null,
+    });
+  });
+
+  it('gives the side panel where a task is and what may be done, not how it is stored', async () => {
+    value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'wrong' }));
+    const { taskId } = await app.commit('Fix it');
+    value(await submit(taskId, project()));
+    await delivered();
+    expect(await viewOf(taskId)).toEqual({
+      id: taskId,
+      title: null,
+      firstComment: 'Fix it',
+      stepCount: 1,
+      updatedAt: app.now(),
+      projectName: 'Acme Web',
+      status: {
+        kind: 'refused',
+        problem: expect.objectContaining({ reason: 'token-refused' }) as unknown,
+      },
+      actions: ['send-again', 'reopen', 'delete'],
+      finished: false,
+    });
+
+    value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
+    value(await app.rpc.call('task.retry', { taskId }));
+    await delivered();
+    expect(await viewOf(taskId)).toMatchObject({
+      status: { kind: 'with-agent', remote: { phase: 'queued' }, stale: null },
+      actions: ['refresh', 'delete'],
+      finished: false,
     });
   });
 

@@ -3,7 +3,8 @@ import {
   StepId,
   TaskId,
   bindingSchema,
-  taskStateSchema,
+  deliveryErrorSchema,
+  remoteStatusSchema,
   assetRefSchema,
   pageRefSchema,
   stepCaptureEnvelopeSchema,
@@ -109,15 +110,58 @@ export const bundlePreviewSchema = z.object({
 });
 export type BundlePreview = z.infer<typeof bundlePreviewSchema>;
 
-export const taskSummarySchema = z.object({
+/** Something went wrong, with what the user can do about it when that is known. */
+const problemSchema = deliveryErrorSchema;
+
+/**
+ * Where a sent task is, in the terms a person follows it in. A view, not the stored state:
+ * how delivery and following are recorded can change without the UI noticing.
+ */
+export const taskStatusSchema = z.discriminatedUnion('kind', [
+  /** In the outbox; `retry` says why the last attempt failed and when the next one is. */
+  z.object({
+    kind: z.literal('sending'),
+    attempts: z.int().check(z.nonnegative()),
+    retry: z.nullable(z.object({ problem: problemSchema, at: z.number() })),
+  }),
+  /** The receiver refused it. */
+  z.object({ kind: z.literal('refused'), problem: problemSchema }),
+  /** With the receiver, as it last reported; `stale` when asking it again failed. */
+  z.object({
+    kind: z.literal('with-agent'),
+    remote: remoteStatusSchema,
+    stale: z.nullable(z.object({ problem: problemSchema, nextCheckAt: z.number() })),
+  }),
+  /** The receiver no longer knows it. */
+  z.object({ kind: z.literal('lost') }),
+]);
+export type TaskStatus = z.infer<typeof taskStatusSchema>;
+
+/** What a person can do with a sent task right now; the service worker decides. */
+export const TASK_ACTIONS = [
+  'send-now',
+  'send-again',
+  'reopen',
+  'refresh',
+  'answer',
+  'open-result',
+  'delete',
+] as const;
+export type TaskAction = (typeof TASK_ACTIONS)[number];
+
+export const taskViewSchema = z.object({
   id: TaskId,
   title: z.nullable(z.string()),
   firstComment: z.nullable(z.string()),
   stepCount: z.int().check(z.nonnegative()),
   updatedAt: z.number(),
-  state: taskStateSchema,
+  projectName: z.string(),
+  status: taskStatusSchema,
+  actions: z.readonly(z.array(z.enum(TASK_ACTIONS))),
+  /** Nothing more will happen to it: done on the receiver, or no longer known there. */
+  finished: z.boolean(),
 });
-export type TaskSummary = z.infer<typeof taskSummarySchema>;
+export type TaskView = z.infer<typeof taskViewSchema>;
 
 const projectSchema = z.object({ id: ProjectId, name: z.string().check(z.minLength(1)) });
 export type ProjectRef = z.infer<typeof projectSchema>;
@@ -292,7 +336,7 @@ export const protocol = defineProtocol({
   /** Tasks past the draft stage, most recently changed first. */
   'tasks.list': {
     request: empty,
-    response: z.object({ tasks: z.readonly(z.array(taskSummarySchema)) }),
+    response: z.object({ tasks: z.readonly(z.array(taskViewSchema)) }),
     callers: ['extension'],
   },
   /** Deletes a task in any state, with its collected context. */
