@@ -40,6 +40,8 @@ export interface RenderContext {
 export interface FragmentPresenter<K extends FragmentKind> {
   summarize(fragment: Fragment<K>, context: RenderContext): readonly MarkdownBlock[];
   details?(fragment: Fragment<K>): readonly DetailFile[];
+  /** An image that stands for the fragment in lists, e.g. a step's thumbnail. */
+  thumbnail?(fragment: Fragment<K>): AssetRef | null;
 }
 
 /** Upgrades stored data written with `fromVersion` to `fromVersion + 1`. */
@@ -54,6 +56,8 @@ export interface FragmentMigration {
  */
 export interface FragmentDescriptor<K extends FragmentKind> {
   readonly kind: K;
+  /** Human-readable name of the kind, used where the renderer refers to a fragment. */
+  readonly title: string;
   readonly version: number;
   readonly schema: z.ZodMiniType<FragmentRegistry[K]>;
   readonly migrations: readonly FragmentMigration[];
@@ -66,12 +70,14 @@ export interface FragmentDescriptor<K extends FragmentKind> {
  */
 export interface ErasedFragmentDescriptor {
   readonly kind: string;
+  readonly title: string;
   readonly version: number;
   readonly schema: z.ZodMiniType;
   readonly migrations: readonly FragmentMigration[];
   readonly presenter: {
     summarize(fragment: FragmentBase, context: RenderContext): readonly MarkdownBlock[];
     details?(fragment: FragmentBase): readonly DetailFile[];
+    thumbnail?(fragment: FragmentBase): AssetRef | null;
   };
 }
 

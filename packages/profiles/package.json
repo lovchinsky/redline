@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@redline/capture": "workspace:*"
+    "@redline/capture": "workspace:*",
+    "@redline/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "5.9.3"

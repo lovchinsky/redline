@@ -16,6 +16,7 @@ const describe = (anchor: Anchor): string => {
 
 export const anchorsFragment = defineFragment({
   kind: 'anchors',
+  title: 'Anchors',
   version: 1,
   schema: anchorsSchema,
   migrations: [],

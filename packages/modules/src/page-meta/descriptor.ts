@@ -9,6 +9,7 @@ const ENVIRONMENT_LABELS = {
 
 export const pageMetaFragment = defineFragment({
   kind: 'page-meta',
+  title: 'Page',
   version: 1,
   schema: pageMetaSchema,
   migrations: [],

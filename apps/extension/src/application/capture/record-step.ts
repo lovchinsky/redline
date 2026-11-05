@@ -5,7 +5,7 @@ import type {
   StepSubject,
 } from '@redline/capture';
 import type { AppError, Logger, Result } from '@redline/core';
-import type { StepCommitter } from '../../ports/capture';
+import type { CommittedStep, StepCommitter } from '../../ports/capture';
 
 export interface RecordStepDeps {
   readonly planner: CollectionPlanner;
@@ -20,7 +20,7 @@ export interface RecordStepDeps {
 export class RecordStep {
   constructor(private readonly deps: RecordStepDeps) {}
 
-  async execute(step: StepSubject): Promise<Result<{ captureId: string }, AppError>> {
+  async execute(step: StepSubject): Promise<Result<CommittedStep, AppError>> {
     const { planner, engine, committer, logger } = this.deps;
     const context = this.deps.context();
     const capture = await engine.run(planner.plan(step.intent), step, context);

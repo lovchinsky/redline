@@ -1,16 +1,8 @@
-import type { Intent } from '@redline/core';
 import type { RegionSummary } from '@redline/dom';
+import { AREA_FORMS, plural } from '../shared/copy';
 import type { DraftProblem, ShapeResolution } from './capture-machine';
 
 /** All user-facing overlay text in one place, ready to move to chrome.i18n. */
-
-export const INTENT_LABELS: Record<Intent, string> = {
-  text: 'Текст',
-  style: 'Стиль',
-  layout: 'Розміщення',
-  bug: 'Баг',
-  'new-element': 'Новий елемент',
-};
 
 export const PROBLEM_MESSAGES: Record<DraftProblem, string> = {
   'comment-required': 'Опишіть, що потрібно змінити',
@@ -44,16 +36,6 @@ export const describeResolution = (resolution: ShapeResolution): string => {
   }
 };
 
-const pluralRules = new Intl.PluralRules('uk');
-const AREA_FORMS: Record<Intl.LDMLPluralRule, string> = {
-  zero: 'областей',
-  one: 'область',
-  two: 'області',
-  few: 'області',
-  many: 'областей',
-  other: 'області',
-};
-
 export const UI_TEXT = {
   armedHint: 'Обведіть область · клік — один елемент · Esc — вийти',
   commentLabel: 'Що змінити?',
@@ -63,5 +45,5 @@ export const UI_TEXT = {
   cancel: 'Скасувати',
   submit: 'Зберегти крок',
   submitting: 'Зберігаю…',
-  shapesTitle: (count: number) => `${String(count)} ${AREA_FORMS[pluralRules.select(count)]}`,
+  shapesTitle: (count: number) => `${String(count)} ${plural(count, AREA_FORMS)}`,
 } as const;

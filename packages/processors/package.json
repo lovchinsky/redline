@@ -1,5 +1,5 @@
 {
-  "name": "@redline/render",
+  "name": "@redline/processors",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,12 +11,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@redline/contract": "workspace:*",
     "@redline/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "5.9.3",
-    "vitest": "4.1.12",
-    "zod": "4.6.7"
+    "vitest": "4.1.12"
   }
 }

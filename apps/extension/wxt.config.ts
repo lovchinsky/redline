@@ -17,7 +17,7 @@ export default defineConfig({
     name: 'Redline',
     description: 'Обведи область на сайті, опиши правку — і відправ задачу агенту.',
     // activeTab + scripting: inject only into the tab the user invoked us on. No host access.
-    permissions: ['sidePanel', 'activeTab', 'scripting', 'contextMenus'],
+    permissions: ['sidePanel', 'activeTab', 'scripting', 'contextMenus', 'alarms'],
     // e2e builds only: see E2E_HOST_PERMISSIONS.
     ...(mode === E2E_MODE ? { host_permissions: E2E_HOST_PERMISSIONS } : {}),
     action: { default_title: 'Redline' },

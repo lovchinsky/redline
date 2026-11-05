@@ -24,7 +24,13 @@ test('the production manifest requests no host access and declares no content sc
   const manifestPath = path.resolve(import.meta.dirname, '../.output/chrome-mv3/manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Browser.runtime.ManifestV3;
 
-  expect(manifest.permissions).toEqual(['sidePanel', 'activeTab', 'scripting', 'contextMenus']);
+  expect(manifest.permissions).toEqual([
+    'sidePanel',
+    'activeTab',
+    'scripting',
+    'contextMenus',
+    'alarms',
+  ]);
   expect(manifest.host_permissions).toBeUndefined();
   expect(manifest.content_scripts).toBeUndefined();
   expect(manifest.commands?.['start-capture']?.suggested_key).toEqual({ default: 'Alt+Shift+A' });

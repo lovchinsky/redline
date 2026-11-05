@@ -1,4 +1,6 @@
 import { EventSubscriber, RpcClient, events, protocol } from '@redline/rpc';
+import { DatabaseConnection, openDatabase } from '../adapters/idb/database';
+import { IdbLocalFiles } from '../adapters/idb/idb-local-files';
 import { RuntimeClientTransport } from '../adapters/messaging/runtime-client-transport';
 import { RuntimeEventSource } from '../adapters/messaging/runtime-events';
 import { ConsoleLogger } from '../adapters/system/console-logger';
@@ -11,6 +13,10 @@ export const createUiContainer = (scope: string): UiServices => {
   return {
     rpc: new RpcClient(protocol, new RuntimeClientTransport(), uuidIdGenerator),
     events: new EventSubscriber(events, new RuntimeEventSource(), logger.child('events')),
+    // Pages only read; the service worker remains the only writer.
+    files: new IdbLocalFiles(
+      new DatabaseConnection(() => openDatabase({ logger: logger.child('db') })),
+    ),
     ids: uuidIdGenerator,
     clock: { now: () => Date.now() },
   };

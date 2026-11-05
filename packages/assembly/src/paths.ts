@@ -20,7 +20,8 @@ export interface RenderedFile {
   readonly path: string;
   readonly mediaType: string;
   readonly content: FileContent;
-  readonly owner: FileOwner;
+  /** The area (or step) the file belongs to; `null` for task-wide files. */
+  readonly owner: FileOwner | null;
 }
 
 /**

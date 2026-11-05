@@ -11,6 +11,7 @@ import { collectors } from './collectors';
 import { fragmentDescriptors } from './descriptors';
 import { FakeImages, captureContext, get, mount, shapeAround, stepOf } from './testing/harness';
 import { mountPricing } from './testing/pricing';
+import { screenshotFragment } from './screenshot/descriptor';
 
 const catalog = new FragmentCatalog(fragmentDescriptors);
 
@@ -137,6 +138,7 @@ describe('screenshot', () => {
     const fragment = first(set.ofKind('screenshot'));
     expect(fragment.data.images.map((i) => i.role)).toEqual(['crop', 'overview']);
     expect(fragment.assets.map((a) => a.id)).toEqual(['image-1', 'image-2']);
+    expect(screenshotFragment.presenter.thumbnail?.(fragment)?.id).toBe('image-1');
   });
 
   it('fails the collector, not the step, when an image cannot be derived', async () => {

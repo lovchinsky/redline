@@ -10,6 +10,7 @@ const detailFile = (data: DomSnapshotData): DetailFile => ({
 
 export const domSnapshotFragment = defineFragment({
   kind: 'dom-snapshot',
+  title: 'DOM snapshot',
   version: 1,
   schema: domSnapshotSchema,
   migrations: [],

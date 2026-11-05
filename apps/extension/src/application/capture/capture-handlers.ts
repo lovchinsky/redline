@@ -1,5 +1,6 @@
 import type { AppProtocol, ProtocolHandlers } from '@redline/rpc';
-import type { CommitStep, DeriveImage, TakeSnapshot } from './capture-assets';
+import type { CommitStep } from '../drafts/commit-step';
+import type { DeriveImage, TakeSnapshot } from './capture-assets';
 import type { StartCapture } from './start-capture';
 
 export interface CaptureUseCases {

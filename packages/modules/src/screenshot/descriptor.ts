@@ -5,6 +5,7 @@ const ALT = { crop: 'Circled area', overview: 'Whole viewport with the circled a
 
 export const screenshotFragment = defineFragment({
   kind: 'screenshot',
+  title: 'Screenshots',
   version: 1,
   schema: screenshotSchema,
   migrations: [],
@@ -17,6 +18,10 @@ export const screenshotFragment = defineFragment({
         return image.role === 'crop' ? [`![${ALT.crop}](${path})`] : [`[${ALT.overview}](${path})`];
       });
       return lines.length === 0 ? [] : [{ section: 'images', markdown: lines.join('  \n') }];
+    },
+    thumbnail: ({ data, assets }) => {
+      const crop = data.images.find((image) => image.role === 'crop');
+      return assets.find((asset) => asset.id === crop?.assetId) ?? null;
     },
   },
 });

@@ -6,7 +6,6 @@ const sha = 'a'.repeat(64);
 const validManifest = (): BundleManifest => ({
   schemaVersion: 1,
   taskId: 'task-1',
-  projectId: 'acme-web',
   createdAt: '2026-11-04T10:00:00Z',
   client: { version: '0.1.0' },
   steps: [

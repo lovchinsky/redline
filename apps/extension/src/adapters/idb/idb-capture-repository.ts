@@ -1,4 +1,12 @@
-import { appError, err, ok, okVoid, type AppError, type Result } from '@redline/core';
+import {
+  appError,
+  err,
+  ok,
+  okVoid,
+  type AppError,
+  type CaptureId,
+  type Result,
+} from '@redline/core';
 import type { CaptureRecord, CaptureRepository } from '../../ports/capture';
 import type { DatabaseConnection } from './database';
 import { storageError } from './errors';
@@ -16,7 +24,7 @@ export class IdbCaptureRepository implements CaptureRepository {
     }
   }
 
-  async get(id: string): Promise<Result<CaptureRecord, AppError>> {
+  async get(id: CaptureId): Promise<Result<CaptureRecord, AppError>> {
     try {
       const db = await this.connection.get();
       const record = await db.get('captures', id);
@@ -25,6 +33,25 @@ export class IdbCaptureRepository implements CaptureRepository {
         : ok(record);
     } catch (cause) {
       return err(storageError(cause, 'Reading capture'));
+    }
+  }
+
+  async list(): Promise<Result<readonly CaptureRecord[], AppError>> {
+    try {
+      const db = await this.connection.get();
+      return ok(await db.getAll('captures'));
+    } catch (cause) {
+      return err(storageError(cause, 'Listing captures'));
+    }
+  }
+
+  async delete(id: CaptureId): Promise<Result<void, AppError>> {
+    try {
+      const db = await this.connection.get();
+      await db.delete('captures', id);
+      return okVoid();
+    } catch (cause) {
+      return err(storageError(cause, 'Deleting capture'));
     }
   }
 }

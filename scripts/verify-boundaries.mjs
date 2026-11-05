@@ -62,6 +62,18 @@ const probes = [
     expectRule: 'boundaries/dependencies',
   },
   {
+    name: 'assembly must not depend on context modules',
+    file: 'packages/assembly/src/__boundary_probe__.ts',
+    code: "import { screenshotFragment } from '../../modules/src/screenshot/descriptor';\nexport const probe = screenshotFragment;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'processors must not depend on assembly',
+    file: 'packages/processors/src/__boundary_probe__.ts',
+    code: "import { MORE_CONTEXT_PATH } from '../../assembly/src/composer';\nexport const probe = MORE_CONTEXT_PATH;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
     name: 'control: the module catalog may list modules',
     file: 'packages/modules/src/__boundary_probe__.ts',
     code: "import { layoutCollector } from './layout/collector';\nexport const probe = layoutCollector;\n",

@@ -30,7 +30,6 @@ export interface PackageStep {
 
 export interface PackageInput {
   readonly taskId: string;
-  readonly projectId: string;
   readonly createdAt: string;
   readonly clientVersion: string;
   readonly steps: readonly PackageStep[];
@@ -41,6 +40,11 @@ export interface Bundle {
   readonly manifest: BundleManifest;
   /** Every file listed in the manifest, keyed by bundle path. */
   readonly files: ReadonlyMap<string, Blob>;
+  /**
+   * SHA-256 over the files' paths and hashes. Identifies the content: two bundles with the
+   * same digest carry the same bytes, whenever they were assembled.
+   */
+  readonly digest: string;
 }
 
 export interface AssetSource {
@@ -75,7 +79,8 @@ export class Packager {
       }
       const blob = await this.assets.get(file.content.asset.id);
       if (!blob.ok) return blob;
-      files.set(file.path, blob.value);
+      // The asset's declared type is authoritative; stored blobs need not carry one.
+      files.set(file.path, new Blob([blob.value], { type: file.mediaType }));
     }
 
     const listed: BundleFile[] = [];
@@ -90,13 +95,12 @@ export class Packager {
 
     const owned = (stepId: string, shapeId: string) =>
       input.rendered.files
-        .filter((file) => file.owner.stepId === stepId && file.owner.shapeId === shapeId)
+        .filter((file) => file.owner?.stepId === stepId && file.owner.shapeId === shapeId)
         .map((file) => file.path);
 
     const manifest = parseWith(bundleManifestSchema, {
       schemaVersion: BUNDLE_SCHEMA_VERSION,
       taskId: input.taskId,
-      projectId: input.projectId,
       createdAt: input.createdAt,
       client: { version: input.clientVersion },
       steps: input.steps.map(({ shapeIds, ...step }) => ({
@@ -115,6 +119,11 @@ export class Packager {
         ),
       );
     }
-    return ok({ manifest: manifest.value, files });
+    const index = [...listed]
+      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+      .map((file) => `${file.sha256}  ${file.path}\n`)
+      .join('');
+    const digest = await this.sha256(await new Blob([index]).arrayBuffer());
+    return ok({ manifest: manifest.value, files, digest });
   }
 }

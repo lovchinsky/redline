@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Orders — fixture</title>
+    <style>
+      body {
+        margin: 0;
+        font: 16px/1.4 sans-serif;
+      }
+      main {
+        padding: 32px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 640px;
+      }
+      td,
+      th {
+        padding: 8px 12px;
+        border-bottom: 1px solid #ddd;
+        text-align: left;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Orders</h1>
+      <div class="toolbar" data-testid="orders-toolbar">
+        <button type="button" data-testid="export">Export CSV</button>
+        <button type="button">Filter</button>
+      </div>
+      <table data-testid="orders-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Customer</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1042</td>
+            <td>Acme Ltd</td>
+            <td>$1,200</td>
+          </tr>
+          <tr>
+            <td>1043</td>
+            <td>Globex</td>
+            <td>$640</td>
+          </tr>
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>

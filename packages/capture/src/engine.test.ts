@@ -9,6 +9,7 @@ import type { ShapeSubject, StepSubject } from './subject';
 
 const descriptor = (kind: string): ErasedFragmentDescriptor => ({
   kind,
+  title: kind,
   version: 1,
   schema: z.object({ value: z.string() }),
   migrations: [],

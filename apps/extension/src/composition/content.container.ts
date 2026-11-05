@@ -74,7 +74,7 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
         initialSnapshot,
         commit: async (step) => {
           const recorded = await recordStep.execute(step);
-          if (recorded.ok) logger.info('Step captured', { captureId: recorded.value.captureId });
+          if (recorded.ok) logger.info('Step added to draft', { ...recorded.value });
           return recorded;
         },
       }),

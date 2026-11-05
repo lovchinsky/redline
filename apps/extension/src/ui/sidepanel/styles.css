@@ -5,6 +5,7 @@
   --rl-muted: #5c6370;
   --rl-accent: #4a5cf0;
   --rl-border: #dfe2e8;
+  --rl-danger: #c62828;
   color-scheme: light dark;
 }
 
@@ -16,6 +17,7 @@
     --rl-muted: #9aa1ad;
     --rl-accent: #8b98ff;
     --rl-border: #2e323a;
+    --rl-danger: #ff8a80;
   }
 }
 
@@ -67,4 +69,164 @@ button {
   color: var(--rl-accent);
   font: inherit;
   cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.danger {
+  border-color: var(--rl-danger);
+  color: var(--rl-danger);
+}
+
+h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.row + .row {
+  margin-top: 8px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.label {
+  display: block;
+  font-size: 12px;
+  color: var(--rl-muted);
+}
+
+select,
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--rl-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--rl-bg);
+  color: inherit;
+  font: inherit;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.error {
+  margin: 0;
+  color: var(--rl-danger);
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--rl-border);
+  border-radius: 8px;
+  background: var(--rl-surface);
+}
+
+.thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--rl-border);
+}
+
+.placeholder {
+  background: var(--rl-border);
+}
+
+.step-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.step-body p {
+  margin: 0;
+}
+
+.page {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.comment {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.actions button {
+  padding: 2px 8px;
+}
+
+.empty p {
+  margin: 0 0 4px;
+}
+
+.context {
+  max-height: 320px;
+  overflow: auto;
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--rl-bg);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.files {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.files li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-thumb {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 4px;
+  object-fit: cover;
 }

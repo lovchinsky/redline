@@ -18,6 +18,7 @@ const circled = (data: RegionData): string => {
 
 export const regionFragment = defineFragment({
   kind: 'region',
+  title: 'Circled area',
   version: 1,
   schema: regionSchema,
   migrations: [],

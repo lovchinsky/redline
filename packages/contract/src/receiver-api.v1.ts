@@ -4,6 +4,11 @@ export const RECEIVER_API_PREFIX = '/v1';
 export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
 /** Multipart field carrying `manifest.json`; every other field name is a bundle path. */
 export const MANIFEST_PART = 'manifest';
+/**
+ * Multipart field naming the receiver project. Delivery metadata, deliberately not part of the
+ * bundle: a bundle describes what to change and stays the same whichever project receives it.
+ */
+export const PROJECT_PART = 'projectId';
 
 export const receiverRoutes = {
   listProjects: () => `${RECEIVER_API_PREFIX}/projects`,

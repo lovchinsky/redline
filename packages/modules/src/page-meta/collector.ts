@@ -1,6 +1,6 @@
 import { defineCollector } from '@redline/capture';
+import { routePatternOf } from '@redline/core';
 import * as z from 'zod/mini';
-import { routePatternOf } from './route';
 import type { PageMetaData } from './types';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);

@@ -50,7 +50,6 @@ export const bundleStepSchema = z.object({
 const manifestShape = z.object({
   schemaVersion: z.literal(BUNDLE_SCHEMA_VERSION),
   taskId: z.string().check(z.minLength(1)),
-  projectId: z.string().check(z.minLength(1)),
   createdAt: z.iso.datetime(),
   client: z.object({ version: z.string().check(z.minLength(1)) }),
   steps: z.array(bundleStepSchema).check(z.minLength(1)),

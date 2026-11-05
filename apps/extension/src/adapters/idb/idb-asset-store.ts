@@ -11,12 +11,13 @@ import {
   type IdGenerator,
   type Result,
 } from '@redline/core';
+import type { AssetInventory } from '../../ports/drafts';
 import type { DatabaseConnection } from './database';
 import { storageError } from './errors';
 
 const DEFAULT_MEDIA_TYPE = 'application/octet-stream';
 
-export class IdbAssetStore implements AssetStore {
+export class IdbAssetStore implements AssetStore, AssetInventory {
   constructor(
     private readonly connection: DatabaseConnection,
     private readonly ids: IdGenerator,
@@ -57,6 +58,20 @@ export class IdbAssetStore implements AssetStore {
       return okVoid();
     } catch (cause) {
       return err(storageError(cause, 'Deleting asset'));
+    }
+  }
+
+  async idsCreatedBefore(time: number): Promise<Result<readonly AssetId[], AppError>> {
+    try {
+      const db = await this.connection.get();
+      const keys = await db.getAllKeysFromIndex(
+        'assets',
+        'createdAt',
+        IDBKeyRange.upperBound(time, true),
+      );
+      return ok(keys.map((key) => AssetId.parse(key)));
+    } catch (cause) {
+      return err(storageError(cause, 'Listing assets'));
     }
   }
 }

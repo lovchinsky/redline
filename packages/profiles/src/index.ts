@@ -1,4 +1,5 @@
 import type { Profiles } from '@redline/capture';
+import type { Intent } from '@redline/core';
 
 /** Collected for every step: where it happened, what was circled, how it looked, how to find it. */
 const ESSENTIALS = ['page-meta', 'region', 'screenshot', 'anchors'] as const;
@@ -13,4 +14,16 @@ export const profiles: Profiles = {
   layout: { collectors: [...ESSENTIALS, 'layout', 'dom-snapshot'] },
   bug: { collectors: [...ESSENTIALS, 'dom-snapshot'] },
   'new-element': { collectors: [...ESSENTIALS, 'layout', 'dom-snapshot'] },
+};
+
+/**
+ * Token budget of one step's summary in `context.md`, by intent. Context over the budget is
+ * not lost: it moves to `more-context.md`. Intents that need structure get more room.
+ */
+export const summaryTokens: Readonly<Record<Intent, number>> = {
+  text: 900,
+  style: 1400,
+  layout: 1600,
+  bug: 1600,
+  'new-element': 1400,
 };

@@ -2,7 +2,8 @@ import { INTENTS, type Intent } from '@redline/core';
 import type { Point, Rect, Size } from '@redline/geometry';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { CaptureState } from './capture-machine';
-import { INTENT_LABELS, PROBLEM_MESSAGES, UI_TEXT, describeResolution } from './copy';
+import { INTENT_LABELS } from '../shared/copy';
+import { PROBLEM_MESSAGES, UI_TEXT, describeResolution } from './copy';
 import { placePanel } from './placement';
 
 export type ComposerState = Extract<CaptureState, { kind: 'composing' | 'committing' }>;

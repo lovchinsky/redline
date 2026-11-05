@@ -1,7 +1,19 @@
 /** Ports the capture use cases need from the platform. Implemented in adapters. */
 import type { ViewportSnapshot } from '@redline/capture';
-import type { AppError, CaptureUnavailableReason, Result, StepCapture } from '@redline/core';
-import type { CaptureStartResponse, ImageDerivationRequest, StepRecord } from '@redline/rpc';
+import type {
+  AppError,
+  CaptureId,
+  CaptureUnavailableReason,
+  Result,
+  StepCapture,
+} from '@redline/core';
+import type {
+  AppProtocol,
+  CaptureStartResponse,
+  ImageDerivationRequest,
+  ResponseOf,
+  StepRecord,
+} from '@redline/rpc';
 
 /** Puts the capture content script into a tab. Idempotent: the script starts once per document. */
 export interface CaptureScriptInjector {
@@ -36,22 +48,25 @@ export interface ImageDeriver {
   derive(source: Blob, request: ImageDerivationRequest): Promise<Result<CapturedImage, AppError>>;
 }
 
-/** A stored step: domain facts plus the collected context. */
+/** Context collected for one step. The step's own facts live in its task. */
 export interface CaptureRecord {
-  readonly id: string;
+  readonly id: CaptureId;
   readonly createdAt: number;
-  readonly step: StepRecord;
   readonly capture: StepCapture;
 }
 
 export interface CaptureRepository {
   put(record: CaptureRecord): Promise<Result<void, AppError>>;
-  get(id: string): Promise<Result<CaptureRecord, AppError>>;
+  get(id: CaptureId): Promise<Result<CaptureRecord, AppError>>;
+  list(): Promise<Result<readonly CaptureRecord[], AppError>>;
+  delete(id: CaptureId): Promise<Result<void, AppError>>;
 }
 
-/** Hands a captured step to the service worker for storage. */
+export type CommittedStep = ResponseOf<AppProtocol, 'capture.commitStep'>;
+
+/** Hands a captured step to the service worker, which adds it to the active draft. */
 export interface StepCommitter {
-  commit(step: StepRecord, capture: StepCapture): Promise<Result<{ captureId: string }, AppError>>;
+  commit(step: StepRecord, capture: StepCapture): Promise<Result<CommittedStep, AppError>>;
 }
 
 /** Takes a snapshot of the current viewport (without the overlay; the caller hides it). */

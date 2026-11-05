@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 export const APP_ERROR_CODES = [
   'validation',
   'not-found',
+  'conflict',
   'permission-denied',
   'restricted-page',
   'receiver-unavailable',

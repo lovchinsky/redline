@@ -1,78 +1,20 @@
-import { REQUEST_TYPE } from '@redline/rpc';
-import type { Page, Worker } from '@playwright/test';
+import type { Worker } from '@playwright/test';
+import { drawLassoAround, readStore, startCapture } from './capture-helpers';
 import { SITE_ORIGIN, expect, test } from './fixtures';
 import { OverlayProbe } from './overlay-probe';
 
-const startCapture = async (extensionPage: Page, url: string): Promise<unknown> =>
-  extensionPage.evaluate(
-    async ({ type, pageUrl }) => {
-      const [tab] = await chrome.tabs.query({ url: pageUrl });
-      const reply: unknown = await chrome.runtime.sendMessage({
-        type,
-        id: 'e2e',
-        method: 'capture.start',
-        payload: { tabId: tab?.id },
-      });
-      return reply;
-    },
-    { type: REQUEST_TYPE, pageUrl: url },
-  );
-
-/**
- * Draws a closed rounded-rectangle lasso (a superellipse) 16px around the box: the way people
- * circle a wide row, as opposed to an ellipse through its corners that overshoots far past it.
- */
-const drawLassoAround = async (
-  page: Page,
-  box: { x: number; y: number; width: number; height: number },
-) => {
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  const rx = box.width / 2 + 16;
-  const ry = box.height / 2 + 16;
-  const exponent = 2 / 8;
-  const superellipse = (value: number) => Math.sign(value) * Math.abs(value) ** exponent;
-  const point = (t: number) => ({
-    x: cx + rx * superellipse(Math.cos(t)),
-    y: cy + ry * superellipse(Math.sin(t)),
-  });
-  const start = point(0);
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  for (let i = 1; i <= 48; i += 1) {
-    const next = point((i / 48) * Math.PI * 2);
-    await page.mouse.move(next.x, next.y);
-  }
-  await page.mouse.up();
-};
-
 const pageUrl = `${SITE_ORIGIN}/pricing.html`;
 
-/** Every stored step, read straight from the service worker's database. */
-const storedCaptures = (serviceWorker: Worker) =>
-  serviceWorker.evaluate(
-    () =>
-      new Promise<
-        {
-          step: { intent: string; comment: string; shapeIds: string[] };
-          capture: {
-            fragments: { kind: string; data: unknown; assets: { id: string }[] }[];
-            diagnostics: unknown[];
-          };
-        }[]
-      >((resolve, reject) => {
-        const open = indexedDB.open('redline');
-        open.onerror = () => {
-          reject(new Error('cannot open database'));
-        };
-        open.onsuccess = () => {
-          const request = open.result.transaction('captures').objectStore('captures').getAll();
-          request.onsuccess = () => {
-            resolve(request.result as never);
-          };
-        };
-      }),
-  );
+interface StoredCapture {
+  capture: {
+    fragments: { kind: string; data: unknown; assets: { id: string }[] }[];
+    diagnostics: unknown[];
+  };
+}
+
+interface StoredTask {
+  steps: { intent: string; comment: string; captureId: string }[];
+}
 
 /** Pixel size of a stored image asset, decoded in the service worker. */
 const imageSize = (serviceWorker: Worker, assetId: string) =>
@@ -95,7 +37,7 @@ const imageSize = (serviceWorker: Worker, assetId: string) =>
     assetId,
   );
 
-test('circling cards collects context and stores the step with real screenshots', async ({
+test('circling cards collects context and adds the step to a draft with real screenshots', async ({
   context,
   extensionPage,
   serviceWorker,
@@ -130,11 +72,14 @@ test('circling cards collects context and stores the step with real screenshots'
 
   await expect(page.locator('redline-overlay')).toHaveCount(0);
   await expect
-    .poll(() => logs.some((line) => line.includes('[redline:capture] Step captured')))
+    .poll(() => logs.some((line) => line.includes('[redline:capture] Step added to draft')))
     .toBe(true);
 
-  const [stored] = await storedCaptures(serviceWorker);
-  expect(stored?.step).toMatchObject({ intent: 'layout', comment: 'Make the cards equal height' });
+  const [task] = await readStore<StoredTask>(serviceWorker, 'tasks');
+  expect(task?.steps).toMatchObject([{ intent: 'layout', comment: 'Make the cards equal height' }]);
+  const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
+    (record) => record.id === task?.steps[0]?.captureId,
+  );
   expect(stored?.capture.diagnostics).toEqual([]);
   expect(stored?.capture.fragments.map((f) => f.kind).sort()).toEqual([
     'anchors',

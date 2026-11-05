@@ -5,6 +5,7 @@ const round = (value: number) => String(Math.round(value));
 
 export const layoutFragment = defineFragment({
   kind: 'layout',
+  title: 'Layout',
   version: 1,
   schema: layoutSchema,
   migrations: [],

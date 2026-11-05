@@ -15,6 +15,7 @@ declare module './fragment' {
 
 const noteV2 = defineFragment({
   kind: 'test-note',
+  title: 'Note',
   version: 2,
   schema: z.object({ text: z.string(), lang: z.string() }),
   migrations: [
@@ -28,6 +29,7 @@ const noteV2 = defineFragment({
 
 const count = defineFragment({
   kind: 'test-count',
+  title: 'Count',
   version: 1,
   schema: z.object({ count: z.int() }),
   migrations: [],
