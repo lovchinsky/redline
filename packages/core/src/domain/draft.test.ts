@@ -9,11 +9,11 @@ import {
   editStepComment,
   moveStep,
   removeStep,
-  renameTask,
-  taskSchema,
+  renameDraft,
+  draftSchema,
   type Step,
-  type Task,
-} from './task';
+  type Draft,
+} from './draft';
 
 const step = (id: string, comment = `Comment ${id}`): Step => ({
   id: StepId.parse(id),
@@ -30,19 +30,19 @@ const value = <T>(result: Result<T, unknown>): T => {
   return result.value;
 };
 
-const draftWith = (...ids: string[]): Task =>
+const draftWith = (...ids: string[]): Draft =>
   ids.reduce(
     (task, id, n) => value(addStep(task, step(id), 100 + n)),
     createDraft(TaskId.parse('task-1'), 1),
   );
 
-const order = (task: Task) => task.steps.map((s) => s.id);
+const order = (draft: Draft) => draft.steps.map((s) => s.id);
 
 describe('Task', () => {
   it('starts as an empty draft at revision 0', () => {
     const task = createDraft(TaskId.parse('task-1'), 5);
-    expect(task).toMatchObject({ state: { kind: 'draft' }, steps: [], revision: 0, title: null });
-    expect(taskSchema.parse(task)).toEqual(task);
+    expect(task).toMatchObject({ steps: [], revision: 0, title: null });
+    expect(draftSchema.parse(task)).toEqual(task);
   });
 
   it('appends steps, trims comments and bumps the revision on every change', () => {
@@ -67,7 +67,9 @@ describe('Task', () => {
   });
 
   it('removes a step and returns it (its context must be released)', () => {
-    const { task, removed } = value(removeStep(draftWith('a', 'b', 'c'), StepId.parse('b'), 9));
+    const { draft: task, removed } = value(
+      removeStep(draftWith('a', 'b', 'c'), StepId.parse('b'), 9),
+    );
     expect(order(task)).toEqual(['a', 'c']);
     expect(removed.captureId).toBe('capture-b');
   });
@@ -96,16 +98,16 @@ describe('Task', () => {
   });
 
   it('sets and clears the title; an unchanged title is not a change', () => {
-    const named = value(renameTask(draftWith('a'), '  Pricing fixes ', 3));
+    const named = value(renameDraft(draftWith('a'), '  Pricing fixes ', 3));
     expect(named.title).toBe('Pricing fixes');
-    expect(value(renameTask(named, 'Pricing fixes', 4))).toBe(named);
-    expect(value(renameTask(named, '', 5)).title).toBeNull();
+    expect(value(renameDraft(named, 'Pricing fixes', 4))).toBe(named);
+    expect(value(renameDraft(named, '', 5)).title).toBeNull();
   });
 
   it('reads tasks stored before steps dropped their intent', () => {
     const task = draftWith('a');
     const stored = { ...task, steps: task.steps.map((s) => ({ ...s, intent: 'layout' })) };
-    expect(taskSchema.parse(stored)).toEqual(task);
+    expect(draftSchema.parse(stored)).toEqual(task);
   });
 
   it('never mutates the task it was given', () => {

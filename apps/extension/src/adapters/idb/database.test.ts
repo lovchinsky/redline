@@ -1,7 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { openDB } from 'idb';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { taskSchema, type Logger } from '@redline/core';
+import { draftSchema, taskSchema, type Logger } from '@redline/core';
 import {
   DatabaseConnection,
   MigrationConfigError,
@@ -55,6 +55,7 @@ describe('openDatabase', () => {
       'assets',
       'bundles',
       'captures',
+      'drafts',
       'tasks',
       'workspace',
     ]);
@@ -169,8 +170,13 @@ describe('migration to version 4', () => {
     );
     v3.close();
 
-    const db = await openDatabase({ name: 'v4', logger: silentLogger });
-    const stateOf = async (id: string) => taskSchema.parse(await db.get('tasks', id)).state;
+    const db = await openDatabase({
+      name: 'v4',
+      migrations: migrations.slice(0, 4),
+      logger: silentLogger,
+    });
+    const stateOf = async (id: string) =>
+      ((await db.get('tasks', id)) as { state: unknown } | undefined)?.state;
 
     expect(await stateOf('draft')).toEqual({ kind: 'draft' });
     expect(await stateOf('queued')).toMatchObject({
@@ -192,6 +198,39 @@ describe('migration to version 4', () => {
       submittedAt: 5,
       lostAt: 6,
     });
+    db.close();
+  });
+});
+
+describe('migration to version 5', () => {
+  it('moves drafts to their own store and keeps sent tasks where they are', async () => {
+    const v4 = await openDatabase({
+      name: 'v5',
+      migrations: migrations.slice(0, 4),
+      logger: silentLogger,
+    });
+    const content = { title: null, steps: [], revision: 2, createdAt: 0, updatedAt: 1 };
+    await v4.put('tasks', { id: 'draft', ...content, state: { kind: 'draft' } });
+    const queued = {
+      id: 'sent',
+      ...content,
+      state: {
+        kind: 'queued',
+        delivery: { id: 'd1', projectId: 'acme', projectName: 'Acme', digest: 'x' },
+        queuedAt: 1,
+        attempts: 0,
+        nextAttemptAt: 1,
+        lastError: null,
+      },
+    };
+    await v4.put('tasks', queued);
+    v4.close();
+
+    const db = await openDatabase({ name: 'v5', logger: silentLogger });
+    expect(draftSchema.parse(await db.get('drafts', 'draft'))).toEqual({ id: 'draft', ...content });
+    expect(await db.get('tasks', 'draft')).toBeUndefined();
+    expect(taskSchema.parse(await db.get('tasks', 'sent'))).toEqual(queued);
+    expect(await db.get('drafts', 'sent')).toBeUndefined();
     db.close();
   });
 });

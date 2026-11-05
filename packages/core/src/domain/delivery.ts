@@ -1,6 +1,7 @@
 import { appError, type AppError } from '../shared/errors';
 import { err, ok, type Result } from '../shared/result';
 import { isTerminal, type RemoteStatus } from './remote-status';
+import type { Draft } from './draft';
 import type { Delivery, DeliveryError, DeliveryId, Task, TaskState, TaskStateKind } from './task';
 
 /** Receivers may ask to be polled more often; the extension never polls faster than this. */
@@ -44,18 +45,28 @@ const queuedState = (delivery: Delivery, now: number): TaskState => ({
   lastError: null,
 });
 
-/** Freezes a draft for delivery: its bundle (by digest) goes to the outbox. */
-export const queueForDelivery = (
-  task: Task,
+/**
+ * Sends a draft: its content is frozen as the task and its bundle (by digest) goes to the
+ * outbox. The task keeps the draft's id.
+ */
+export const sendDraft = (
+  draft: Draft,
   delivery: Delivery,
   now: number,
 ): Result<Task, AppError> => {
-  const draft = inState(task, 'draft');
-  if (!draft.ok) return draft;
-  if (task.steps.length === 0) {
+  if (draft.steps.length === 0) {
     return err(appError('validation', 'A task without steps cannot be sent'));
   }
-  return ok(withState(task, queuedState(delivery, now), now));
+  const { id, title, steps, revision, createdAt } = draft;
+  return ok({
+    id,
+    title,
+    steps,
+    revision,
+    createdAt,
+    updatedAt: now,
+    state: queuedState(delivery, now),
+  });
 };
 
 /**
@@ -159,11 +170,19 @@ export const retryDelivery = (task: Task, id: DeliveryId, now: number): Result<T
 };
 
 /** Turns a refused task back into a draft so it can be edited and sent again. */
-export const reopenDraft = (task: Task, now: number): Result<Task, AppError> => {
+export const reopenDraft = (task: Task, now: number): Result<Draft, AppError> => {
   const failed = inState(task, 'failed');
   if (!failed.ok) return failed;
-  return ok(withState(task, { kind: 'draft' }, now));
+  const { id, title, steps, revision, createdAt } = task;
+  return ok({ id, title, steps, revision, createdAt, updatedAt: now });
 };
+
+/**
+ * Whether the task may still come back to the drafts, and so needs the context collected for
+ * its steps: while waiting (it can still be refused) or once refused.
+ */
+export const mayReturnToDrafts = (task: Task): boolean =>
+  task.state.kind === 'queued' || task.state.kind === 'failed';
 
 /** Records the receiver's latest status of a submitted task. */
 export const applyRemoteReport = (

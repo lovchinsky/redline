@@ -8,6 +8,7 @@ export type * from './ports/logger';
 export * from './ports/asset-store';
 export * from './domain/capture-policy';
 export * from './domain/route';
+export * from './domain/draft';
 export * from './domain/task';
 export * from './domain/binding';
 export * from './domain/remote-status';

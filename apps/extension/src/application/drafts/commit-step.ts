@@ -13,20 +13,20 @@ import {
   type IdGenerator,
   type Logger,
   type Result,
+  type Draft,
   type Step,
-  type Task,
 } from '@redline/core';
 import type { StepRecord } from '@redline/rpc';
 import type { CaptureRepository, CommittedStep } from '../../ports/capture';
-import type { ActiveDraftStore, TaskRepository } from '../../ports/drafts';
-import type { TaskWriter } from '../tasks/task-writer';
+import type { ActiveDraftStore, DraftRepository } from '../../ports/workspace';
+import type { WorkspaceWriter } from '../workspace/workspace-writer';
 
 export interface CommitStepDeps {
   readonly catalog: FragmentCatalog;
   readonly captures: CaptureRepository;
-  readonly tasks: TaskRepository;
+  readonly drafts: DraftRepository;
   readonly active: ActiveDraftStore;
-  readonly writer: TaskWriter;
+  readonly writer: WorkspaceWriter;
   readonly ids: IdGenerator;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -71,29 +71,25 @@ export class CommitStep {
     return writer.run(async (tx) => {
       const draft = await this.activeDraft(now);
       if (!draft.ok) return draft;
-      const added = addStep(draft.value.task, step, now);
+      const added = addStep(draft.value.draft, step, now);
       if (!added.ok) return added;
-      if (draft.value.isNew) {
-        const activated = await this.deps.active.set(added.value.id);
-        if (!activated.ok) return activated;
-      }
-      const stored = await tx.commit(draft.value.isNew ? null : draft.value.task, added.value);
-      if (!stored.ok) return stored;
+      tx.saveDraft(draft.value.isNew ? null : draft.value.draft, added.value);
+      if (draft.value.isNew) tx.setActive(added.value.id);
       return ok({ taskId: added.value.id, stepId: step.id, stepCount: added.value.steps.length });
     });
   }
 
   private async activeDraft(
     now: number,
-  ): Promise<Result<{ readonly task: Task; readonly isNew: boolean }, AppError>> {
+  ): Promise<Result<{ readonly draft: Draft; readonly isNew: boolean }, AppError>> {
     const activeId = await this.deps.active.get();
     if (!activeId.ok) return activeId;
     if (activeId.value !== null) {
-      const task = await this.deps.tasks.get(activeId.value);
-      if (task.ok) return ok({ task: task.value, isNew: false });
-      // The active draft was deleted meanwhile: start a new one. Anything else is a failure.
-      if (task.error.code !== 'not-found') return err(task.error);
+      const draft = await this.deps.drafts.get(activeId.value);
+      if (draft.ok) return ok({ draft: draft.value, isNew: false });
+      // The active draft was deleted or sent meanwhile: start a new one. Anything else fails.
+      if (draft.error.code !== 'not-found') return err(draft.error);
     }
-    return ok({ task: createDraft(TaskId.parse(this.deps.ids.next()), now), isNew: true });
+    return ok({ draft: createDraft(TaskId.parse(this.deps.ids.next()), now), isNew: true });
   }
 }

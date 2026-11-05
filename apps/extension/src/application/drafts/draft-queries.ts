@@ -6,28 +6,29 @@ import {
   type FragmentCatalog,
   type Result,
   type Step,
+  type Draft,
   type StepCapture,
-  type Task,
   type TaskId,
 } from '@redline/core';
 import type { DraftSummary, DraftView, StepView, TaskView } from '@redline/rpc';
 import { taskViewOf } from '../delivery/task-view';
-import type { ActiveDraftStore, TaskRepository } from '../../ports/drafts';
+import type { ActiveDraftStore, DraftRepository, TaskRepository } from '../../ports/workspace';
 import type { StoredCaptures } from './stored-captures';
 
 export interface DraftQueryDeps {
+  readonly drafts: DraftRepository;
   readonly tasks: TaskRepository;
   readonly active: ActiveDraftStore;
   readonly captures: StoredCaptures;
   readonly catalog: FragmentCatalog;
 }
 
-const summaryOf = (task: Task): DraftSummary => ({
-  id: task.id,
-  title: task.title,
-  firstComment: task.steps[0]?.comment ?? null,
-  stepCount: task.steps.length,
-  updatedAt: task.updatedAt,
+const summaryOf = (draft: Draft): DraftSummary => ({
+  id: draft.id,
+  title: draft.title,
+  firstComment: draft.steps[0]?.comment ?? null,
+  stepCount: draft.steps.length,
+  updatedAt: draft.updatedAt,
 });
 
 /** Drafts, most recently changed first, and the one new steps go to. */
@@ -37,10 +38,10 @@ export class ListDrafts {
   async execute(): Promise<
     Result<{ activeId: TaskId | null; drafts: readonly DraftSummary[] }, AppError>
   > {
-    const [tasks, active] = await Promise.all([this.deps.tasks.list(), this.deps.active.get()]);
-    if (!tasks.ok) return tasks;
+    const [all, active] = await Promise.all([this.deps.drafts.list(), this.deps.active.get()]);
+    if (!all.ok) return all;
     if (!active.ok) return active;
-    const drafts = [...tasks.value].sort((a, b) => b.updatedAt - a.updatedAt).map(summaryOf);
+    const drafts = [...all.value].sort((a, b) => b.updatedAt - a.updatedAt).map(summaryOf);
     const activeId = drafts.some((draft) => draft.id === active.value) ? active.value : null;
     return ok({ activeId, drafts });
   }
@@ -51,14 +52,14 @@ export class GetDraft {
   constructor(private readonly deps: DraftQueryDeps) {}
 
   async execute(taskId: TaskId): Promise<Result<DraftView, AppError>> {
-    const task = await this.deps.tasks.get(taskId);
-    if (!task.ok) return task;
-    const steps = await Promise.all(task.value.steps.map((step) => this.viewOf(step)));
+    const draft = await this.deps.drafts.get(taskId);
+    if (!draft.ok) return draft;
+    const steps = await Promise.all(draft.value.steps.map((step) => this.viewOf(step)));
     return ok({
-      id: task.value.id,
-      title: task.value.title,
-      revision: task.value.revision,
-      updatedAt: task.value.updatedAt,
+      id: draft.value.id,
+      title: draft.value.title,
+      revision: draft.value.revision,
+      updatedAt: draft.value.updatedAt,
       steps,
     });
   }
@@ -96,9 +97,7 @@ export class ListTasks {
     const tasks = await this.deps.tasks.list();
     if (!tasks.ok) return tasks;
     return ok({
-      tasks: [...tasks.value]
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .flatMap((task) => taskViewOf(task) ?? []),
+      tasks: [...tasks.value].sort((a, b) => b.updatedAt - a.updatedAt).map(taskViewOf),
     });
   }
 }

@@ -8,14 +8,15 @@ import {
   type AssemblyStep,
   type Result,
   type StepCapture,
-  type Task,
+  type TaskContent,
   type TaskProcessor,
 } from '@redline/core';
 import type { Bundle, Packager } from './packager';
 import type { MarkdownContextRenderer } from './renderer';
 
 export interface AssemblyRequest {
-  readonly task: Task;
+  /** What the user asked for: a draft being previewed or sent. */
+  readonly task: TaskContent;
   /** Collected context of every step, by capture id. */
   readonly captures: ReadonlyMap<string, StepCapture>;
   /** ISO timestamp written to the manifest. */

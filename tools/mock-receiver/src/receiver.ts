@@ -29,6 +29,9 @@ export interface MockTask {
   readonly replies: { questionId: string; text: string }[];
 }
 
+/** The routes of `receiver-api.v1`, by the name the contract gives them. */
+export type RouteName = keyof typeof receiverRoutes;
+
 export type Fault =
   /** Answers 503 with `Retry-After`, as an overloaded or restarting receiver would. */
   | 'unavailable'
@@ -63,8 +66,11 @@ export interface MockReceiver {
   readonly tasks: ReadonlyMap<string, MockTask>;
   /** How many `POST /v1/tasks` requests arrived, including repeats of the same key. */
   readonly submissions: () => number;
-  /** The next `count` requests fail with `fault`. */
-  fail(fault: Fault, count?: number): void;
+  /**
+   * The next `count` requests (to route `on`, or to any) fail with `fault`. Aiming at a route
+   * keeps a test independent of what else the extension asks meanwhile.
+   */
+  fail(fault: Fault, options?: { readonly count?: number; readonly on?: RouteName }): void;
   close(): Promise<void>;
 }
 
@@ -97,6 +103,19 @@ const matchRoute = (template: string, path: string): string | null => {
   return id === '' || id.includes('/') ? null : decodeURIComponent(id);
 };
 
+const ROUTES: readonly (readonly [RouteName, string, string])[] = [
+  ['listProjects', 'GET', receiverRoutes.listProjects()],
+  ['submitTask', 'POST', receiverRoutes.submitTask()],
+  ['getTask', 'GET', receiverRoutes.getTask(ID)],
+  ['replyToTask', 'POST', receiverRoutes.replyToTask(ID)],
+];
+
+/** Which route of the contract a request is for, if any. */
+const routeOf = (method: string, path: string): RouteName | null =>
+  ROUTES.find(
+    ([, verb, template]) => verb === method && matchRoute(template, path) !== null,
+  )?.[0] ?? null;
+
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 
 const toRequest = (req: IncomingMessage, base: string): Request => {
@@ -127,7 +146,7 @@ export const startMockReceiver = async (
   const script = options.script ?? DEFAULT_SCRIPT;
   const tasks = new Map<string, MockTask>();
   const byKey = new Map<string, string>();
-  const faults: Fault[] = [];
+  const faults: { readonly fault: Fault; readonly on: RouteName | null }[] = [];
   let submissions = 0;
 
   const state = (task: MockTask): TaskStateResponse => ({
@@ -256,14 +275,10 @@ export const startMockReceiver = async (
         res.end();
         return;
       }
-      if (
-        req.method === 'POST' &&
-        matchRoute(receiverRoutes.submitTask(), new URL(req.url ?? '/', 'http://mock').pathname) !==
-          null
-      ) {
-        submissions += 1;
-      }
-      const fault = faults.shift();
+      const target = routeOf(req.method ?? 'GET', new URL(req.url ?? '/', 'http://mock').pathname);
+      if (target === 'submitTask') submissions += 1;
+      const aimed = faults.findIndex(({ on }) => on === null || on === target);
+      const fault = aimed === -1 ? undefined : faults.splice(aimed, 1)[0]?.fault;
       if (fault === 'unavailable') {
         req.resume();
         send(res, 503, errorBody('unavailable', 'Unavailable'), { 'Retry-After': '1' });
@@ -298,8 +313,8 @@ export const startMockReceiver = async (
     url: `http://127.0.0.1:${String(port)}`,
     tasks,
     submissions: () => submissions,
-    fail: (fault, count = 1) => {
-      for (let i = 0; i < count; i += 1) faults.push(fault);
+    fail: (fault, { count = 1, on } = {}) => {
+      for (let i = 0; i < count; i += 1) faults.push({ fault, on: on ?? null });
     },
     close: () =>
       new Promise<void>((resolve, reject) => {

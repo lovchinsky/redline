@@ -1,7 +1,5 @@
 import type { AssemblyEngine } from '@redline/assembly';
 import {
-  appError,
-  err,
   ok,
   type AppError,
   type Clock,
@@ -11,12 +9,13 @@ import {
   type TaskId,
 } from '@redline/core';
 import type { BundlePreview } from '@redline/rpc';
-import type { BundleRepository, StoredBundle, TaskRepository } from '../../ports/drafts';
-import type { TaskWriter } from '../tasks/task-writer';
+import type { BundleRepository, StoredBundle } from '../../ports/drafts';
+import type { DraftRepository } from '../../ports/workspace';
+import type { WorkspaceWriter } from '../workspace/workspace-writer';
 import type { StoredCaptures } from './stored-captures';
 
 export interface BundleAssemblerDeps {
-  readonly tasks: TaskRepository;
+  readonly drafts: DraftRepository;
   readonly captures: StoredCaptures;
   readonly bundles: BundleRepository;
   readonly engine: AssemblyEngine;
@@ -36,44 +35,37 @@ const previewOf = ({ taskId, revision, bundle, warnings }: StoredBundle): Bundle
 });
 
 /**
- * The frozen bundle of a task's current content: for a draft, the stored one while the draft is
- * unchanged, otherwise a fresh assembly that replaces it; for a task already sent, the one sent. Preview and delivery both go through here, so
- * what the user saw is what gets sent. Callers run it inside the task write queue, so an edit
- * cannot slip between reading the task and storing its bundle.
+ * The frozen bundle of a draft's current content: the stored one while the draft is unchanged
+ * (and assembled by this version), otherwise a fresh assembly that replaces it. Preview and
+ * sending both go through here, so what the user saw is what gets sent; once sent, the task
+ * owns the bundle and no draft of that id exists to assemble it again. Callers run it in a
+ * unit of work, so an edit cannot slip between reading the draft and storing its bundle.
  */
 export class BundleAssembler {
   constructor(private readonly deps: BundleAssemblerDeps) {}
 
   async frozen(taskId: TaskId): Promise<Result<StoredBundle, AppError>> {
-    const { tasks, captures, bundles, engine, clock, clientVersion, logger } = this.deps;
-    const task = await tasks.get(taskId);
-    if (!task.ok) return task;
+    const { drafts, captures, bundles, engine, clock, clientVersion, logger } = this.deps;
+    const draft = await drafts.get(taskId);
+    if (!draft.ok) return draft;
 
     const cached = await bundles.get(taskId);
     if (!cached.ok) return cached;
-    const { state } = task.value;
-    if (state.kind !== 'draft') {
-      // Sent (or on its way): the bundle is what the user approved, even if this version of
-      // the extension would assemble it differently. It is never assembled again.
-      return cached.value?.bundle.digest === state.delivery.digest
-        ? ok(cached.value)
-        : err(appError('not-found', 'The frozen bundle of this task is gone', { taskId }));
-    }
     if (
-      cached.value?.revision === task.value.revision &&
+      cached.value?.revision === draft.value.revision &&
       cached.value.clientVersion === clientVersion
     ) {
       return ok(cached.value);
     }
 
     const loaded = new Map<string, StepCapture>();
-    for (const step of task.value.steps) {
+    for (const step of draft.value.steps) {
       const capture = await captures.load(step.captureId);
       if (!capture.ok) return capture;
       loaded.set(step.captureId, capture.value);
     }
     const assembled = await engine.assemble({
-      task: task.value,
+      task: draft.value,
       captures: loaded,
       createdAt: new Date(clock.now()).toISOString(),
       clientVersion,
@@ -83,7 +75,7 @@ export class BundleAssembler {
 
     const fresh: StoredBundle = {
       taskId,
-      revision: task.value.revision,
+      revision: draft.value.revision,
       clientVersion,
       bundle: assembled.value.bundle,
       warnings: assembled.value.warnings,
@@ -97,7 +89,7 @@ export class BundleAssembler {
 export class AssembleBundle {
   constructor(
     private readonly assembler: BundleAssembler,
-    private readonly writer: TaskWriter,
+    private readonly writer: WorkspaceWriter,
   ) {}
 
   execute(taskId: TaskId): Promise<Result<BundlePreview, AppError>> {

@@ -98,7 +98,7 @@ test('offline while sending: nothing is lost, nothing is sent twice', async ({ c
   const panel = await openSidePanel(context);
   await draftOneStep(context, panel, 'Fix the cards');
 
-  receiver.fail('unavailable');
+  receiver.fail('unavailable', { on: 'submitTask' });
   await panel.getByTestId('project-select').selectOption({ label: 'Acme Web' });
   await panel.getByTestId('send').click();
   await panel.getByTestId('tab-active').click();
@@ -107,7 +107,7 @@ test('offline while sending: nothing is lost, nothing is sent twice', async ({ c
   expect(receiver.tasks.size).toBe(0);
 
   // The receiver comes back but loses its answer after accepting: the extension cannot tell.
-  receiver.fail('drop-after-accept');
+  receiver.fail('drop-after-accept', { on: 'submitTask' });
   await task(panel).getByRole('button', { name: 'Спробувати зараз' }).click();
   await expect(task(panel)).toHaveAttribute('data-attempts', '2');
   expect(receiver.tasks.size).toBe(1);

@@ -1,12 +1,21 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { TaskId, createDraft, type Clock, type Logger, type Result } from '@redline/core';
+import {
+  DeliveryId,
+  ProjectId,
+  TaskId,
+  createDraft,
+  type Clock,
+  type Logger,
+  type Result,
+  type Task,
+} from '@redline/core';
 import { DatabaseConnection, openDatabase } from './database';
 import { IdbActiveDraftStore } from './idb-active-draft-store';
 import { IdbAssetStore } from './idb-asset-store';
 import { IdbBundleRepository } from './idb-bundle-repository';
 import { IdbLocalFiles } from './idb-local-files';
-import { IdbTaskRepository } from './idb-task-repository';
+import { IdbDraftRepository, IdbTaskRepository, IdbWorkspaceStore } from './idb-workspace';
 
 const silentLogger: Logger = {
   debug: () => undefined,
@@ -31,7 +40,7 @@ beforeEach(() => {
 
 const taskId = TaskId.parse('task-1');
 
-describe('IdbTaskRepository', () => {
+describe('the workspace in IndexedDB', () => {
   const logged: unknown[] = [];
   const logger: Logger = {
     debug: () => undefined,
@@ -40,46 +49,77 @@ describe('IdbTaskRepository', () => {
     error: (message, context) => logged.push({ message, context }),
     child: () => logger,
   };
+  const draft = createDraft(taskId, 5);
+  const sent: Task = {
+    ...draft,
+    state: {
+      kind: 'queued',
+      delivery: {
+        id: DeliveryId.parse('d1'),
+        projectId: ProjectId.parse('acme'),
+        projectName: 'Acme',
+        digest: 'x',
+      },
+      queuedAt: 6,
+      attempts: 0,
+      nextAttemptAt: 6,
+      lastError: null,
+    },
+  };
 
-  it('round-trips tasks through the domain schema', async () => {
+  it('writes a unit of work all together and reads each kind back through its schema', async () => {
+    const store = new IdbWorkspaceStore(connection);
+    const drafts = new IdbDraftRepository(connection, logger);
     const tasks = new IdbTaskRepository(connection, logger);
-    const task = createDraft(taskId, 5);
-    value(await tasks.save(task));
-    expect(value(await tasks.get(taskId))).toEqual(task);
-    expect(value(await tasks.list())).toEqual([task]);
-    value(await tasks.delete(taskId));
-    expect(await tasks.get(taskId)).toMatchObject({ ok: false, error: { code: 'not-found' } });
+    const active = new IdbActiveDraftStore(connection);
+
+    value(
+      await store.apply([
+        { kind: 'draft', id: taskId, value: draft },
+        { kind: 'active', id: taskId },
+      ]),
+    );
+    expect(value(await drafts.list())).toEqual([draft]);
+    expect(value(await active.get())).toBe(taskId);
+
+    // Sending: the draft becomes a task, and is no longer the active one.
+    value(
+      await store.apply([
+        { kind: 'draft', id: taskId, value: null },
+        { kind: 'task', id: taskId, value: sent },
+        { kind: 'active', id: null },
+      ]),
+    );
+    expect(await drafts.get(taskId)).toMatchObject({ ok: false, error: { code: 'not-found' } });
+    expect(value(await tasks.get(taskId))).toEqual(sent);
+    expect(value(await active.get())).toBeNull();
   });
 
-  it('reports a corrupted record instead of trusting it', async () => {
-    const db = await connection.get();
-    await db.put('tasks', { id: 'task-1', steps: 'not an array' });
-    const read = await new IdbTaskRepository(connection, logger).get(taskId);
-    expect(read).toMatchObject({ ok: false, error: { code: 'storage' } });
+  it('writes nothing when one write of a unit of work fails', async () => {
+    const store = new IdbWorkspaceStore(connection);
+    // A function cannot be stored: IndexedDB refuses the write.
+    const unstorable = { ...sent, title: (() => 'x') as unknown as string };
+    const result = await store.apply([
+      { kind: 'draft', id: taskId, value: null },
+      { kind: 'task', id: taskId, value: unstorable },
+    ]);
+    expect(result).toMatchObject({ ok: false, error: { code: 'storage' } });
+    expect(value(await new IdbTaskRepository(connection, logger).list())).toEqual([]);
   });
 
-  it('lists the readable tasks past a corrupted one, reporting it once', async () => {
-    const tasks = new IdbTaskRepository(connection, logger);
-    const good = createDraft(TaskId.parse('task-2'), 5);
-    value(await tasks.save(good));
+  it('reports a corrupted record instead of trusting it, and lists past it once', async () => {
+    const store = new IdbWorkspaceStore(connection);
+    const other = createDraft(TaskId.parse('task-2'), 5);
+    value(await store.apply([{ kind: 'draft', id: other.id, value: other }]));
     const db = await connection.get();
-    await db.put('tasks', { id: 'task-1', steps: 'not an array' });
+    await db.put('drafts', { id: 'task-1', steps: 'not an array' });
+    const drafts = new IdbDraftRepository(connection, logger);
     logged.length = 0;
 
-    expect(value(await tasks.list())).toEqual([good]);
-    expect(value(await tasks.list())).toEqual([good]);
+    expect(await drafts.get(taskId)).toMatchObject({ ok: false, error: { code: 'storage' } });
+    expect(value(await drafts.list())).toEqual([other]);
+    expect(value(await drafts.list())).toEqual([other]);
     expect(logged).toHaveLength(1);
-  });
-});
-
-describe('IdbActiveDraftStore', () => {
-  it('has no active draft until one is set, and can clear it', async () => {
-    const store = new IdbActiveDraftStore(connection);
-    expect(value(await store.get())).toBeNull();
-    value(await store.set(taskId));
-    expect(value(await store.get())).toBe(taskId);
-    value(await store.set(null));
-    expect(value(await store.get())).toBeNull();
   });
 });
 

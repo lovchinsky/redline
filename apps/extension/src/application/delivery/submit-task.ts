@@ -5,11 +5,11 @@ import {
   formatBindingPattern,
   hostPermissionOf,
   ok,
-  queueForDelivery,
   reopenDraft,
   rescheduleDelivery,
   resolveBinding,
   retryDelivery,
+  sendDraft,
   sitePatternOf,
   type AppError,
   type Binding,
@@ -17,14 +17,14 @@ import {
   type IdGenerator,
   type Logger,
   type Result,
-  type Task,
+  type TaskContent,
   type TaskId,
 } from '@redline/core';
 import type { AppEvents, DeliveryTarget, EventPublisher, ProjectRef } from '@redline/rpc';
 import type { BindingStore } from '../../ports/delivery';
-import type { ActiveDraftStore, TaskRepository } from '../../ports/drafts';
+import type { ActiveDraftStore, DraftRepository, TaskRepository } from '../../ports/workspace';
 import type { BundleAssembler } from '../drafts/assemble-bundle';
-import type { TaskWriter } from '../tasks/task-writer';
+import type { WorkspaceWriter } from '../workspace/workspace-writer';
 import type { DeliverQueued } from './deliver-queued';
 
 type Done = Result<Record<string, never>, AppError>;
@@ -40,7 +40,7 @@ interface StepSite {
  * The site of every step that can be bound, and the binding that applies to the step's page.
  * Steps on local files have no site: they take whichever project the others agree on.
  */
-const sitesOf = (task: Task, bindings: readonly Binding[]): StepSite[] =>
+const sitesOf = (task: TaskContent, bindings: readonly Binding[]): StepSite[] =>
   task.steps.flatMap((step) => {
     const url = new URL(step.page.url);
     const site = sitePatternOf(url);
@@ -74,12 +74,12 @@ const targetOf = (sites: readonly StepSite[]): DeliveryTarget => {
 };
 
 export interface SubmitTaskDeps {
-  readonly tasks: TaskRepository;
+  readonly drafts: DraftRepository;
   readonly active: ActiveDraftStore;
   readonly bindings: BindingStore;
   readonly assembler: BundleAssembler;
   readonly outbox: DeliverQueued;
-  readonly writer: TaskWriter;
+  readonly writer: WorkspaceWriter;
   readonly events: EventPublisher<AppEvents>;
   readonly ids: IdGenerator;
   readonly clock: Clock;
@@ -88,16 +88,16 @@ export interface SubmitTaskDeps {
 
 /** Which project a draft would go to, from the bindings of the pages its steps were taken on. */
 export class ResolveDeliveryTarget {
-  constructor(private readonly deps: Pick<SubmitTaskDeps, 'tasks' | 'bindings'>) {}
+  constructor(private readonly deps: Pick<SubmitTaskDeps, 'drafts' | 'bindings'>) {}
 
   async execute(taskId: TaskId): Promise<Result<DeliveryTarget, AppError>> {
-    const [task, bindings] = await Promise.all([
-      this.deps.tasks.get(taskId),
+    const [draft, bindings] = await Promise.all([
+      this.deps.drafts.get(taskId),
       this.deps.bindings.all(),
     ]);
-    if (!task.ok) return task;
+    if (!draft.ok) return draft;
     if (!bindings.ok) return bindings;
-    return ok(targetOf(sitesOf(task.value, bindings.value)));
+    return ok(targetOf(sitesOf(draft.value, bindings.value)));
   }
 }
 
@@ -110,94 +110,95 @@ export interface SubmitRequest {
 }
 
 /**
- * Sends a draft: binds its unbound sites to the chosen project, freezes its bundle (the one the
- * preview showed) and puts it in the outbox. Only the revision the user saw is sent: a step
- * added meanwhile (from another tab) stops it. The draft stops being active, so the next
- * circled step starts a new one. Delivery itself happens in the outbox, right away or later.
+ * Sends a draft: freezes its bundle (the one the preview showed), turns it into a task waiting
+ * in the outbox, and binds its unbound sites to the chosen project. Only the revision the user
+ * saw is sent: a step added meanwhile (from another tab) stops it. The draft is gone, so the
+ * next circled step starts a new one. Delivery itself happens in the outbox, now or later.
  */
 export class SubmitTask {
   constructor(private readonly deps: SubmitTaskDeps) {}
 
   async execute({ taskId, revision, project }: SubmitRequest): Promise<Done> {
-    const { tasks, active, bindings, assembler, writer, ids, clock } = this.deps;
-    const queued = await writer.run(
-      async (tx): Promise<Result<{ boundSites: boolean }, AppError>> => {
-        const task = await tasks.get(taskId);
-        if (!task.ok) return task;
-        if (task.value.state.kind === 'draft' && task.value.revision !== revision) {
-          return err(
-            appError('conflict', 'The draft changed since it was shown', {
-              reason: 'draft-changed',
-            }),
-          );
-        }
-        const all = await bindings.all();
-        if (!all.ok) return all;
-        const sites = sitesOf(task.value, all.value);
-        const target = targetOf(sites);
-        if (target.conflict) {
-          return err(
-            appError('conflict', 'The steps belong to different projects', {
-              reason: 'projects-differ',
-            }),
-          );
-        }
-        const chosen = project ?? target.project;
-        if (chosen === null)
-          return err(
-            appError('validation', 'Choose a project for this task', {
-              reason: 'project-required',
-            }),
-          );
-        if (target.project !== null && target.project.id !== chosen.id) {
-          return err(
-            appError('conflict', `These pages are bound to ${target.project.name}`, {
-              projectId: target.project.id,
-              projectName: target.project.name,
-              reason: 'bound-elsewhere',
-            }),
-          );
-        }
-
-        const frozen = await assembler.frozen(taskId);
-        if (!frozen.ok) return frozen;
-        const now = clock.now();
-        const next = queueForDelivery(
-          task.value,
-          {
-            id: DeliveryId.parse(ids.next()),
-            projectId: chosen.id,
-            projectName: chosen.name,
-            digest: frozen.value.bundle.digest,
-          },
-          now,
+    const { drafts, active, bindings, assembler, writer, ids, clock } = this.deps;
+    const queued = await writer.run(async (tx): Promise<Done> => {
+      const draft = await drafts.get(taskId);
+      if (!draft.ok) return draft;
+      if (draft.value.revision !== revision) {
+        return err(
+          appError('conflict', 'The draft changed since it was shown', {
+            reason: 'draft-changed',
+          }),
         );
-        if (!next.ok) return next;
-
-        const unbound = new Set(
-          sites.filter((site) => site.binding === null).map((site) => site.origin),
+      }
+      const all = await bindings.all();
+      if (!all.ok) return all;
+      const sites = sitesOf(draft.value, all.value);
+      const target = targetOf(sites);
+      if (target.conflict) {
+        return err(
+          appError('conflict', 'The steps belong to different projects', {
+            reason: 'projects-differ',
+          }),
         );
+      }
+      const chosen = project ?? target.project;
+      if (chosen === null)
+        return err(
+          appError('validation', 'Choose a project for this task', {
+            reason: 'project-required',
+          }),
+        );
+      if (target.project !== null && target.project.id !== chosen.id) {
+        return err(
+          appError('conflict', `These pages are bound to ${target.project.name}`, {
+            projectId: target.project.id,
+            projectName: target.project.name,
+            reason: 'bound-elsewhere',
+          }),
+        );
+      }
+
+      const frozen = await assembler.frozen(taskId);
+      if (!frozen.ok) return frozen;
+      const now = clock.now();
+      const task = sendDraft(
+        draft.value,
+        {
+          id: DeliveryId.parse(ids.next()),
+          projectId: chosen.id,
+          projectName: chosen.name,
+          digest: frozen.value.bundle.digest,
+        },
+        now,
+      );
+      if (!task.ok) return task;
+
+      tx.saveDraft(draft.value, null);
+      tx.saveTask(null, task.value);
+      const current = await active.get();
+      if (current.ok && current.value === taskId) tx.setActive(null);
+
+      // Settings, not the workspace: bound once the task is saved, so a failed send binds nothing.
+      const unbound = new Set(
+        sites.filter((site) => site.binding === null).map((site) => site.origin),
+      );
+      tx.afterCommit(async () => {
+        let bound = 0;
         for (const pattern of unbound) {
-          const bound = await bindings.put({
+          const put = await bindings.put({
             pattern,
             projectId: chosen.id,
             projectName: chosen.name,
             createdAt: now,
           });
-          if (!bound.ok) return bound;
+          if (put.ok) bound += 1;
+          else this.deps.logger.error('Could not bind a site', { pattern, ...put.error });
         }
-        const current = await active.get();
-        if (current.ok && current.value === taskId) {
-          const cleared = await active.set(null);
-          if (!cleared.ok) return cleared;
-        }
-        const saved = await tx.commit(task.value, next.value);
-        if (!saved.ok) return saved;
-        return ok({ boundSites: unbound.size > 0 });
-      },
-    );
+        if (bound > 0) this.publishSettingsChanged();
+      });
+      return ok({});
+    });
     if (!queued.ok) return queued;
-    if (queued.value.boundSites) this.publishSettingsChanged();
     void this.deps.outbox.run();
     return ok({});
   }
@@ -211,9 +212,8 @@ export class SubmitTask {
 
 export interface DeliveryActionDeps {
   readonly tasks: TaskRepository;
-  readonly active: ActiveDraftStore;
   readonly outbox: DeliverQueued;
-  readonly writer: TaskWriter;
+  readonly writer: WorkspaceWriter;
   readonly ids: IdGenerator;
   readonly clock: Clock;
 }
@@ -224,7 +224,7 @@ export class RetryDelivery {
 
   async execute(taskId: TaskId): Promise<Done> {
     const { writer, ids, clock } = this.deps;
-    const updated = await writer.update(taskId, (task) => {
+    const updated = await writer.updateTask(taskId, (task) => {
       const now = clock.now();
       return task.state.kind === 'queued'
         ? rescheduleDelivery(task, now, now)
@@ -241,16 +241,16 @@ export class ReopenDraft {
   constructor(private readonly deps: DeliveryActionDeps) {}
 
   execute(taskId: TaskId): Promise<Done> {
-    const { tasks, active, writer, clock } = this.deps;
+    const { tasks, writer, clock } = this.deps;
     return writer.run(async (tx) => {
       const task = await tasks.get(taskId);
       if (!task.ok) return task;
-      const next = reopenDraft(task.value, clock.now());
-      if (!next.ok) return next;
-      const activated = await active.set(taskId);
-      if (!activated.ok) return activated;
-      const saved = await tx.commit(task.value, next.value);
-      return saved.ok ? ok({}) : saved;
+      const draft = reopenDraft(task.value, clock.now());
+      if (!draft.ok) return draft;
+      tx.saveTask(task.value, null);
+      tx.saveDraft(null, draft.value);
+      tx.setActive(draft.value.id);
+      return ok({});
     });
   }
 }

@@ -14,7 +14,7 @@ import {
   createDraft,
   ok,
   type StepCapture,
-  type Task,
+  type Draft,
 } from '@redline/core';
 import { dedupeProcessor } from '@redline/processors';
 import {
@@ -144,7 +144,7 @@ describe('context.md, end to end (golden)', () => {
       stepOf('Rename "Most popular" to "Best value"', [shapeAround('b', [get('.badge')])]),
     ];
 
-    let task: Task = createDraft(TaskId.parse('task-1'), 0);
+    let task: Draft = createDraft(TaskId.parse('task-1'), 0);
     const captures = new Map<string, StepCapture>();
     for (const [index, subject] of subjects.entries()) {
       const captureId = CaptureId.parse(`capture-${String(index + 1)}`);

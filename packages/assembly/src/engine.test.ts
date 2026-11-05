@@ -8,7 +8,7 @@ import {
   ok,
   type ErasedFragmentDescriptor,
   type StepCapture,
-  type Task,
+  type Draft,
   type TaskProcessor,
 } from '@redline/core';
 import { describe, expect, it } from 'vitest';
@@ -44,7 +44,7 @@ const captureOf = (text: string): StepCapture => ({
   diagnostics: [],
 });
 
-const taskWith = (count: number): Task => {
+const taskWith = (count: number): Draft => {
   let task = createDraft(TaskId.parse('task-1'), 0);
   for (let n = 1; n <= count; n += 1) {
     const added = addStep(
@@ -73,7 +73,7 @@ const engine = (processors: readonly TaskProcessor[] = []) =>
     packager: new Packager({ get: () => Promise.resolve(ok(new Blob())) }),
   });
 
-const request = (task: Task, captures = new Map<string, StepCapture>()) => ({
+const request = (task: Draft, captures = new Map<string, StepCapture>()) => ({
   task,
   captures,
   createdAt: '2026-11-05T10:00:00.000Z',

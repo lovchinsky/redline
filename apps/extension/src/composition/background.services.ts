@@ -14,7 +14,11 @@ import { IdbActiveDraftStore } from '../adapters/idb/idb-active-draft-store';
 import { IdbAssetStore } from '../adapters/idb/idb-asset-store';
 import { IdbBundleRepository } from '../adapters/idb/idb-bundle-repository';
 import { IdbCaptureRepository } from '../adapters/idb/idb-capture-repository';
-import { IdbTaskRepository } from '../adapters/idb/idb-task-repository';
+import {
+  IdbDraftRepository,
+  IdbTaskRepository,
+  IdbWorkspaceStore,
+} from '../adapters/idb/idb-workspace';
 import { HttpReceiverClient } from '../adapters/receiver/http-receiver-client';
 import { StorageBindingStore } from '../adapters/storage/storage-bindings';
 import { StorageJournalStore } from '../adapters/storage/storage-journal';
@@ -58,7 +62,7 @@ import { createDraftHandlers } from '../application/drafts/draft-handlers';
 import { GetDraft, ListDrafts, ListTasks } from '../application/drafts/draft-queries';
 import { StoredCaptures } from '../application/drafts/stored-captures';
 import { createSystemHandlers } from '../application/system/system-handlers';
-import { TaskWriter } from '../application/tasks/task-writer';
+import { WorkspaceWriter } from '../application/workspace/workspace-writer';
 import type {
   CaptureScriptInjector,
   CaptureUnavailableNotice,
@@ -108,6 +112,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
   // Storage
   const assets = new IdbAssetStore(database, ids, clock);
   const captureRepository = new IdbCaptureRepository(database);
+  const drafts = new IdbDraftRepository(database, logger.child('drafts-store'));
   const tasks = new IdbTaskRepository(database, logger.child('tasks-store'));
   const active = new IdbActiveDraftStore(database);
   const bundles = new IdbBundleRepository(database);
@@ -116,11 +121,13 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
   const receiver = new HttpReceiverClient(settingsStore, platform.fetch, () => clock.now());
   const catalog = new FragmentCatalog(fragmentDescriptors);
 
-  // Every task write goes through one queue and is announced to these observers.
+  // Every workspace write is a unit of work in one queue, announced to these observers.
   const activity = new ActivityObserver(tasks, platform.activity);
   const wakeUps = new WakeUpPlanner(tasks, platform.wakeUps);
-  const writer = new TaskWriter({
+  const writer = new WorkspaceWriter({
+    drafts,
     tasks,
+    store: new IdbWorkspaceStore(database),
     queue: new SerialQueue(),
     observers: [
       new UiTaskEvents(active, publisher, logger.child('ui-events')),
@@ -128,7 +135,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
       new NotificationObserver(platform.notifier),
       wakeUps,
     ],
-    logger: logger.child('tasks'),
+    logger: logger.child('workspace'),
   });
 
   const captures = new StoredCaptures({
@@ -138,7 +145,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     logger: logger.child('captures'),
   });
   const assembler = new BundleAssembler({
-    tasks,
+    drafts,
     captures,
     bundles,
     engine: new AssemblyEngine({
@@ -174,9 +181,9 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     logger: logger.child('capture'),
   });
 
-  const commands = { tasks, active, bundles, captures, writer, ids, clock };
-  const queries = { tasks, active, captures, catalog };
-  const deliveryActions = { tasks, active, outbox, writer, ids, clock };
+  const commands = { drafts, tasks, active, bundles, captures, writer, ids, clock };
+  const queries = { drafts, tasks, active, captures, catalog };
+  const deliveryActions = { tasks, outbox, writer, ids, clock };
 
   const handlers = {
     ...createSystemHandlers({ clock, version }),
@@ -198,7 +205,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
       commitStep: new CommitStep({
         catalog,
         captures: captureRepository,
-        tasks,
+        drafts,
         active,
         writer,
         ids,
@@ -219,9 +226,9 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
       assembleBundle: new AssembleBundle(assembler, writer),
     }),
     ...createDeliveryHandlers({
-      resolveTarget: new ResolveDeliveryTarget({ tasks, bindings: bindingStore }),
+      resolveTarget: new ResolveDeliveryTarget({ drafts, bindings: bindingStore }),
       submitTask: new SubmitTask({
-        tasks,
+        drafts,
         active,
         bindings: bindingStore,
         assembler,
@@ -252,6 +259,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     handlers,
     startCapture,
     notice,
+    drafts,
     tasks,
     assets,
     outbox,
@@ -265,6 +273,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
       logger: logger.child('page-runtime'),
     }),
     collectGarbage: new CollectGarbage({
+      drafts,
       tasks,
       captures: captureRepository,
       assets,

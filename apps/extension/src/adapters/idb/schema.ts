@@ -2,6 +2,7 @@ import type { DBSchema, IDBPDatabase, IDBPTransaction, StoreNames } from 'idb';
 import type { BundleManifest } from '@redline/contract';
 import type { CaptureRecord } from '../../ports/capture';
 import { upgradeTaskRecord } from './task-records-v4';
+import { draftOf } from './task-records-v5';
 
 export const DATABASE_NAME = 'redline';
 
@@ -31,7 +32,8 @@ export type WorkspaceKey = 'activeDraft';
 export interface VfDatabaseSchema extends DBSchema {
   assets: { key: string; value: StoredAsset; indexes: { createdAt: number } };
   captures: { key: string; value: CaptureRecord; indexes: { createdAt: number } };
-  /** Tasks are stored as plain data and validated with the domain schema on read. */
+  /** Drafts and sent tasks are stored as plain data and validated with their schema on read. */
+  drafts: { key: string; value: unknown; indexes: { updatedAt: number } };
   tasks: { key: string; value: unknown; indexes: { updatedAt: number } };
   workspace: { key: WorkspaceKey; value: unknown };
   bundles: { key: string; value: StoredBundleRecord };
@@ -92,6 +94,28 @@ export const migrations: readonly Migration[] = [
           const bundle = await bundles.get(cursor.key);
           const upgraded = upgradeTaskRecord(cursor.value, bundle?.digest ?? null);
           if (upgraded !== cursor.value) await cursor.update(upgraded);
+          cursor = await cursor.continue();
+        }
+      })().catch(() => {
+        transaction.abort();
+      });
+    },
+  },
+  {
+    version: 5,
+    description: 'Drafts move to a store of their own; tasks keep only what was sent',
+    migrate(db, transaction) {
+      db.createObjectStore('drafts', { keyPath: 'id' }).createIndex('updatedAt', 'updatedAt');
+      // Moves every draft within the upgrade; any failure aborts it, leaving version 4 intact.
+      void (async () => {
+        const drafts = transaction.objectStore('drafts');
+        let cursor = await transaction.objectStore('tasks').openCursor();
+        while (cursor !== null) {
+          const draft = draftOf(cursor.value);
+          if (draft !== null) {
+            await drafts.put(draft);
+            await cursor.delete();
+          }
           cursor = await cursor.continue();
         }
       })().catch(() => {

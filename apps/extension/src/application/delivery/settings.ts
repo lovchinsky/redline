@@ -12,7 +12,7 @@ import {
 } from '@redline/core';
 import type { AppEvents, EventPublisher, ProjectRef, ReceiverView } from '@redline/rpc';
 import type { BindingStore, ReceiverPort, SettingsStore } from '../../ports/delivery';
-import type { TaskWriter } from '../tasks/task-writer';
+import type { WorkspaceWriter } from '../workspace/workspace-writer';
 
 type Done = Result<Record<string, never>, AppError>;
 
@@ -48,8 +48,8 @@ export interface SettingsDeps {
   readonly settings: SettingsStore;
   readonly bindings: BindingStore;
   readonly receiver: ReceiverPort;
-  /** Settings writes share the task write queue: submit reads bindings inside it. */
-  readonly writer: TaskWriter;
+  /** Binding changes take their turn with the workspace's units of work: sending binds sites. */
+  readonly writer: WorkspaceWriter;
   readonly events: EventPublisher<AppEvents>;
   readonly clock: Clock;
   readonly logger: Logger;

@@ -1,7 +1,7 @@
 import { isFinished, isTerminal, type Task } from '@redline/core';
 import type { TaskAction, TaskStatus, TaskView } from '@redline/rpc';
 
-const statusOf = (state: Exclude<Task['state'], { kind: 'draft' }>): TaskStatus => {
+const statusOf = (state: Task['state']): TaskStatus => {
   switch (state.kind) {
     case 'queued':
       return {
@@ -27,7 +27,7 @@ const statusOf = (state: Exclude<Task['state'], { kind: 'draft' }>): TaskStatus 
 };
 
 /** What the user may do: the same rules the use cases enforce, decided in one place. */
-const actionsOf = (state: Exclude<Task['state'], { kind: 'draft' }>): TaskAction[] => {
+const actionsOf = (state: Task['state']): TaskAction[] => {
   switch (state.kind) {
     case 'queued':
       // Leaving the outbox mid-attempt is not offered; sending now is.
@@ -48,13 +48,9 @@ const actionsOf = (state: Exclude<Task['state'], { kind: 'draft' }>): TaskAction
   }
 };
 
-/**
- * A sent task as the UI shows it: where it is and what can be done, never how it is stored.
- * `null` for a draft, which is shown by the draft views instead.
- */
-export const taskViewOf = (task: Task): TaskView | null => {
+/** A sent task as the UI shows it: where it is and what can be done, never how it is stored. */
+export const taskViewOf = (task: Task): TaskView => {
   const { state } = task;
-  if (state.kind === 'draft') return null;
   return {
     id: task.id,
     title: task.title,

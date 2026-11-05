@@ -34,7 +34,7 @@ const probes = [
   {
     name: 'production code importing a test',
     files: {
-      'packages/core/src/__cruise_probe__/test.ts': "export * from '../domain/task.test';\n",
+      'packages/core/src/__cruise_probe__/test.ts': "export * from '../shared/result.test';\n",
     },
     entry: 'packages/core/src/__cruise_probe__',
     expectRule: 'not-to-test',

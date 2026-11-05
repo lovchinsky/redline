@@ -91,7 +91,7 @@ describe('HttpReceiverClient against the mock receiver', () => {
   });
 
   it('a repeated delivery with the same key returns the same task, never a second one', async () => {
-    receiver.fail('drop-after-accept');
+    receiver.fail('drop-after-accept', { on: 'submitTask' });
     const lost = await client.submit(delivery());
     expect(lost).toMatchObject({ ok: false, error: { code: 'receiver-unavailable' } });
     const retried = value(await client.submit(delivery()));
@@ -101,7 +101,7 @@ describe('HttpReceiverClient against the mock receiver', () => {
   });
 
   it('maps failures: unavailable with Retry-After, bad token, rejected bundle, not configured', async () => {
-    receiver.fail('unavailable');
+    receiver.fail('unavailable', { on: 'listProjects' });
     expect(await client.listProjects()).toMatchObject({
       ok: false,
       error: { code: 'receiver-unavailable', details: { status: 503, retryAfterSec: 1 } },

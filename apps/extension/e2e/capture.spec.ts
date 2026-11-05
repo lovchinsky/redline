@@ -77,7 +77,7 @@ test('circling cards collects context and adds the step to a draft with real scr
     .poll(() => logs.some((line) => line.includes('[redline:capture] Step added to draft')))
     .toBe(true);
 
-  const [task] = await readStore<StoredTask>(serviceWorker, 'tasks');
+  const [task] = await readStore<StoredTask>(serviceWorker, 'drafts');
   expect(task?.steps).toMatchObject([{ comment: 'Make the cards equal height' }]);
   const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
     (record) => record.id === task?.steps[0]?.captureId,
@@ -279,9 +279,9 @@ test('a page that re-renders while the user types still gives the context of wha
   await expect(page.locator('redline-overlay')).toHaveCount(0);
 
   await expect
-    .poll(async () => (await readStore<StoredTask>(serviceWorker, 'tasks')).length)
+    .poll(async () => (await readStore<StoredTask>(serviceWorker, 'drafts')).length)
     .toBe(1);
-  const [task] = await readStore<StoredTask>(serviceWorker, 'tasks');
+  const [task] = await readStore<StoredTask>(serviceWorker, 'drafts');
   const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
     (record) => record.id === task?.steps[0]?.captureId,
   );

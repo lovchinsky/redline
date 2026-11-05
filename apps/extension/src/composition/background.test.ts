@@ -424,7 +424,7 @@ describe('delivery', () => {
 
   it('offline: keeps the task queued, retries later, and delivers it once', async () => {
     const { taskId } = await app.commit('Fix it');
-    receiver.fail('unavailable');
+    receiver.fail('unavailable', { on: 'submitTask' });
     value(await submit(taskId, project()));
     await delivered();
 
@@ -460,7 +460,7 @@ describe('delivery', () => {
 
   it('a response lost after the receiver accepted creates no duplicate', async () => {
     const { taskId } = await app.commit('Fix it');
-    receiver.fail('drop-after-accept');
+    receiver.fail('drop-after-accept', { on: 'submitTask' });
     value(await submit(taskId, project()));
     await delivered();
     expect(await stateOf(taskId)).toMatchObject({ kind: 'queued', attempts: 1 });
@@ -534,7 +534,9 @@ describe('delivery', () => {
       ok: false,
       error: { code: 'conflict', details: { reason: 'draft-changed' } },
     });
-    expect(await stateOf(taskId)).toEqual({ kind: 'draft' });
+    // Still a draft, and not sent.
+    expect(await app.services.drafts.get(taskId)).toMatchObject({ ok: true });
+    expect(await stateOf(taskId)).toBeUndefined();
   });
 
   it('sending a refused task again is a new delivery, under a new key', async () => {
@@ -558,7 +560,7 @@ describe('delivery', () => {
 
   it('an update while a task waits in the outbox still sends the bundle the user approved', async () => {
     const { taskId } = await app.commit('Fix it');
-    receiver.fail('unavailable');
+    receiver.fail('unavailable', { on: 'submitTask' });
     value(await submit(taskId, project()));
     await delivered();
     const queued = await stateOf(taskId);
@@ -566,9 +568,11 @@ describe('delivery', () => {
 
     const updated = setup(undefined, { version: '0.2.0', keepDatabase: true });
     value(await updated.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
-    // Looking at it does not assemble it again with the new version.
-    const shown = value(await updated.rpc.call('task.assemble', { taskId }));
-    expect(shown.digest).toBe(queued.delivery.digest);
+    // Sent, it is no draft: nothing can assemble it again with the new version.
+    expect(await updated.rpc.call('task.assemble', { taskId })).toMatchObject({
+      ok: false,
+      error: { code: 'not-found' },
+    });
     updated.advance(30_000);
     await updated.services.outbox.run();
     expect(await stateOf(taskId, updated)).toMatchObject({ kind: 'submitted' });
@@ -598,7 +602,7 @@ describe('delivery', () => {
     await delivered();
     const check = async () => {
       app.advance(10 * 60_000);
-      receiver.fail('unavailable');
+      receiver.fail('unavailable', { on: 'getTask' });
       await app.services.followRemote.checkStatuses();
       return stateOf(taskId);
     };
@@ -647,6 +651,28 @@ describe('delivery', () => {
       actions: ['refresh', 'delete'],
       finished: false,
     });
+  });
+
+  it('lets go of what a delivered task collected, but not of what a refused one may need', async () => {
+    value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'wrong' }));
+    const refused = await app.commit('Refused for now');
+    value(await submit(refused.taskId, project()));
+    await delivered();
+    value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url, token: 'secret' }));
+    const sent = await app.commit('Delivered', 'https://acme.io/other');
+    value(await submit(sent.taskId, project()));
+    await delivered();
+    expect(await stateOf(refused.taskId)).toMatchObject({ kind: 'failed' });
+    expect(await stateOf(sent.taskId)).toMatchObject({ kind: 'submitted' });
+
+    app.advance(GARBAGE_GRACE_MS + 1);
+    // The delivered task's bundle is frozen: its raw context goes. The refused one may be
+    // reopened and edited, so its context stays.
+    expect(value(await app.services.collectGarbage.execute())).toMatchObject({ captures: 1 });
+    value(await app.rpc.call('task.reopen', { taskId: refused.taskId }));
+    expect(value(await app.rpc.call('drafts.get', { taskId: refused.taskId })).steps).toMatchObject(
+      [{ comment: 'Refused for now', thumbnail: { mediaType: 'image/png' } }],
+    );
   });
 
   it('refuses to mix projects in one task', async () => {

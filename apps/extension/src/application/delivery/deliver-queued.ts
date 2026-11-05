@@ -14,15 +14,16 @@ import {
   type Task,
 } from '@redline/core';
 import type { ReceiverPort, ReceiverReport } from '../../ports/delivery';
-import type { BundleRepository, TaskRepository } from '../../ports/drafts';
-import type { TaskWriter } from '../tasks/task-writer';
+import type { BundleRepository } from '../../ports/drafts';
+import type { TaskRepository } from '../../ports/workspace';
+import type { WorkspaceWriter } from '../workspace/workspace-writer';
 import { isTransient, nextRetryAt, toDeliveryError } from './retry-policy';
 
 export interface DeliverQueuedDeps {
   readonly tasks: TaskRepository;
   readonly bundles: BundleRepository;
   readonly receiver: ReceiverPort;
-  readonly writer: TaskWriter;
+  readonly writer: WorkspaceWriter;
   readonly clock: Clock;
   readonly logger: Logger;
 }
@@ -62,7 +63,7 @@ export class DeliverQueued {
 
   /** Records the attempt before making it; null when the task is no longer due for one. */
   private async begin(task: Task): Promise<Queued | null> {
-    const started = await this.deps.writer.update(task.id, (current) => {
+    const started = await this.deps.writer.updateTask(task.id, (current) => {
       const now = this.deps.clock.now();
       // Changed meanwhile (sent, refused, rescheduled): not this pass's to deliver.
       if (current.state.kind !== 'queued' || current.state.nextAttemptAt > now) return ok(current);
@@ -98,7 +99,7 @@ export class DeliverQueued {
     if (queued === null) return;
     const outcome = await this.send(due, queued);
 
-    const saved = await this.deps.writer.update(due.id, (current) => {
+    const saved = await this.deps.writer.updateTask(due.id, (current) => {
       // Retried, reopened or sent meanwhile: this attempt's result no longer applies.
       if (current.state.kind !== 'queued' || current.state.delivery.id !== queued.delivery.id) {
         return ok(current);

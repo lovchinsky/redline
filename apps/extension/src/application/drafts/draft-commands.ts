@@ -5,24 +5,27 @@ import {
   moveStep,
   ok,
   removeStep,
-  renameTask,
+  renameDraft,
   type AppError,
   type Clock,
+  type Draft,
   type IdGenerator,
   type Result,
   type StepId,
   type Task,
 } from '@redline/core';
-import type { ActiveDraftStore, BundleRepository, TaskRepository } from '../../ports/drafts';
-import type { TaskWriter } from '../tasks/task-writer';
+import type { BundleRepository } from '../../ports/drafts';
+import type { ActiveDraftStore, DraftRepository, TaskRepository } from '../../ports/workspace';
+import type { WorkspaceWriter } from '../workspace/workspace-writer';
 import type { StoredCaptures } from './stored-captures';
 
 export interface DraftCommandDeps {
+  readonly drafts: DraftRepository;
   readonly tasks: TaskRepository;
   readonly active: ActiveDraftStore;
   readonly bundles: BundleRepository;
   readonly captures: StoredCaptures;
-  readonly writer: TaskWriter;
+  readonly writer: WorkspaceWriter;
   readonly ids: IdGenerator;
   readonly clock: Clock;
 }
@@ -35,13 +38,12 @@ export class CreateDraft {
   constructor(private readonly deps: DraftCommandDeps) {}
 
   execute(): Promise<Result<{ taskId: TaskId }, AppError>> {
-    const { active, writer, ids, clock } = this.deps;
-    return writer.run(async (tx) => {
-      const task = createDraft(TaskId.parse(ids.next()), clock.now());
-      const activated = await active.set(task.id);
-      if (!activated.ok) return activated;
-      const saved = await tx.commit(null, task);
-      return saved.ok ? ok({ taskId: task.id }) : saved;
+    const { writer, ids, clock } = this.deps;
+    return writer.run((tx) => {
+      const draft = createDraft(TaskId.parse(ids.next()), clock.now());
+      tx.saveDraft(null, draft);
+      tx.setActive(draft.id);
+      return Promise.resolve(ok({ taskId: draft.id }));
     });
   }
 }
@@ -51,13 +53,11 @@ export class ActivateDraft {
   constructor(private readonly deps: DraftCommandDeps) {}
 
   execute(taskId: TaskId): Promise<Done> {
-    const { tasks, active, writer } = this.deps;
+    const { drafts, writer } = this.deps;
     return writer.run(async (tx) => {
-      const task = await tasks.get(taskId);
-      if (!task.ok) return task;
-      const activated = await active.set(taskId);
-      if (!activated.ok) return activated;
-      tx.touch(task.value);
+      const draft = await drafts.get(taskId);
+      if (!draft.ok) return draft;
+      tx.setActive(taskId);
       return done();
     });
   }
@@ -68,70 +68,81 @@ export type DraftEdit =
   | { readonly kind: 'edit-comment'; readonly stepId: StepId; readonly comment: string }
   | { readonly kind: 'move-step'; readonly stepId: StepId; readonly toIndex: number };
 
-const apply = (task: Task, edit: DraftEdit, now: number): Result<Task, AppError> => {
+const apply = (draft: Draft, edit: DraftEdit, now: number): Result<Draft, AppError> => {
   switch (edit.kind) {
     case 'rename':
-      return renameTask(task, edit.title, now);
+      return renameDraft(draft, edit.title, now);
     case 'edit-comment':
-      return editStepComment(task, edit.stepId, edit.comment, now);
+      return editStepComment(draft, edit.stepId, edit.comment, now);
     case 'move-step':
-      return moveStep(task, edit.stepId, edit.toIndex, now);
+      return moveStep(draft, edit.stepId, edit.toIndex, now);
   }
 };
 
-/** Edits that only change the task itself. */
+/** Edits that only change the draft itself. */
 export class EditDraft {
   constructor(private readonly deps: DraftCommandDeps) {}
 
   async execute(taskId: TaskId, edit: DraftEdit): Promise<Done> {
     const { writer, clock } = this.deps;
-    const updated = await writer.update(taskId, (task) => apply(task, edit, clock.now()));
+    const updated = await writer.updateDraft(taskId, (draft) => apply(draft, edit, clock.now()));
     return updated.ok ? done() : updated;
   }
 }
 
-/** Removes a step and deletes the context collected for it. */
+/** Removes a step and, once that is saved, the context collected for it. */
 export class RemoveStep {
   constructor(private readonly deps: DraftCommandDeps) {}
 
   execute(taskId: TaskId, stepId: StepId): Promise<Done> {
-    const { tasks, captures, writer, clock } = this.deps;
+    const { drafts, captures, writer, clock } = this.deps;
     return writer.run(async (tx) => {
-      const task = await tasks.get(taskId);
-      if (!task.ok) return task;
-      const removed = removeStep(task.value, stepId, clock.now());
+      const draft = await drafts.get(taskId);
+      if (!draft.ok) return draft;
+      const removed = removeStep(draft.value, stepId, clock.now());
       if (!removed.ok) return removed;
-      const saved = await tx.commit(task.value, removed.value.task);
-      if (!saved.ok) return saved;
-      await captures.dispose([removed.value.removed.captureId]);
+      tx.saveDraft(draft.value, removed.value.draft);
+      tx.afterCommit(() => captures.dispose([removed.value.removed.captureId]));
       return done();
     });
   }
 }
 
 /**
- * Deletes a task in any state with everything collected for it. A task already delivered
- * keeps going on the receiver; the extension only stops following it.
+ * Deletes a draft, or a sent task in any state, with everything collected for it. A task
+ * already delivered keeps going on the receiver; the extension only stops following it.
  */
 export class DeleteTask {
   constructor(private readonly deps: DraftCommandDeps) {}
 
   execute(taskId: TaskId): Promise<Done> {
-    const { tasks, active, bundles, captures, writer } = this.deps;
+    const { active, bundles, captures, writer } = this.deps;
     return writer.run(async (tx) => {
-      const task = await tasks.get(taskId);
-      if (!task.ok) return task;
-      const current = await active.get();
-      if (current.ok && current.value === taskId) {
-        const cleared = await active.set(null);
-        if (!cleared.ok) return cleared;
+      const found = await this.find(taskId);
+      if (!found.ok) return found;
+      const { draft, task } = found.value;
+      if (draft !== null) {
+        tx.saveDraft(draft, null);
+        const current = await active.get();
+        if (current.ok && current.value === taskId) tx.setActive(null);
       }
-      const deleted = await tx.commit(task.value, null);
-      if (!deleted.ok) return deleted;
-      const bundle = await bundles.delete(taskId);
-      if (!bundle.ok) return bundle;
-      await captures.dispose(task.value.steps.map((step) => step.captureId));
+      if (task !== null) tx.saveTask(task, null);
+      const steps = (draft ?? task)?.steps ?? [];
+      tx.afterCommit(async () => {
+        await bundles.delete(taskId);
+        await captures.dispose(steps.map((step) => step.captureId));
+      });
       return done();
     });
+  }
+
+  private async find(
+    taskId: TaskId,
+  ): Promise<Result<{ draft: Draft | null; task: Task | null }, AppError>> {
+    const draft = await this.deps.drafts.get(taskId);
+    if (draft.ok) return ok({ draft: draft.value, task: null });
+    if (draft.error.code !== 'not-found') return draft;
+    const task = await this.deps.tasks.get(taskId);
+    return task.ok ? ok({ draft: null, task: task.value }) : task;
   }
 }

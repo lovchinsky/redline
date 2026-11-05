@@ -15,14 +15,14 @@ import {
   type TaskId,
 } from '@redline/core';
 import type { ReceiverPort, ReceiverReport } from '../../ports/delivery';
-import type { TaskRepository } from '../../ports/drafts';
-import type { TaskWriter } from '../tasks/task-writer';
+import type { TaskRepository } from '../../ports/workspace';
+import type { WorkspaceWriter } from '../workspace/workspace-writer';
 import { nextRetryAt, toDeliveryError } from './retry-policy';
 
 export interface FollowRemoteDeps {
   readonly tasks: TaskRepository;
   readonly receiver: ReceiverPort;
-  readonly writer: TaskWriter;
+  readonly writer: WorkspaceWriter;
   readonly clock: Clock;
   readonly logger: Logger;
 }
@@ -110,7 +110,7 @@ export class FollowRemote {
     report: Result<ReceiverReport, AppError>,
   ): Promise<Result<void, AppError>> {
     if (!report.ok) this.deps.logger.warn('Status check failed', { taskId, ...report.error });
-    const applied = await this.deps.writer.update(taskId, (current) => {
+    const applied = await this.deps.writer.updateTask(taskId, (current) => {
       // Deleted or no longer followed: the report is about a task that is gone.
       if (current.state.kind !== 'submitted' || current.state.remoteId !== remoteId) {
         return ok(current);

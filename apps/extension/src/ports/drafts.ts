@@ -1,19 +1,6 @@
 /** Ports the draft and assembly use cases need from storage. Implemented in adapters. */
 import type { Bundle } from '@redline/assembly';
-import type { AppError, AssetId, Result, Task, TaskId } from '@redline/core';
-
-export interface TaskRepository {
-  get(id: TaskId): Promise<Result<Task, AppError>>;
-  list(): Promise<Result<readonly Task[], AppError>>;
-  save(task: Task): Promise<Result<void, AppError>>;
-  delete(id: TaskId): Promise<Result<void, AppError>>;
-}
-
-/** Remembers which draft new steps go to. Survives browser restarts. */
-export interface ActiveDraftStore {
-  get(): Promise<Result<TaskId | null, AppError>>;
-  set(id: TaskId | null): Promise<Result<void, AppError>>;
-}
+import type { AppError, AssetId, Result, TaskId } from '@redline/core';
 
 /** The latest assembled bundle of a task, frozen, with what it was assembled from. */
 export interface StoredBundle {

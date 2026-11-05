@@ -1,4 +1,5 @@
 import {
+  mayReturnToDrafts,
   ok,
   type AppError,
   type AssetStore,
@@ -7,38 +8,45 @@ import {
   type Result,
 } from '@redline/core';
 import type { CaptureRepository } from '../../ports/capture';
-import type { AssetInventory, TaskRepository } from '../../ports/drafts';
-import type { TaskWriter } from '../tasks/task-writer';
+import type { AssetInventory } from '../../ports/drafts';
+import type { DraftRepository, TaskRepository } from '../../ports/workspace';
+import type { WorkspaceWriter } from '../workspace/workspace-writer';
 
 /** Data younger than this may belong to a capture still in progress. */
 export const GARBAGE_GRACE_MS = 60 * 60 * 1000;
 
 export interface CollectGarbageDeps {
+  readonly drafts: DraftRepository;
   readonly tasks: TaskRepository;
   readonly captures: CaptureRepository;
   readonly assets: AssetStore & AssetInventory;
-  readonly writer: TaskWriter;
+  readonly writer: WorkspaceWriter;
   readonly clock: Clock;
   readonly logger: Logger;
 }
 
 /**
- * Deletes what nothing refers to: captures no task uses and assets no capture uses (viewport
- * snapshots once their crops are made, leftovers of failed commits). Reachability from tasks
- * is the only rule, so no use case has to remember to clean up after itself for correctness.
+ * Deletes what nothing refers to: captures no draft (or task that may become one again) uses,
+ * and assets no capture uses (viewport snapshots once their crops are made, leftovers of failed
+ * commits). Reachability is the only rule, so no use case has to remember to clean up after
+ * itself for correctness.
  */
 export class CollectGarbage {
   constructor(private readonly deps: CollectGarbageDeps) {}
 
   execute(): Promise<Result<{ captures: number; assets: number }, AppError>> {
     return this.deps.writer.run(async () => {
-      const { tasks, captures, assets, clock, logger } = this.deps;
+      const { drafts, tasks, captures, assets, clock, logger } = this.deps;
       const cutoff = clock.now() - GARBAGE_GRACE_MS;
 
-      const allTasks = await tasks.list();
+      const [allDrafts, allTasks] = await Promise.all([drafts.list(), tasks.list()]);
+      if (!allDrafts.ok) return allDrafts;
       if (!allTasks.ok) return allTasks;
+      // A sent task's bundle is frozen; its raw context matters only if it may be reopened.
       const usedCaptures = new Set<string>(
-        allTasks.value.flatMap((task) => task.steps.map((step) => step.captureId)),
+        [...allDrafts.value, ...allTasks.value.filter(mayReturnToDrafts)].flatMap((entry) =>
+          entry.steps.map((step) => step.captureId),
+        ),
       );
 
       const allCaptures = await captures.list();
