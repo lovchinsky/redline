@@ -1,7 +1,6 @@
 import { Settings } from 'lucide-preact';
 import { useState } from 'preact/hooks';
 import { IconButton } from '../kit/Button';
-import { Logo } from '../kit/Logo';
 import type { UiServices } from '../services';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { TranslatorProvider, useTranslator } from '../shared/i18n';
@@ -19,22 +18,20 @@ const Panel = ({ services }: { services: UiServices }) => {
 
   return (
     <main class="panel">
-      <header class="panel-header">
-        <h1 class="brand">
-          <Logo />
-          {t.text('extName')}
-        </h1>
-        <IconButton
-          label={t.text('openSettings')}
-          onClick={() => void services.navigation.openSettings()}
-        >
-          <Settings size={16} />
-        </IconButton>
-      </header>
+      {/* Chrome's side panel already shows the extension's icon and name above the page. */}
+      <h1 class="sr-only">{t.text('extName')}</h1>
       <Tabs
         label={t.text('panelLabel')}
         selected={tab}
         onSelect={setTab}
+        trailing={
+          <IconButton
+            label={t.text('openSettings')}
+            onClick={() => void services.navigation.openSettings()}
+          >
+            <Settings size={16} />
+          </IconButton>
+        }
         tabs={[
           { id: 'draft', label: t.text('tabDraft') },
           { id: 'active', label: t.text('tabActive'), count: tasks.active.length },

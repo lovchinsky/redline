@@ -69,23 +69,17 @@ code {
   background: var(--rl-bg);
 }
 
-.panel-header {
+.tabs-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 12px 4px 16px;
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  gap: 4px;
+  padding: 12px 8px 0 12px;
 }
 
 .tabs {
   display: flex;
+  flex: 1;
   gap: 2px;
-  margin: 0 12px;
   padding: 3px;
   border-radius: 10px;
   background: var(--rl-hover);

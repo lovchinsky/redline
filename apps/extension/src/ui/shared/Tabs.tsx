@@ -13,6 +13,8 @@ interface TabsProps<Id extends string> {
   readonly tabs: readonly TabItem<Id>[];
   readonly selected: Id;
   readonly onSelect: (id: Id) => void;
+  /** Controls beside the tab list, e.g. a settings button. */
+  readonly trailing?: ComponentChildren;
   readonly children: ComponentChildren;
 }
 
@@ -25,6 +27,7 @@ export const Tabs = <Id extends string>({
   tabs,
   selected,
   onSelect,
+  trailing,
   children,
 }: TabsProps<Id>) => {
   const list = useRef<HTMLDivElement>(null);
@@ -52,25 +55,28 @@ export const Tabs = <Id extends string>({
 
   return (
     <>
-      <div ref={list} class="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
-        {tabs.map(({ id, label: tabLabel, count }) => (
-          <button
-            key={id}
-            id={`tab-${id}`}
-            type="button"
-            role="tab"
-            data-testid={`tab-${id}`}
-            aria-selected={selected === id}
-            aria-controls={`panel-${id}`}
-            tabIndex={selected === id ? 0 : -1}
-            onClick={() => {
-              onSelect(id);
-            }}
-          >
-            {tabLabel}
-            {count !== undefined && count > 0 && <span class="count">{count}</span>}
-          </button>
-        ))}
+      <div class="tabs-bar">
+        <div ref={list} class="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
+          {tabs.map(({ id, label: tabLabel, count }) => (
+            <button
+              key={id}
+              id={`tab-${id}`}
+              type="button"
+              role="tab"
+              data-testid={`tab-${id}`}
+              aria-selected={selected === id}
+              aria-controls={`panel-${id}`}
+              tabIndex={selected === id ? 0 : -1}
+              onClick={() => {
+                onSelect(id);
+              }}
+            >
+              {tabLabel}
+              {count !== undefined && count > 0 && <span class="count">{count}</span>}
+            </button>
+          ))}
+        </div>
+        {trailing}
       </div>
       <div
         id={`panel-${selected}`}
