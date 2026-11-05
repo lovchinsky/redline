@@ -18,7 +18,11 @@ export interface StepInput<Options> {
   readonly context: CaptureContext;
   readonly step: StepSubject;
   readonly options: Options;
-  /** Aborted when the collector exceeds its time budget. */
+  /**
+   * Aborted when the collector exceeds its time budget. The budget bounds waiting (the page
+   * runtime, image derivation); synchronous work on the page cannot be interrupted, so a
+   * collector that walks the page bounds its own work with limits.
+   */
   readonly signal: AbortSignal;
 }
 
@@ -32,9 +36,15 @@ export interface CollectedItem<Data> {
   readonly assets?: readonly AssetRef[];
 }
 
+/**
+ * `not-applicable`: the page has nothing of this kind (no framework, no errors): the context is
+ * complete without it. `unavailable`: what the collector reads could not be reached (the page
+ * runtime did not answer): something may be missing, and diagnostics should say so.
+ */
 export type CollectorOutcome<Data> =
   | { readonly status: 'collected'; readonly items: readonly CollectedItem<Data>[] }
-  | { readonly status: 'not-applicable'; readonly reason: string };
+  | { readonly status: 'not-applicable'; readonly reason: string }
+  | { readonly status: 'unavailable'; readonly reason: string };
 
 interface CollectorBase<Kind extends string, Schema extends z.ZodMiniType> {
   readonly id: string;

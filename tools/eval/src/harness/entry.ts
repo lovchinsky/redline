@@ -1,14 +1,12 @@
 /**
  * Runs in the page under evaluation: resolves a lasso around a rectangle the way the overlay
- * does, then runs the shipped anchors collector with the shipped profile's options.
+ * does, then runs the shipped capture, narrowed to the anchors.
  */
-import { CaptureEngine, buildCollectionPlan, type CaptureContext } from '@redline/capture';
-import { FragmentCatalog, FragmentSet, type Logger } from '@redline/core';
+import type { CaptureContext } from '@redline/capture';
+import { FragmentSet, type Logger } from '@redline/core';
 import { DocumentDomQuery, EnclosureResolver, summarizeRegion } from '@redline/dom';
 import { roundedLassoPolygon, type Rect } from '@redline/geometry';
-import { collectors } from '@redline/modules/collectors';
-import { fragmentDescriptors } from '@redline/modules/descriptors';
-import { captureProfile } from '@redline/profiles';
+import { shippedCapture } from '@redline/pipeline';
 import type { HarnessApi, HarnessResult } from './api';
 
 const silent: Logger = {
@@ -19,17 +17,10 @@ const silent: Logger = {
   child: () => silent,
 };
 
-const isAnchors = (entry: (typeof captureProfile.collectors)[number]): boolean =>
-  (typeof entry === 'string' ? entry : entry[0]) === 'anchors';
-
-const plan = buildCollectionPlan(collectors, {
-  collectors: captureProfile.collectors.filter(isAnchors),
-});
-const engine = new CaptureEngine(
-  new FragmentCatalog(fragmentDescriptors),
-  [],
-  { defaultTimeoutMs: 5000 },
+// The shipped capture, redaction included, measuring only the anchors.
+const { plan, engine } = shippedCapture(
   { now: () => performance.now() },
+  (collector) => collector === 'anchors',
 );
 const dom = new DocumentDomQuery(document);
 const resolver = new EnclosureResolver(dom);

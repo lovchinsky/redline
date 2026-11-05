@@ -2,18 +2,10 @@
 
 ## Step 1
 
-> The prices do not load: cards show nothing
+> Make the three plan cards equal height
 
 **Page:** `/pricing` — Pricing — Acme (`https://staging.acme.io/pricing?ref=nav`)  
 **Viewport:** 1280×800 @2x · light · dev server · lang en
-
-**Runtime errors** (since the page loaded, newest first):
-
-- `TypeError: Cannot read properties of undefined (reading 'amount')` at `http://localhost:5173/src/pricing/PlanCard.tsx:21:30` ×3, 4 s ago
-
-**Failed requests** (newest first):
-
-- 500 `http://localhost:5173/api/prices` (fetch), 4 s ago
 
 ### Area 1
 
@@ -35,8 +27,6 @@
 - class `price` on `p.price`
 - text `Choose` on `button`
 
-**Components** rendering `article[data-testid=plan-card]` (React 19.1.10 development build), innermost first: `PlanCard` (`src/pricing/PlanCard.tsx:14`) ‹ `PlanGrid` ‹ `PricingPage`
-
 **Layout of `section[data-testid=plans]`:** `display: flex; align-items: flex-start; gap: 24px`
 
 | # | Child | Box (x, y, w×h) | Circled |
@@ -50,7 +40,7 @@
 
 - `article[data-testid=plan-card]`: `width: 220px; height: 200px; box-sizing: border-box; padding: 16px; border: 1px solid rgb(204, 204, 204); display: block`
 
-**CSS rules for `article[data-testid=plan-card]`** (in source order, later rules win):
+**CSS rules for `article[data-testid=plan-card]`** (weakest first, by specificity and then order; `@layer` and `!important` not weighed):
 
 - `.card` — `<style>` in the page: `display: block; width: 220px; height: 200px; padding: 16px; border: 1px solid rgb(204, 204, 204); overflow: hidden;`
 

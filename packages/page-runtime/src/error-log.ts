@@ -1,8 +1,7 @@
-import type { ObservedError } from './protocol';
+import { LIMITS, clip, type ObservedError } from './protocol';
 import { withoutQuery } from './urls';
 
 const MAX_DISTINCT = 30;
-const MAX_MESSAGE = 300;
 
 interface Entry {
   message: string;
@@ -39,7 +38,10 @@ export class ErrorLog {
         const source =
           event.filename === ''
             ? null
-            : `${withoutQuery(event.filename, view.location.href)}:${String(event.lineno)}:${String(event.colno)}`;
+            : clip(
+                `${withoutQuery(event.filename, view.location.href)}:${String(event.lineno)}:${String(event.colno)}`,
+                LIMITS.url,
+              );
         this.record(event.message || describeReason(event.error), source);
       }
     });
@@ -62,7 +64,7 @@ export class ErrorLog {
   }
 
   private record(rawMessage: string, source: string | null): void {
-    const message = rawMessage.slice(0, MAX_MESSAGE);
+    const message = clip(rawMessage, LIMITS.message);
     const key = `${message}\u0000${source ?? ''}`;
     const existing = this.entries.get(key);
     if (existing !== undefined) {

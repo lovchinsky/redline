@@ -1,7 +1,8 @@
 import { ErrorLog } from './error-log';
-import { NetworkLog } from './network';
+import { NetworkLog, type ObservedWindow } from './network';
 import { traceComponents } from './probes';
 import {
+  LIMITS,
   PROTOCOL_VERSION,
   REQUEST_EVENT,
   RESPONSE_EVENT,
@@ -11,11 +12,12 @@ import {
   type RuntimeResponse,
 } from './protocol';
 
-const MAX_ERRORS = 5;
-const MAX_FAILED_REQUESTS = 10;
-
-/** Marks a window as served, so a second injection does not start a second runtime. */
-const STARTED = Symbol.for('redline.page-runtime');
+/**
+ * Marks a window as served by this protocol version, so a second injection does not start a
+ * second runtime, while one left in the page by an older version of the extension (pages keep
+ * it until they reload) does not keep a newer one from starting.
+ */
+const STARTED = Symbol.for(`redline.page-runtime.v${String(PROTOCOL_VERSION)}`);
 
 const isRequest = (value: unknown): value is RuntimeRequest => {
   if (typeof value !== 'object' || value === null) return false;
@@ -34,7 +36,7 @@ const isRequest = (value: unknown): value is RuntimeRequest => {
  * `observedSince`: 'page-load' when started at document_start (a bound site), otherwise
  * 'capture-start' (injected when the user started capturing).
  */
-export const startPageRuntime = (view: Window, observedSince: ObservedSince): void => {
+export const startPageRuntime = (view: ObservedWindow, observedSince: ObservedSince): void => {
   const marked = view as unknown as Record<symbol, boolean | undefined>;
   if (marked[STARTED] === true) return;
   marked[STARTED] = true;
@@ -53,8 +55,8 @@ export const startPageRuntime = (view: Window, observedSince: ObservedSince): vo
       case 'runtime-report':
         return {
           observedSince,
-          errors: errors.report(MAX_ERRORS),
-          failedRequests: network.report(MAX_FAILED_REQUESTS),
+          errors: errors.report(LIMITS.errors),
+          failedRequests: network.report(LIMITS.failedRequests),
         } satisfies RuntimeReport;
     }
   };

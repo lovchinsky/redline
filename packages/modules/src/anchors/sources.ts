@@ -1,4 +1,4 @@
-import { authoredClassTokens } from '@redline/dom';
+import { TEST_ID_ATTRIBUTES, authoredClassTokens, ownText } from '@redline/dom';
 import type { AnchorCandidate, AnchorSource } from './candidate';
 import type { AnchorKind } from './types';
 
@@ -11,8 +11,6 @@ const candidate = (
   attribute: string | null = null,
   raw = value,
 ): AnchorCandidate => ({ kind, value: value.slice(0, MAX_VALUE), attribute, raw, element });
-
-const TEST_ID_ATTRIBUTES = ['data-testid', 'data-test', 'data-test-id', 'data-cy', 'data-qa'];
 
 const ATTRIBUTE_KINDS: readonly (readonly [string, AnchorKind])[] = [
   ['aria-label', 'aria-label'],
@@ -51,12 +49,7 @@ export const customTagSource: AnchorSource = {
 export const textSource: AnchorSource = {
   id: 'text',
   extract: (element) => {
-    const text = Array.from(element.childNodes)
-      .filter((node) => node.nodeType === Node.TEXT_NODE)
-      .map((node) => node.textContent ?? '')
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const text = ownText(element);
     return text === '' ? [] : [candidate('text', text, element)];
   },
 };

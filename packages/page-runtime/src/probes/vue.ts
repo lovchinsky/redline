@@ -17,7 +17,12 @@ const vue3Frame = (instance: unknown): ComponentFrame | null => {
   return name === null ? null : { name, file, line: null };
 };
 
-const vue3 = (element: Element): ComponentFrame[] | null => {
+interface Found {
+  readonly host: Element;
+  readonly frames: ComponentFrame[];
+}
+
+const vue3 = (element: Element): Found | null => {
   const host = closestWith(element, (node) => prop(node, '__vueParentComponent') !== undefined);
   if (host === null) return null;
   const frames: ComponentFrame[] = [];
@@ -27,10 +32,10 @@ const vue3 = (element: Element): ComponentFrame[] | null => {
     if (frame !== null) frames.push(frame);
     instance = prop(instance, 'parent');
   }
-  return frames;
+  return { host, frames };
 };
 
-const vue2 = (element: Element): ComponentFrame[] | null => {
+const vue2 = (element: Element): Found | null => {
   const host = closestWith(element, (node) => prop(node, '__vue__') !== undefined);
   if (host === null) return null;
   const frames: ComponentFrame[] = [];
@@ -42,7 +47,7 @@ const vue2 = (element: Element): ComponentFrame[] | null => {
     if (name !== null) frames.push({ name, file, line: null });
     vm = prop(vm, '$parent');
   }
-  return frames;
+  return { host, frames };
 };
 
 const versionOf = (element: Element): string | null => {
@@ -54,9 +59,15 @@ const versionOf = (element: Element): string | null => {
 export const vueProbe: FrameworkProbe = {
   framework: 'vue',
   trace(element) {
-    const frames = vue3(element) ?? vue2(element);
-    if (frames === null) return null;
-    const development = frames.some((frame) => frame.file !== null);
-    return finish('vue', versionOf(element), development ? 'development' : 'unknown', frames);
+    const found = vue3(element) ?? vue2(element);
+    if (found === null) return null;
+    const development = found.frames.some((frame) => frame.file !== null);
+    return finish(
+      found.host,
+      'vue',
+      versionOf(element),
+      development ? 'development' : 'unknown',
+      found.frames,
+    );
   },
 };

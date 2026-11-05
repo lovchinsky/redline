@@ -1,5 +1,6 @@
 import * as z from 'zod/mini';
 import {
+  LIMITS,
   PROTOCOL_VERSION,
   REQUEST_EVENT,
   RESPONSE_EVENT,
@@ -9,9 +10,6 @@ import {
   type RuntimeReport,
 } from './protocol';
 
-/** Responses larger than this are not parsed: the page may answer instead of the runtime. */
-const MAX_RESPONSE_CHARS = 64 * 1024;
-
 const observedSince = z.enum(['page-load', 'capture-start']);
 const text = (max: number) => z.string().check(z.maxLength(max));
 
@@ -20,17 +18,17 @@ const pingSchema = z.object({ version: z.number(), observedSince });
 const traceSchema = z.nullable(
   z.object({
     framework: z.enum(['react', 'vue', 'svelte', 'angular']),
-    version: z.nullable(text(40)),
+    version: z.nullable(text(LIMITS.version)),
     mode: z.enum(['development', 'production', 'unknown']),
     components: z
       .array(
         z.object({
-          name: text(200),
-          file: z.nullable(text(500)),
+          name: text(LIMITS.componentName),
+          file: z.nullable(text(LIMITS.url)),
           line: z.nullable(z.int().check(z.nonnegative())),
         }),
       )
-      .check(z.maxLength(20)),
+      .check(z.maxLength(LIMITS.components)),
   }),
 );
 
@@ -39,24 +37,24 @@ const reportSchema = z.object({
   errors: z
     .array(
       z.object({
-        message: text(1000),
-        source: z.nullable(text(1000)),
+        message: text(LIMITS.message),
+        source: z.nullable(text(LIMITS.url)),
         count: z.int().check(z.positive()),
         lastSeenMsAgo: z.number().check(z.nonnegative()),
       }),
     )
-    .check(z.maxLength(20)),
+    .check(z.maxLength(LIMITS.errors)),
   failedRequests: z
     .array(
       z.object({
-        url: text(1000),
+        url: text(LIMITS.url),
         status: z.int().check(z.nonnegative()),
-        initiator: text(40),
+        initiator: text(LIMITS.initiator),
         count: z.int().check(z.positive()),
         lastSeenMsAgo: z.number().check(z.nonnegative()),
       }),
     )
-    .check(z.maxLength(50)),
+    .check(z.maxLength(LIMITS.failedRequests)),
 });
 
 const responseSchema = z.discriminatedUnion('ok', [
@@ -104,11 +102,13 @@ export class PageRuntimeClient {
   ): ClientResult<z.output<S>> {
     const id = this.newId();
     // Filled by the listener while `dispatchEvent` runs.
-    const received: { raw: string | null } = { raw: null };
+    const received: { raw: string | null; oversized: boolean } = { raw: null, oversized: false };
     const listen = (event: Event) => {
       if (!(event instanceof CustomEvent) || typeof event.detail !== 'string') return;
-      if (event.detail.length > MAX_RESPONSE_CHARS || !event.detail.includes(id)) return;
-      received.raw = event.detail;
+      if (!event.detail.includes(id)) return;
+      // Not parsed: the runtime never answers this much, so someone else did.
+      if (event.detail.length > LIMITS.response) received.oversized = true;
+      else received.raw = event.detail;
     };
     this.document.addEventListener(RESPONSE_EVENT, listen, true);
     try {
@@ -123,7 +123,11 @@ export class PageRuntimeClient {
       this.document.removeEventListener(RESPONSE_EVENT, listen, true);
     }
     const answer = received.raw;
-    if (answer === null) return { ok: false, failure: { kind: 'no-runtime' } };
+    if (answer === null) {
+      return received.oversized
+        ? { ok: false, failure: { kind: 'invalid-response', reason: 'Too large' } }
+        : { ok: false, failure: { kind: 'no-runtime' } };
+    }
 
     let parsed: unknown;
     try {

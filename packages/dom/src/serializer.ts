@@ -1,5 +1,6 @@
 import { structuralSignature } from './describe';
 import type { DomQuery } from './dom-query';
+import { TEST_ID_ATTRIBUTES, ownText } from './text';
 
 export interface SerializeOptions {
   /** Levels below the root that are expanded; deeper content becomes a count comment. */
@@ -44,13 +45,6 @@ const KEPT_ATTRIBUTES = new Set([
   'placeholder',
   'for',
 ]);
-const TEST_ID_ATTRIBUTES = new Set([
-  'data-testid',
-  'data-test',
-  'data-test-id',
-  'data-cy',
-  'data-qa',
-]);
 const MAX_ATTRIBUTE_LENGTH = 80;
 
 const escapeHtml = (text: string): string =>
@@ -87,20 +81,12 @@ export const serializeElement = (
     const parts: string[] = [];
     for (const { name, value } of Array.from(element.attributes)) {
       const keep =
-        KEPT_ATTRIBUTES.has(name) || TEST_ID_ATTRIBUTES.has(name) || name.startsWith('aria-');
+        KEPT_ATTRIBUTES.has(name) || TEST_ID_ATTRIBUTES.includes(name) || name.startsWith('aria-');
       if (keep) parts.push(`${name}="${escapeHtml(shorten(value, MAX_ATTRIBUTE_LENGTH))}"`);
     }
     if (options.marked.has(element)) parts.push('data-redline="selected"');
     return parts.length === 0 ? '' : ` ${parts.join(' ')}`;
   };
-
-  const ownText = (element: Element): string =>
-    Array.from(element.childNodes)
-      .filter((node) => node.nodeType === Node.TEXT_NODE)
-      .map((node) => node.textContent ?? '')
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
 
   const visit = (element: Element, depth: number): boolean => {
     const tag = element.localName;

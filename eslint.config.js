@@ -21,6 +21,7 @@ const elements = [
   { type: 'processor', pattern: 'packages/processors' },
   { type: 'assembly', pattern: 'packages/assembly' },
   { type: 'profiles', pattern: 'packages/profiles' },
+  { type: 'pipeline', pattern: 'packages/pipeline' },
   { type: 'page-runtime', pattern: 'packages/page-runtime' },
   { type: 'rpc', pattern: 'packages/rpc' },
   { type: 'ext-entrypoint', pattern: 'apps/extension/src/entrypoints' },
@@ -63,6 +64,11 @@ const dependencyPolicies = [
   { from: { element: { type: 'processor' } }, allow: to(['processor', 'core']) },
   { from: { element: { type: 'assembly' } }, allow: to(['assembly', 'core', 'contract']) },
   { from: { element: { type: 'profiles' } }, allow: to(['profiles', 'capture']) },
+  // The shipped capture: modules, processors and profile put together, once, for every caller.
+  {
+    from: { element: { type: 'pipeline' } },
+    allow: to(['pipeline', 'capture', 'core', 'module-catalog', 'processor', 'profiles']),
+  },
   { from: { element: { type: 'page-runtime' } }, allow: to(['page-runtime']) },
   { from: { element: { type: 'rpc' } }, allow: to(['rpc', 'core']) },
   // Ports are the application's contracts with the platform: adapters implement them.

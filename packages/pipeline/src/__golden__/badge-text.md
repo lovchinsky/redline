@@ -37,7 +37,7 @@
 
 - `span.badge`: `width: 186px; height: 20px; box-sizing: border-box; display: block`
 
-**CSS rules for `span.badge`** (in source order, later rules win):
+**CSS rules for `span.badge`** (weakest first, by specificity and then order; `@layer` and `!important` not weighed):
 
 - `.badge` — `<style>` in the page: `display: block; height: 20px;`
 

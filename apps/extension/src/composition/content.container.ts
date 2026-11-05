@@ -1,10 +1,6 @@
-import { CaptureEngine, buildCollectionPlan } from '@redline/capture';
-import { FragmentCatalog, ok } from '@redline/core';
+import { ok } from '@redline/core';
 import { DocumentDomQuery, ElementTraversal, EnclosureResolver } from '@redline/dom';
-import { collectors } from '@redline/modules/collectors';
-import { fragmentDescriptors } from '@redline/modules/descriptors';
-import { captureProfile } from '@redline/profiles';
-import { redactionProcessor } from '@redline/processors';
+import { shippedCapture } from '@redline/pipeline';
 import { RpcClient, RpcServer, protocol, tabProtocol } from '@redline/rpc';
 import { browser } from 'wxt/browser';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
@@ -33,7 +29,6 @@ import { PageRuntimeClient } from '@redline/page-runtime/client';
 import { BridgePageRuntime } from '../adapters/capture/bridge-page-runtime';
 
 /** Per-collector time budgets; screenshots round-trip to the service worker twice. */
-const EXECUTION_POLICY = { defaultTimeoutMs: 2000, timeouts: { screenshot: 10_000 } };
 
 /** The overlay is never part of the page being described. */
 const isOverlay = (element: Element): boolean => element.localName === OverlayHost.TAG;
@@ -56,15 +51,11 @@ export const startContentRuntime = (ctx: ContentScriptContext): void => {
     logger.child('page-runtime'),
   );
 
+  // Redacts every capture before anything leaves the page.
+  const { plan, engine } = shippedCapture(systemClock);
   const recordStep = new RecordStep({
-    plan: buildCollectionPlan(collectors, captureProfile),
-    engine: new CaptureEngine(
-      new FragmentCatalog(fragmentDescriptors),
-      // Runs on every capture before anything leaves the page.
-      [redactionProcessor],
-      EXECUTION_POLICY,
-      systemClock,
-    ),
+    plan,
+    engine,
     context: () => ({
       document,
       dom,

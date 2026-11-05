@@ -1,7 +1,8 @@
-import { defineCollector } from '@redline/capture';
+import { defineCollector, type CaptureContext } from '@redline/capture';
 import { describeElement, type DomQuery, type ResolvedRegion } from '@redline/dom';
 import * as z from 'zod/mini';
-import type { AnchorCandidate, AnchorContext, AnchorRule, AnchorSource } from './candidate';
+import type { AnchorContext, AnchorRule, AnchorSource } from './candidate';
+import { indexOccurrences, type Occurrences } from './occurrences';
 import { BASE_SCORES, DEFAULT_ANCHOR_RULES } from './rules';
 import { DEFAULT_ANCHOR_SOURCES } from './sources';
 import type { Anchor, AnchorsData } from './types';
@@ -15,8 +16,6 @@ const optionsSchema = z.prefault(
   }),
   {},
 );
-
-const MAX_TEXT_NODES_SCANNED = 5000;
 
 /** Elements whose anchors describe the region: circled elements and what is inside them. */
 const elementsOf = (dom: DomQuery, region: ResolvedRegion, maxDescendants: number): Element[] => {
@@ -45,39 +44,6 @@ const elementsOf = (dom: DomQuery, region: ResolvedRegion, maxDescendants: numbe
   return elements;
 };
 
-const countText = (document: Document, value: string): number => {
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let count = 0;
-  let scanned = 0;
-  for (
-    let node = walker.nextNode();
-    node !== null && scanned < MAX_TEXT_NODES_SCANNED;
-    node = walker.nextNode()
-  ) {
-    scanned += 1;
-    if ((node.textContent ?? '').replace(/\s+/g, ' ').includes(value)) count += 1;
-  }
-  return count;
-};
-
-const occurrencesIn =
-  (document: Document) =>
-  (candidate: AnchorCandidate): number => {
-    switch (candidate.kind) {
-      case 'text':
-        return countText(document, candidate.value);
-      case 'custom-tag':
-        return document.getElementsByTagName(candidate.value).length;
-      case 'class':
-        return document.getElementsByClassName(candidate.raw).length;
-      default:
-        return candidate.attribute === null
-          ? 0
-          : document.querySelectorAll(`[${candidate.attribute}="${CSS.escape(candidate.raw)}"]`)
-              .length;
-    }
-  };
-
 /**
  * Builds the anchors collector from anchor sources and scoring rules. New anchor kinds or
  * heuristics are new sources or rules; the collector itself does not change.
@@ -85,15 +51,23 @@ const occurrencesIn =
 export const createAnchorsCollector = (
   sources: readonly AnchorSource[] = DEFAULT_ANCHOR_SOURCES,
   rules: readonly AnchorRule[] = DEFAULT_ANCHOR_RULES,
-) =>
-  defineCollector({
+) => {
+  /** Counted once per capture, shared by its shapes; dropped with the capture. */
+  const indexes = new WeakMap<CaptureContext, Occurrences>();
+  return defineCollector({
     id: 'anchors',
     produces: 'anchors',
     level: 'shape',
     priority: 'critical',
     optionsSchema,
-    collect: ({ shape, options, context: { dom, document } }) => {
-      const context: AnchorContext = { document, occurrences: occurrencesIn(document) };
+    collect: ({ shape, options, context: capture }) => {
+      const { dom, document } = capture;
+      let occurrences = indexes.get(capture);
+      if (occurrences === undefined) {
+        occurrences = indexOccurrences(dom, document);
+        indexes.set(capture, occurrences);
+      }
+      const context: AnchorContext = { occurrences: (candidate) => occurrences.count(candidate) };
       const best = new Map<string, Anchor>();
 
       for (const element of elementsOf(dom, shape.region, options.maxDescendants)) {
@@ -132,5 +106,6 @@ export const createAnchorsCollector = (
       return Promise.resolve({ status: 'collected', items: [{ data }] });
     },
   });
+};
 
 export const anchorsCollector = createAnchorsCollector();

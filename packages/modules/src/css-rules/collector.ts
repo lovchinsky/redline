@@ -2,6 +2,7 @@ import { defineCollector } from '@redline/capture';
 import { projectRelative } from '@redline/core';
 import { describeElement, representativeElements } from '@redline/dom';
 import * as z from 'zod/mini';
+import { compareSpecificity, specificityOf, splitSelectors, type Specificity } from './specificity';
 import type { CssRulesData, MatchedRule, RuleSource } from './types';
 
 const MAX_DECLARATIONS = 400;
@@ -18,28 +19,6 @@ const sourceOf = (sheet: CSSStyleSheet): RuleSource => {
   return { kind: 'inline-style-element' };
 };
 
-/** Splits a selector list at top-level commas (not inside `:is(…)` or attribute values). */
-const splitSelectors = (list: string): string[] => {
-  const parts: string[] = [];
-  let depth = 0;
-  let quote: string | null = null;
-  let start = 0;
-  for (let i = 0; i < list.length; i += 1) {
-    const char = list[i];
-    if (quote !== null) {
-      if (char === quote) quote = null;
-    } else if (char === '"' || char === "'") quote = char;
-    else if (char === '(' || char === '[') depth += 1;
-    else if (char === ')' || char === ']') depth -= 1;
-    else if (char === ',' && depth === 0) {
-      parts.push(list.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  parts.push(list.slice(start).trim());
-  return parts.filter((part) => part !== '');
-};
-
 const matching = (element: Element, selectorText: string): string[] =>
   splitSelectors(selectorText).filter((selector) => {
     if (UNSPECIFIC.has(selector)) return false;
@@ -50,11 +29,17 @@ const matching = (element: Element, selectorText: string): string[] =>
     }
   });
 
+/** A matched rule with what decides its place in the cascade (as far as it is weighed). */
+interface Found {
+  readonly rule: MatchedRule;
+  readonly specificity: Specificity;
+}
+
 interface Walk {
   readonly element: Element;
   readonly view: Window;
   readonly source: RuleSource;
-  readonly found: MatchedRule[];
+  readonly found: Found[];
 }
 
 const walk = (rules: CSSRuleList, conditions: readonly string[], context: Walk): void => {
@@ -64,13 +49,19 @@ const walk = (rules: CSSRuleList, conditions: readonly string[], context: Walk):
       if (selectors.length > 0 && rule.style.length > 0) {
         const declarations = rule.style.cssText;
         context.found.push({
-          selector: selectors.join(', '),
-          declarations:
-            declarations.length > MAX_DECLARATIONS
-              ? `${declarations.slice(0, MAX_DECLARATIONS)}…`
-              : declarations,
-          source: context.source,
-          conditions,
+          rule: {
+            selector: selectors.join(', '),
+            declarations:
+              declarations.length > MAX_DECLARATIONS
+                ? `${declarations.slice(0, MAX_DECLARATIONS)}…`
+                : declarations,
+            source: context.source,
+            conditions,
+          },
+          // A rule applies with its most specific selector that matches.
+          specificity: selectors
+            .map(specificityOf)
+            .reduce((best, next) => (compareSpecificity(next, best) > 0 ? next : best)),
         });
       }
     } else if (rule instanceof CSSMediaRule) {
@@ -120,35 +111,42 @@ export const cssRulesCollector = defineCollector({
     if (view === null) {
       return Promise.resolve({ status: 'not-applicable', reason: 'Detached document' });
     }
-    let unreadable = 0;
+    // Counted once per sheet, however many elements look at it.
+    const unreadable = new Set<CSSStyleSheet>();
     const elements = representativeElements(shape.region, options.maxElements).map((element) => {
-      const found: MatchedRule[] = [];
+      const found: Found[] = [];
       for (const sheet of sheetsFor(element)) {
         let rules: CSSRuleList;
         try {
           rules = sheet.cssRules;
         } catch {
-          unreadable += 1;
+          unreadable.add(sheet);
           continue;
         }
         walk(rules, [], { element, view, source: sourceOf(sheet), found });
       }
+      // Weakest first, as the cascade weighs them: specificity, then order of appearance
+      // (a stable sort keeps it). Layers and !important are not weighed.
+      const ranked = found
+        .toSorted((a, b) => compareSpecificity(a.specificity, b.specificity))
+        .map((entry) => entry.rule);
       const inline = element.getAttribute('style');
       if (inline !== null && inline.trim() !== '') {
-        found.push({
+        // Beats every selector.
+        ranked.push({
           selector: 'style=""',
           declarations: inline.trim().slice(0, MAX_DECLARATIONS),
           source: { kind: 'style-attribute' },
           conditions: [],
         });
       }
-      // The last rules win the cascade; keep those when there are too many.
-      return { label: describeElement(element), rules: found.slice(-options.maxRulesPerElement) };
+      // The strongest rules decide what the element looks like; keep those when there are many.
+      return { label: describeElement(element), rules: ranked.slice(-options.maxRulesPerElement) };
     });
 
-    const data: CssRulesData = { elements, unreadableSheets: unreadable };
+    const data: CssRulesData = { elements, unreadableSheets: unreadable.size };
     return Promise.resolve(
-      elements.every((element) => element.rules.length === 0) && unreadable === 0
+      elements.every((element) => element.rules.length === 0) && unreadable.size === 0
         ? { status: 'not-applicable', reason: 'No author CSS rules match' }
         : { status: 'collected', items: [{ data }] },
     );

@@ -1,0 +1,27 @@
+{
+  "name": "@redline/pipeline",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@redline/capture": "workspace:*",
+    "@redline/core": "workspace:*",
+    "@redline/modules": "workspace:*",
+    "@redline/processors": "workspace:*",
+    "@redline/profiles": "workspace:*"
+  },
+  "devDependencies": {
+    "@redline/assembly": "workspace:*",
+    "@vitest/browser-playwright": "4.1.12",
+    "playwright": "1.63.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
+}

@@ -6,7 +6,8 @@
   "sideEffects": false,
   "exports": {
     "./descriptors": "./src/descriptors.ts",
-    "./collectors": "./src/collectors.ts"
+    "./collectors": "./src/collectors.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
@@ -20,7 +21,6 @@
   },
   "devDependencies": {
     "@redline/assembly": "workspace:*",
-    "@redline/processors": "workspace:*",
     "@redline/profiles": "workspace:*",
     "@vitest/browser-playwright": "4.1.12",
     "playwright": "1.63.0",

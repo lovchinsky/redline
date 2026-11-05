@@ -1,6 +1,7 @@
 export * from './dom-query';
 export * from './tree';
 export * from './tokens';
+export * from './text';
 export * from './describe';
 export type * from './region/types';
 export * from './region/enclosure-resolver';

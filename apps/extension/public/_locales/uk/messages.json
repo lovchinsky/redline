@@ -455,6 +455,9 @@
   "outcomeNotApplicable": {
     "message": "не застосовно"
   },
+  "outcomeUnavailable": {
+    "message": "недоступно"
+  },
   "outcomeFailed": {
     "message": "помилка"
   },

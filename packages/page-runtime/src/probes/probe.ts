@@ -1,4 +1,4 @@
-import type { ComponentFrame, ComponentTrace } from '../protocol';
+import { LIMITS, clip, type ComponentFrame, type ComponentTrace } from '../protocol';
 
 /**
  * Reads which components render an element, through hooks a framework's own build leaves on
@@ -7,10 +7,14 @@ import type { ComponentFrame, ComponentTrace } from '../protocol';
  */
 export interface FrameworkProbe {
   readonly framework: ComponentTrace['framework'];
-  trace(element: Element, view: Window): ComponentTrace | null;
+  trace(element: Element, view: Window): ProbeResult | null;
 }
 
-export const MAX_COMPONENTS = 8;
+/** A trace, and the node the framework's innermost component was read from. */
+export interface ProbeResult {
+  readonly trace: ComponentTrace;
+  readonly host: Element;
+}
 
 /** Names a minifier produces (`e`, `Xt`, `$`): they point nowhere in the source. */
 export const isMinifiedName = (name: string): boolean => /^[\w$]{1,2}$/.test(name);
@@ -32,23 +36,34 @@ export const num = (value: unknown): number | null =>
  * yields nothing, which the caller reports as not applicable.
  */
 export const finish = (
+  host: Element,
   framework: ComponentTrace['framework'],
   version: string | null,
   mode: ComponentTrace['mode'],
   frames: readonly ComponentFrame[],
-): ComponentTrace | null => {
+): ProbeResult | null => {
   const readable = frames
     .filter((frame) => frame.file !== null || !isMinifiedName(frame.name))
-    .slice(0, MAX_COMPONENTS);
-  return readable.length === 0 ? null : { framework, version, mode, components: readable };
+    .slice(0, LIMITS.components)
+    .map(({ name, file, line }) => ({
+      name: clip(name, LIMITS.componentName),
+      file: file === null ? null : clip(file, LIMITS.url),
+      line,
+    }));
+  const shortVersion = version === null ? null : clip(version, LIMITS.version);
+  return readable.length === 0
+    ? null
+    : { host, trace: { framework, version: shortVersion, mode, components: readable } };
 };
+
+/** The flat-tree parent: across shadow roots to their host. */
+export const parentOf = (node: Node): Node | null =>
+  node.parentNode ?? (node instanceof ShadowRoot ? node.host : null);
 
 /** The element or its closest ancestor that carries `key`, crossing shadow roots. */
 export const closestWith = (element: Element, has: (node: Element) => boolean): Element | null => {
-  let node: Node | null = element;
-  while (node !== null) {
+  for (let node: Node | null = element; node !== null; node = parentOf(node)) {
     if (node instanceof Element && has(node)) return node;
-    node = node.parentNode ?? (node instanceof ShadowRoot ? node.host : null);
   }
   return null;
 };

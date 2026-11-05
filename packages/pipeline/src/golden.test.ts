@@ -5,15 +5,9 @@ import {
   UNLIMITED_BUDGET,
   type RenderStep,
 } from '@redline/assembly';
-import {
-  CaptureEngine,
-  buildCollectionPlan,
-  type PageRuntimePort,
-  type StepSubject,
-} from '@redline/capture';
+import type { PageRuntimePort, StepSubject } from '@redline/capture';
 import {
   CaptureId,
-  FragmentCatalog,
   StepId,
   TaskId,
   addStep,
@@ -23,16 +17,19 @@ import {
   type Task,
 } from '@redline/core';
 import { dedupeProcessor } from '@redline/processors';
-import { SUMMARY_TOKENS_PER_STEP, captureProfile } from '@redline/profiles';
+import {
+  FakeImages,
+  captureContext,
+  get,
+  mountPricing,
+  shapeAround,
+  stepOf,
+} from '@redline/modules/testing';
+import { SUMMARY_TOKENS_PER_STEP } from '@redline/profiles';
 import { describe, expect, it } from 'vitest';
-import { collectors } from './collectors';
-import { fragmentDescriptors } from './descriptors';
-import { FakeImages, captureContext, get, shapeAround, stepOf } from './testing/harness';
-import { mountPricing } from './testing/pricing';
+import { shippedCapture } from './index';
 
-const catalog = new FragmentCatalog(fragmentDescriptors);
-const plan = buildCollectionPlan(collectors, captureProfile);
-const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: 2000 }, { now: () => 0 });
+const { catalog, plan, engine } = shippedCapture({ now: () => 0 });
 const renderer = new MarkdownContextRenderer(catalog, { budget: UNLIMITED_BUDGET });
 
 /** Diagnostics other than "nothing to report here" (no framework, no errors on the fixture). */

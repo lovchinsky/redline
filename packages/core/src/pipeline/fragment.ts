@@ -62,7 +62,7 @@ export const diagnosticSchema = z.object({
   /** Collector or processor id. */
   source: z.string(),
   target: fragmentTargetSchema,
-  outcome: z.enum(['failed', 'timed-out', 'invalid-output', 'not-applicable']),
+  outcome: z.enum(['failed', 'timed-out', 'invalid-output', 'not-applicable', 'unavailable']),
   message: z.string(),
   durationMs: z.number().check(z.nonnegative()),
 });

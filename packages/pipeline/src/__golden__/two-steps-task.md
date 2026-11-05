@@ -40,7 +40,7 @@
 
 - `article[data-testid=plan-card]`: `width: 220px; height: 200px; box-sizing: border-box; padding: 16px; border: 1px solid rgb(204, 204, 204); display: block`
 
-**CSS rules for `article[data-testid=plan-card]`** (in source order, later rules win):
+**CSS rules for `article[data-testid=plan-card]`** (weakest first, by specificity and then order; `@layer` and `!important` not weighed):
 
 - `.card` — `<style>` in the page: `display: block; width: 220px; height: 200px; padding: 16px; border: 1px solid rgb(204, 204, 204); overflow: hidden;`
 
@@ -82,7 +82,7 @@ _Page: same as Step 1._
 
 - `span.badge`: `width: 186px; height: 20px; box-sizing: border-box; display: block`
 
-**CSS rules for `span.badge`** (in source order, later rules win):
+**CSS rules for `span.badge`** (weakest first, by specificity and then order; `@layer` and `!important` not weighed):
 
 - `.badge` — `<style>` in the page: `display: block; height: 20px;`
 

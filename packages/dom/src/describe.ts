@@ -1,4 +1,5 @@
 import type { DomQuery } from './dom-query';
+import { testIdOf } from './text';
 import { authoredClassTokens, readToken, semanticClasses, type TokenReading } from './tokens';
 
 const MAX_LABEL = 60;
@@ -9,11 +10,11 @@ const meaningful = (kind: TokenReading['kind']): boolean => kind === 'plain' || 
 /** Short human-readable label: `button.cta`, `section#pricing`, `div[data-testid=plan-card]`. */
 export const describeElement = (element: Element): string => {
   const tag = element.localName;
-  const testId = element.getAttribute('data-testid');
+  const testId = testIdOf(element);
   const id = element.id;
   const label =
-    testId !== null && testId !== ''
-      ? `${tag}[data-testid=${testId}]`
+    testId !== null
+      ? `${tag}[${testId.attribute}=${testId.value}]`
       : id !== '' && meaningful(readToken(id).kind)
         ? `${tag}#${id}`
         : (() => {
@@ -33,7 +34,7 @@ const MAX_CHILD_TAGS = 8;
  */
 export const structuralSignature = (dom: DomQuery, element: Element): string => {
   const classes = semanticClasses(element).sort().join('.');
-  const testId = element.getAttribute('data-testid') ?? '';
+  const testId = testIdOf(element)?.value ?? '';
   if (classes !== '' || testId !== '') return `${element.localName}[${testId}].${classes}`;
   const childTags = dom
     .childrenOf(element)

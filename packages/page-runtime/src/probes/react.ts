@@ -55,6 +55,7 @@ export const reactProbe: FrameworkProbe = {
     const renderer: unknown =
       renderers instanceof Map ? renderers.values().next().value : undefined;
     return finish(
+      host,
       'react',
       str(prop(renderer, 'version')),
       development ? 'development' : 'production',

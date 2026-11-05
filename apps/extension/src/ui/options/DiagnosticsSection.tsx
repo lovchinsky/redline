@@ -17,6 +17,7 @@ type Outcome = CaptureRecord['collectors'][number]['outcome'];
 const OUTCOMES: Readonly<Record<Outcome, MessageKey>> = {
   collected: 'outcomeCollected',
   'not-applicable': 'outcomeNotApplicable',
+  unavailable: 'outcomeUnavailable',
   failed: 'outcomeFailed',
   'timed-out': 'outcomeTimedOut',
   'invalid-output': 'outcomeInvalidOutput',

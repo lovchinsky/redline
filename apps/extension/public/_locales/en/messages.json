@@ -455,6 +455,9 @@
   "outcomeNotApplicable": {
     "message": "not applicable"
   },
+  "outcomeUnavailable": {
+    "message": "unavailable"
+  },
   "outcomeFailed": {
     "message": "failed"
   },

@@ -13,6 +13,7 @@
     "@redline/dom": "workspace:*",
     "@redline/geometry": "workspace:*",
     "@redline/modules": "workspace:*",
+    "@redline/pipeline": "workspace:*",
     "@redline/profiles": "workspace:*",
     "zod": "4.6.7"
   },

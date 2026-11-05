@@ -1,11 +1,6 @@
-import { CaptureEngine, buildCollectionPlan } from '@redline/capture';
-import { FragmentCatalog } from '@redline/core';
-import { redactionProcessor } from '@redline/processors';
-import { captureProfile } from '@redline/profiles';
+import { captureContext, get, mount, shapeAround, stepOf } from '@redline/modules/testing';
 import { describe, expect, it } from 'vitest';
-import { collectors } from './collectors';
-import { fragmentDescriptors } from './descriptors';
-import { captureContext, get, mount, shapeAround, stepOf } from './testing/harness';
+import { shippedCapture } from './index';
 
 /** The spec's budget: collecting a step, screenshot aside, within 300 ms at the 95th percentile. */
 const P95_BUDGET_MS = 300;
@@ -80,14 +75,9 @@ describe('capture pipeline performance', () => {
     mount(html, css);
     expect(document.querySelectorAll('*').length).toBeGreaterThan(4000);
 
-    const plan = buildCollectionPlan(collectors, {
-      collectors: captureProfile.collectors.filter((entry) => entry !== 'screenshot'),
-    });
-    const engine = new CaptureEngine(
-      new FragmentCatalog(fragmentDescriptors),
-      [redactionProcessor],
-      { defaultTimeoutMs: 2000 },
+    const { plan, engine } = shippedCapture(
       { now: () => performance.now() },
+      (collector) => collector !== 'screenshot',
     );
     // Two areas on screen, as people usually circle: a row of cards and part of the menu.
     const step = stepOf('Align the cards with the menu', [

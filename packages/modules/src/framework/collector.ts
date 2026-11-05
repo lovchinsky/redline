@@ -20,7 +20,7 @@ export const frameworkCollector = defineCollector({
     const [element] = representativeElements(shape.region, 1);
     if (element === undefined) return { status: 'not-applicable', reason: 'Nothing circled' };
     const trace = await pageRuntime.componentTrace(element);
-    if (!trace.ok) return { status: 'not-applicable', reason: trace.error.message };
+    if (!trace.ok) return { status: 'unavailable', reason: trace.error.message };
     if (trace.value === null) {
       return { status: 'not-applicable', reason: 'No readable framework components' };
     }

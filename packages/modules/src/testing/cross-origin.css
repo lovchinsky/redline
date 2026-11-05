@@ -1,0 +1,4 @@
+/* A stylesheet loaded from another origin in tests: its rules cannot be read. */
+.card {
+  outline: 0;
+}

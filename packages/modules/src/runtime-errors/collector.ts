@@ -15,7 +15,7 @@ export const runtimeErrorsCollector = defineCollector({
   optionsSchema: z.undefined(),
   collect: async ({ context: { pageRuntime } }) => {
     const report = await pageRuntime.runtimeReport();
-    if (!report.ok) return { status: 'not-applicable', reason: report.error.message };
+    if (!report.ok) return { status: 'unavailable', reason: report.error.message };
     if (report.value.errors.length === 0) {
       return { status: 'not-applicable', reason: 'No errors observed' };
     }

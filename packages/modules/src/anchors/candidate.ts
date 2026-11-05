@@ -11,9 +11,8 @@ export interface AnchorCandidate {
 }
 
 export interface AnchorContext {
-  readonly document: Document;
-  /** How many elements on the page carry the same anchor. */
-  occurrences(candidate: AnchorCandidate): number;
+  /** How many elements on the page carry the same anchor; `null` when that is not known. */
+  occurrences(candidate: AnchorCandidate): number | null;
 }
 
 /** Finds anchor candidates on one element. */

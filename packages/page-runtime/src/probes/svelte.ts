@@ -9,6 +9,7 @@ export const svelteProbe: FrameworkProbe = {
   framework: 'svelte',
   trace(element) {
     const frames: ComponentFrame[] = [];
+    let host: Element | null = null;
     let node: Element | null = element;
     let lastFile: string | null = null;
     for (let depth = 0; node !== null && depth < 200; depth += 1) {
@@ -21,10 +22,11 @@ export const svelteProbe: FrameworkProbe = {
             .pop()
             ?.replace(/\.svelte$/, '') ?? file;
         frames.push({ name, file, line: num(prop(location, 'line')) });
+        host ??= node;
         lastFile = file;
       }
       node = node.parentElement;
     }
-    return frames.length === 0 ? null : finish('svelte', null, 'development', frames);
+    return host === null ? null : finish(host, 'svelte', null, 'development', frames);
   },
 };

@@ -1,15 +1,13 @@
 import type { Rect } from '@redline/geometry';
 import type { DomQuery } from './dom-query';
+import { ownText } from './text';
 
 const INTERACTIVE = new Set(['a', 'button', 'input', 'select', 'textarea', 'summary', 'label']);
 const MEDIA = new Set(['img', 'svg', 'video', 'canvas', 'iframe']);
 const HEADING = /^h[1-6]$/;
 const INTERACTIVE_ROLES = new Set(['button', 'link', 'tab', 'menuitem', 'checkbox', 'switch']);
 
-const hasOwnText = (element: Element): boolean =>
-  Array.from(element.childNodes).some(
-    (node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim() !== '',
-  );
+const hasOwnText = (element: Element): boolean => ownText(element) !== '';
 
 /** An element a person would point at: something to press, read or look at. */
 const isStop = (element: Element): boolean => {

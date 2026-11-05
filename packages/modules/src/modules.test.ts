@@ -1,4 +1,9 @@
-import { CaptureEngine, buildCollectionPlan, type ErasedCollector } from '@redline/capture';
+import {
+  CaptureEngine,
+  buildCollectionPlan,
+  type CaptureProfile,
+  type ErasedCollector,
+} from '@redline/capture';
 import { FragmentCatalog, FragmentSet, type AnyFragment } from '@redline/core';
 import { describe, expect, it } from 'vitest';
 import { createAnchorsCollector } from './anchors/collector';
@@ -11,12 +16,12 @@ import { screenshotFragment } from './screenshot/descriptor';
 const catalog = new FragmentCatalog(fragmentDescriptors);
 
 const collect = async (
-  id: string,
+  entry: CaptureProfile['collectors'][number],
   shapes: Parameters<typeof stepOf>[1],
   images = new FakeImages(),
   available: readonly ErasedCollector[] = collectors,
 ) => {
-  const plan = buildCollectionPlan(available, { collectors: [id] });
+  const plan = buildCollectionPlan(available, { collectors: [entry] });
   const engine = new CaptureEngine(catalog, [], { defaultTimeoutMs: 2000 }, { now: () => 0 });
   const { capture } = await engine.run(plan, stepOf('x', shapes), captureContext(images));
   return FragmentSet.fromCapture(capture);
@@ -53,6 +58,16 @@ describe('anchors', () => {
     );
     expect(anchors.some((a) => a.value === '_3xK9a')).toBe(false);
     expect(scoreOf('test-id')).toBeGreaterThan(scoreOf('id') ?? Number.POSITIVE_INFINITY);
+  });
+
+  it('ranks data (prices, counts) below hand-written anchors, but keeps it when alone', async () => {
+    mount('<p class="total">$ 116.00</p><p>$ 49.00</p>', '');
+    const ranked = async (selector: string) => {
+      const set = await collect('anchors', [shapeAround('s1', [get(selector)])]);
+      return first(set.ofKind('anchors')).data.anchors.map((a) => `${a.kind}:${a.value}`);
+    };
+    expect(await ranked('.total')).toEqual(['class:total', 'text:$ 116.00']);
+    expect(await ranked('p:not(.total)')).toEqual(['text:$ 49.00']);
   });
 
   it('drops utility classes with several segments, like Tailwind colours', async () => {
@@ -264,6 +279,41 @@ describe('css-rules', () => {
     expect(rules[0]?.source).toEqual({ kind: 'inline-style-element' });
     expect(data.unreadableSheets).toBe(0);
     for (const style of styles) style.remove();
+  });
+
+  it('keeps the rules that win the cascade, not the ones that come last', async () => {
+    mount('<nav id="menu"><a class="link">Home</a></nav>', '');
+    const style = addStyle(
+      `#menu .link { color: red; }
+       .link { color: blue; }
+       a { color: green; }`,
+    );
+    const set = await collect(
+      ['css-rules', { maxRulesPerElement: 2 }],
+      [shapeAround('s1', [get('.link')])],
+    );
+    const rules = first(set.ofKind('css-rules')).data.elements[0]?.rules ?? [];
+    expect(rules.map((rule) => rule.selector)).toEqual(['.link', '#menu .link']);
+    style.remove();
+  });
+
+  it('counts a cross-origin stylesheet once, however many elements it covers', async () => {
+    mountPricing();
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    // The test server under its other name: same files, another origin.
+    const other = location.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+    link.href = `${location.protocol}//${other}:${location.port}${new URL('./testing/cross-origin.css', import.meta.url).pathname}`;
+    await new Promise((resolve) => {
+      link.addEventListener('load', resolve);
+      link.addEventListener('error', resolve);
+      document.head.append(link);
+    });
+    const set = await collect('css-rules', [shapeAround('s1', [get('.title'), get('.badge')])]);
+    const data = first(set.ofKind('css-rules')).data;
+    expect(data.elements.length).toBeGreaterThan(1);
+    expect(data.unreadableSheets).toBe(1);
+    link.remove();
   });
 
   it('reads constructed stylesheets of the shadow root an element lives in', async () => {

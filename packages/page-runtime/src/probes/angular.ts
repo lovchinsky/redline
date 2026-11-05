@@ -20,6 +20,7 @@ export const angularProbe: FrameworkProbe = {
     const hostOf = ngFunction(ng, 'getHostElement');
     if (owning === null || hostOf === null) return null;
     const frames: ComponentFrame[] = [];
+    let innermost: Element | null = null;
     let current: unknown = element;
     for (let depth = 0; depth < 50; depth += 1) {
       const component = owning(current);
@@ -27,10 +28,11 @@ export const angularProbe: FrameworkProbe = {
       const name = str(prop(prop(component, 'constructor'), 'name'));
       if (name !== null) frames.push({ name, file: null, line: null });
       const host = hostOf(component);
+      if (host instanceof Element) innermost ??= host;
       current = host instanceof Element ? host.parentElement : null;
       if (current === null) break;
     }
     const version = str(view.document.querySelector('[ng-version]')?.getAttribute('ng-version'));
-    return finish('angular', version, 'development', frames);
+    return innermost === null ? null : finish(innermost, 'angular', version, 'development', frames);
   },
 };

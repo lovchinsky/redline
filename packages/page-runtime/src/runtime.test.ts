@@ -96,6 +96,26 @@ describe('page runtime', () => {
     expect(trace.value.components.map((c) => c.name)).toEqual(['Badge', 'PlanCard', 'PricingPage']);
   });
 
+  it('traces the framework that renders the element, not one further out', () => {
+    // A Vue widget mounted inside a React app.
+    const Shell: FC = () => h('section', { className: 'shell' }, h('div', { id: 'widget' }));
+    const root = container();
+    flushSync(() => {
+      createRoot(root).render(h(Shell));
+    });
+    const mount = root.querySelector('#widget');
+    if (mount === null) throw new Error('not rendered');
+    const Rating = defineComponent({ name: 'Rating', render: () => vh('b', { class: 'stars' }) });
+    createApp(Rating).mount(mount);
+    const stars = root.querySelector('.stars');
+    if (stars === null) throw new Error('not rendered');
+
+    const trace = client.componentTrace(stars);
+    if (!trace.ok || trace.value === null) throw new Error(JSON.stringify(trace));
+    expect(trace.value.framework).toBe('vue');
+    expect(trace.value.components.map((c) => c.name)).toEqual(['Rating']);
+  });
+
   it('reaches elements inside open shadow roots', () => {
     const host = container();
     const shadow = host.attachShadow({ mode: 'open' });

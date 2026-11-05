@@ -142,7 +142,14 @@ export const collectorRunSchema = z.object({
   collector: z.string(),
   /** 1-based number of the area; `null` for collectors that run once per step. */
   area: z.nullable(z.int().check(z.positive())),
-  outcome: z.enum(['collected', 'not-applicable', 'failed', 'timed-out', 'invalid-output']),
+  outcome: z.enum([
+    'collected',
+    'not-applicable',
+    'unavailable',
+    'failed',
+    'timed-out',
+    'invalid-output',
+  ]),
   durationMs: z.number().check(z.nonnegative()),
   fragments: z.int().check(z.nonnegative()),
 });

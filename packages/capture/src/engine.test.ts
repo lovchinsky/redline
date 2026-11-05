@@ -174,6 +174,21 @@ describe('CaptureEngine', () => {
     expect(aborted).toBe(true);
   });
 
+  it('tells nothing to collect from a source it could not reach', async () => {
+    const capture = await run([
+      stepCollector('page', () =>
+        Promise.resolve({ status: 'not-applicable', reason: 'prod build' }),
+      ),
+      stepCollector('runtime', () =>
+        Promise.resolve({ status: 'unavailable', reason: 'The page runtime did not answer' }),
+      ),
+    ]);
+    expect(capture.diagnostics.map((d) => [d.source, d.outcome, d.message])).toEqual([
+      ['page', 'not-applicable', 'prod build'],
+      ['runtime', 'unavailable', 'The page runtime did not answer'],
+    ]);
+  });
+
   it('records not-applicable outcomes and rejects output that breaks the schema', async () => {
     const capture = await run([
       stepCollector('page', () =>

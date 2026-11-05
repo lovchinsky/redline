@@ -27,7 +27,7 @@ export const cssRulesFragment = defineFragment({
       for (const element of data.elements) {
         if (element.rules.length === 0) continue;
         lines.push(
-          `**CSS rules for ${md.code(element.label)}** (in source order, later rules win):`,
+          `**CSS rules for ${md.code(element.label)}** (weakest first, by specificity and then order; \`@layer\` and \`!important\` not weighed):`,
           '',
           ...element.rules.map((rule) => {
             const conditions =

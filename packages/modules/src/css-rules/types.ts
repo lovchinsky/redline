@@ -30,7 +30,7 @@ export const cssRulesSchema = z.object({
       z.readonly(
         z.object({
           label: z.string(),
-          /** In cascade order of appearance: later rules win at equal specificity. */
+          /** Weakest first: by specificity, then order of appearance; layers and `!important` not weighed. */
           rules: z.readonly(z.array(matchedRuleSchema)),
         }),
       ),

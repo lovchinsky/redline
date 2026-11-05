@@ -146,7 +146,7 @@ export class CaptureEngine {
       const outcome = await Promise.race([running, timedOut]);
 
       if (outcome === TIMED_OUT) return diagnose('timed-out', `Exceeded ${String(timeoutMs)} ms`);
-      if (outcome.status === 'not-applicable') return diagnose('not-applicable', outcome.reason);
+      if (outcome.status !== 'collected') return diagnose(outcome.status, outcome.reason);
       const accepted = this.accept(collector.produces, collector.priority, target, outcome.items);
       return accepted.ok
         ? {

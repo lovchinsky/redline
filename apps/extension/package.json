@@ -20,6 +20,7 @@
     "@redline/geometry": "workspace:*",
     "@redline/modules": "workspace:*",
     "@redline/page-runtime": "workspace:*",
+    "@redline/pipeline": "workspace:*",
     "@redline/processors": "workspace:*",
     "@redline/profiles": "workspace:*",
     "@redline/rpc": "workspace:*",

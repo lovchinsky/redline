@@ -75,6 +75,16 @@ export const genericWordingRule: AnchorRule = {
   },
 };
 
+/**
+ * Wording without a single word (`$ 116.00`, `12/05`, `42`) is usually data the page received,
+ * rarely text written in the code. It ranks below any unique hand-written anchor (a unique
+ * class scores 50), yet a unique one stays above the cut, for a page that offers nothing else.
+ */
+export const dataWordingRule: AnchorRule = {
+  id: 'data-wording',
+  evaluate: ({ kind, value }) => (WORDING_KINDS.has(kind) && !/\p{L}{2}/u.test(value) ? -40 : 0),
+};
+
 /** Wording of a few words is the sweet spot for searching; long passages get truncated. */
 export const wordingLengthRule: AnchorRule = {
   id: 'wording-length',
@@ -85,11 +95,15 @@ export const wordingLengthRule: AnchorRule = {
   },
 };
 
-/** A value unique on the page is likely unique in the code; one repeated everywhere is not. */
+/**
+ * A value unique on the page is likely unique in the code; one repeated everywhere is not.
+ * Without a count (a page too large to count) there is no evidence either way.
+ */
 export const uniquenessRule: AnchorRule = {
   id: 'uniqueness',
   evaluate: (candidate, context) => {
     const count = context.occurrences(candidate);
+    if (count === null) return 0;
     if (count === 1) return 20;
     return count > 3 ? -20 : 0;
   },
@@ -107,6 +121,7 @@ export const utilityClassRule: AnchorRule = {
 export const DEFAULT_ANCHOR_RULES: readonly AnchorRule[] = [
   generatedTokenRule,
   genericWordingRule,
+  dataWordingRule,
   wordingLengthRule,
   uniquenessRule,
   utilityClassRule,
