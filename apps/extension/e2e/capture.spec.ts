@@ -313,3 +313,48 @@ test('circling inside a modal dialog the page opened', async ({ context, extensi
     'button[data-testid=confirm-upgrade]',
   );
 });
+
+test('shapes drawn at different scroll positions each enclose what was under them', async ({
+  context,
+  extensionPage,
+  serviceWorker,
+}) => {
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 500 });
+  await page.goto(pageUrl);
+  // Room to scroll below the cards.
+  await page.evaluate(() => {
+    document.body.append(Object.assign(document.createElement('div'), { style: 'height:1500px' }));
+  });
+  await page.bringToFront();
+  await startCapture(extensionPage, pageUrl);
+
+  const first = await page.getByTestId('plan-card').nth(0).boundingBox();
+  if (first === null) throw new Error('fixture cards are not rendered');
+  await drawLassoAround(page, first);
+  const composer = await composerOf(page);
+  await expect(composer.getByTestId('shape-summaries')).toHaveText(
+    'article[data-testid=plan-card]',
+  );
+
+  await page.evaluate(() => {
+    window.scrollBy(0, 150);
+  });
+  const enterprise = await page.getByTestId('enterprise-card').boundingBox();
+  if (enterprise === null) throw new Error('fixture card is not rendered');
+  await drawLassoAround(page, enterprise);
+  await expect(composer.getByTestId('shape-summaries')).toContainText('enterprise-card');
+
+  await composer.getByTestId('comment').fill('Same padding everywhere');
+  await composer.getByTestId('submit').click();
+  await expect(page.locator('redline-overlay')).toHaveCount(0);
+  await expect
+    .poll(async () => (await readStore<StoredTask>(serviceWorker, 'drafts')).length)
+    .toBe(1);
+  const [task] = await readStore<StoredTask>(serviceWorker, 'drafts');
+  const stored = (await readStore<StoredCapture & { id: string }>(serviceWorker, 'captures')).find(
+    (record) => record.id === task?.steps[0]?.captureId,
+  );
+  // Each area got its own screenshot, taken at the scroll it was drawn at.
+  expect(stored?.capture.fragments.filter((f) => f.kind === 'screenshot')).toHaveLength(2);
+});

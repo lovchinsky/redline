@@ -1,15 +1,12 @@
-import type { ShapeSubject, StepSubject, ViewportSnapshot } from '@redline/capture';
+import type { StepSubject, ViewportSnapshot } from '@redline/capture';
 import type { AppError, IdGenerator, Logger, Result } from '@redline/core';
 import {
   describeElement,
-  isRegionLive,
-  summarizeRegion,
   type DomQuery,
   type ElementTraversal,
   type RegionResolver,
-  type ResolvedRegion,
 } from '@redline/dom';
-import { boundsOf, rectPolygon, type Point, type Polygon, type Rect } from '@redline/geometry';
+import { boundsOf, rectPolygon, type Point, type Rect } from '@redline/geometry';
 import { render } from 'preact';
 import {
   DEFAULT_MACHINE_CONFIG,
@@ -35,12 +32,7 @@ import type { OverlayHost } from './overlay-host';
 import { ComposerFrame } from './composer-frame';
 import type { ComposerView, FromComposer } from './composer-messages';
 import { OverlayView } from './OverlayView';
-
-/** What a shape resolved to: live elements (content script only) and the page it was drawn on. */
-interface ShapeResolution {
-  readonly region: ResolvedRegion;
-  readonly snapshot: ViewportSnapshot | null;
-}
+import { ShapeTracker, offsetBetween, shift } from './shape-tracker';
 
 export type SessionOutcome = 'committed' | 'cancelled';
 
@@ -89,10 +81,8 @@ const ISOLATED_EVENTS = [
  */
 export class CaptureSession {
   private state: CaptureState = initialCaptureState();
-  private readonly resolutions = new Map<string, ShapeResolution>();
-  private snapshot: ViewportSnapshot | null;
-  /** Snapshots are taken one at a time: each needs the overlay hidden. */
-  private snapshotQueue: Promise<unknown> = Promise.resolve();
+  /** What the drawn shapes enclose, and the screens they were drawn on. */
+  private readonly shapes: ShapeTracker;
   /** Where the glow's turn stands; it only advances while it is moving. */
   private glowTime = 0;
   private readonly queue: CaptureEvent[] = [];
@@ -114,7 +104,20 @@ export class CaptureSession {
   private readonly outcome = Promise.withResolvers<SessionOutcome>();
 
   constructor(private readonly deps: CaptureSessionDeps) {
-    this.snapshot = deps.initialSnapshot;
+    const { view } = deps;
+    this.shapes = new ShapeTracker({
+      dom: deps.dom,
+      resolver: deps.resolver,
+      takeSnapshot: () => this.withOverlayHidden(() => deps.snapshots.take()),
+      scroll: () => this.scroll(),
+      screen: () => ({
+        width: view.innerWidth,
+        height: view.innerHeight,
+        devicePixelRatio: view.devicePixelRatio,
+      }),
+      initialSnapshot: deps.initialSnapshot,
+      logger: deps.logger,
+    });
     const focused = deps.view.document.activeElement;
     this.pageFocus =
       focused === null || focused === deps.view.document.body || deps.host.owns(focused)
@@ -159,7 +162,7 @@ export class CaptureSession {
           config: this.deps.config ?? DEFAULT_MACHINE_CONFIG,
         });
         this.state = state;
-        this.pruneRegions();
+        this.shapes.keepOnly(state.kind === 'closed' ? [] : state.shapes.map((e) => e.shape.id));
         for (const effect of effects) this.execute(effect);
       }
     } finally {
@@ -182,55 +185,16 @@ export class CaptureSession {
     }
   }
 
-  /**
-   * Pairs the shape with a snapshot of the page as drawn, then resolves what it refers to.
-   * The machine keeps the shape pending meanwhile, so a step cannot be committed half-resolved.
-   */
+  /** Resolves a new shape; the machine keeps it pending meanwhile, so no step goes half-resolved. */
   private async resolveShape(shape: CapturedShape): Promise<void> {
-    const snapshot = await this.snapshotAt(shape.scroll);
+    const resolved = await this.shapes.resolve(shape);
     if (this.ended) return;
-    const polygon =
-      shape.source === 'click'
-        ? this.pickedBox(shape)
-        : shift(shape.polygon, this.offsetFrom(shape.scroll));
-    const region = polygon === null ? null : this.deps.resolver.resolve(polygon);
-    if (region === null) this.resolutions.delete(shape.id);
-    else this.resolutions.set(shape.id, { region, snapshot });
     this.dispatch({
       type: 'shape-resolved',
       shapeId: shape.id,
-      // Stored relative to the shape's own scroll offset, like the original stroke.
-      polygon:
-        polygon === null ? shape.polygon : shift(polygon, invert(this.offsetFrom(shape.scroll))),
-      summary: region === null ? null : summarizeRegion(region),
+      polygon: resolved?.polygon ?? shape.polygon,
+      summary: resolved?.summary ?? null,
     });
-  }
-
-  /** A click picks the topmost element under the pointer; its box becomes the outline. */
-  private pickedBox(shape: CapturedShape): Polygon | null {
-    const [point] = shift(shape.polygon, this.offsetFrom(shape.scroll));
-    const element = point === undefined ? null : this.deps.dom.topmostAt(point);
-    return element === null ? null : rectPolygon(this.deps.dom.rectOf(element));
-  }
-
-  /** Snapshot matching the page at `scroll`: the current one if still valid, else a new one. */
-  private snapshotAt(scroll: Point): Promise<ViewportSnapshot | null> {
-    const next = this.snapshotQueue.then(async () => {
-      const { view } = this.deps;
-      const current = this.snapshot;
-      if (current !== null && showsSameView(current, scroll, view)) return current;
-      const taken = await this.withOverlayHidden(() => this.deps.snapshots.take());
-      if (!taken.ok) {
-        this.deps.logger.warn('Viewport snapshot failed; the step will have no screenshot', {
-          ...taken.error,
-        });
-        return null;
-      }
-      this.snapshot = taken.value;
-      return taken.value;
-    });
-    this.snapshotQueue = next;
-    return next;
   }
 
   /** Hides the overlay until the page has painted without it, runs `task`, then restores it. */
@@ -245,57 +209,15 @@ export class CaptureSession {
   }
 
   private async commit(submission: CaptureSubmission): Promise<void> {
-    const shapes: ShapeSubject[] = [];
-    for (const shape of submission.shapes) {
-      const resolution = this.resolutions.get(shape.id);
-      if (resolution === undefined) {
-        this.deps.logger.error('Submitted shape has no resolved region', { shapeId: shape.id });
-        this.dispatch({ type: 'commit-failed' });
-        return;
-      }
-      const { snapshot } = resolution;
-      const region = this.liveRegion(shape, resolution.region);
-      // Express the outline in the coordinates of the snapshot it will be drawn on.
-      const reference = snapshot?.scroll ?? this.scroll();
-      shapes.push({
-        id: shape.id,
-        source: shape.source,
-        polygon: shift(shape.polygon, {
-          x: shape.scroll.x - reference.x,
-          y: shape.scroll.y - reference.y,
-        }),
-        region,
-        snapshot,
-      });
+    const shapes = this.shapes.subjects(submission.shapes);
+    if (!shapes.ok) {
+      this.deps.logger.error('Committing the step failed', { ...shapes.error });
+      this.dispatch({ type: 'commit-failed' });
+      return;
     }
-    const result = await this.deps.commit({
-      comment: submission.comment,
-      shapes,
-    });
+    const result = await this.deps.commit({ comment: submission.comment, shapes: shapes.value });
     if (!result.ok) this.deps.logger.error('Committing the step failed', { ...result.error });
     this.dispatch(result.ok ? { type: 'commit-succeeded' } : { type: 'commit-failed' });
-  }
-
-  /**
-   * The region as the page is now. If the page re-rendered since the shape was drawn (the
-   * circled elements were replaced while the user typed), the same outline is resolved again,
-   * so context comes from the elements on screen rather than detached copies.
-   */
-  private liveRegion(shape: CapturedShape, region: ResolvedRegion): ResolvedRegion {
-    if (isRegionLive(region)) return region;
-    const again = this.deps.resolver.resolve(shift(shape.polygon, this.offsetFrom(shape.scroll)));
-    if (again === null) {
-      this.deps.logger.warn('The circled elements left the page', { shapeId: shape.id });
-      return region;
-    }
-    return again;
-  }
-
-  private pruneRegions(): void {
-    const live = new Set(
-      this.state.kind === 'closed' ? [] : this.state.shapes.map((e) => e.shape.id),
-    );
-    for (const id of this.resolutions.keys()) if (!live.has(id)) this.resolutions.delete(id);
   }
 
   private listen(): void {
@@ -558,8 +480,8 @@ export class CaptureSession {
 
     const highlights: SceneHighlight[] = [];
     for (const { shape } of state.shapes) {
-      const region = this.resolutions.get(shape.id)?.region;
-      if (region === undefined) continue;
+      const region = this.shapes.regionOf(shape.id);
+      if (region === null) continue;
       highlights.push({ rect: this.deps.dom.rectOf(region.container), role: 'container' });
       for (const group of region.groups) {
         for (const element of group.elements) {
@@ -592,8 +514,7 @@ export class CaptureSession {
 
   /** How far content captured at `scroll` has moved on screen since. */
   private offsetFrom(scroll: Point): Point {
-    const now = this.scroll();
-    return { x: scroll.x - now.x, y: scroll.y - now.y };
+    return offsetBetween(scroll, this.scroll());
   }
 
   /** Tears everything down exactly once. */
@@ -616,18 +537,6 @@ export class CaptureSession {
 }
 
 const pointOf = (event: PointerEvent): Point => ({ x: event.clientX, y: event.clientY });
-
-const shift = (polygon: Polygon, by: Point): Point[] =>
-  polygon.map((p) => ({ x: p.x + by.x, y: p.y + by.y }));
-
-const invert = (point: Point): Point => ({ x: -point.x, y: -point.y });
-
-const showsSameView = (snapshot: ViewportSnapshot, scroll: Point, view: Window): boolean =>
-  snapshot.scroll.x === scroll.x &&
-  snapshot.scroll.y === scroll.y &&
-  snapshot.viewport.width === view.innerWidth &&
-  snapshot.viewport.height === view.innerHeight &&
-  snapshot.devicePixelRatio === view.devicePixelRatio;
 
 /**
  * Resolves after the browser has produced a frame reflecting current DOM changes: the first
