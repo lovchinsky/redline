@@ -27,6 +27,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm lint:boundaries:selftest
       - run: pnpm depcruise
+      - run: pnpm depcruise:selftest
       - run: pnpm typecheck
       - run: pnpm test
 
@@ -46,6 +47,12 @@ jobs:
       - run: pnpm test:e2e
       # Scripts injected into users' pages stay within their size budgets.
       - run: pnpm budgets
+      # The production build these tests ran on, packed as is: it is what gets published.
+      - run: node scripts/pack-extension.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-build
+          path: apps/extension/.output/redline-*-chrome.zip
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -87,8 +94,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Builds the store zip and checks it against the store's rules.
-      - run: pnpm package
+      # Promotes the build e2e tested, never a new one, once the anchors pass too.
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-build
+          path: apps/extension/.output
+      - run: node scripts/verify-store-package.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: chrome-web-store

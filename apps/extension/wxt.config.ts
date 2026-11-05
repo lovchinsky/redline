@@ -52,8 +52,6 @@ export default defineConfig({
       },
     },
   }),
-  // The Chrome Web Store upload: `pnpm --filter @redline/extension zip`.
-  zip: { artifactTemplate: 'redline-{{version}}-{{browser}}.zip' },
   vite: () => ({
     plugins: [preact()],
   }),

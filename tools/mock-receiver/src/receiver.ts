@@ -7,8 +7,8 @@ import {
   IDEMPOTENCY_KEY_HEADER,
   MANIFEST_PART,
   PROJECT_PART,
-  RECEIVER_API_PREFIX,
   bundleManifestSchema,
+  receiverRoutes,
   replyRequestSchema,
   type BundleManifest,
   type Project,
@@ -80,6 +80,22 @@ class HttpError extends Error {
 }
 
 const errorBody = (code: string, message: string) => ({ error: { code, message } });
+
+/** Stands for the remote id in route templates built from the contract's own routes. */
+const ID = '\u0000id\u0000';
+
+/**
+ * Matches a path against a route of the contract (`receiverRoutes`), so the mock serves exactly
+ * the paths the extension requests. Returns the decoded remote id ('' for routes without one),
+ * or null when the path is not this route.
+ */
+const matchRoute = (template: string, path: string): string | null => {
+  const [before, after] = template.split(encodeURIComponent(ID));
+  if (after === undefined) return path === template ? '' : null;
+  if (!path.startsWith(before ?? '') || !path.endsWith(after)) return null;
+  const id = path.slice((before ?? '').length, path.length - after.length);
+  return id === '' || id.includes('/') ? null : decodeURIComponent(id);
+};
 
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 
@@ -195,26 +211,22 @@ export const startMockReceiver = async (
 
   const route = async (request: Request): Promise<unknown> => {
     const path = new URL(request.url).pathname;
-    const tail = path.startsWith(RECEIVER_API_PREFIX) ? path.slice(RECEIVER_API_PREFIX.length) : '';
-    const [, resource, id, sub] = tail.split('/');
-    if (request.method === 'GET' && resource === 'projects' && id === undefined) {
+    const at = (template: string) => matchRoute(template, path);
+    if (request.method === 'GET' && at(receiverRoutes.listProjects()) !== null) {
       return { projects };
     }
-    if (resource === 'tasks' && id === undefined && request.method === 'POST') {
+    if (request.method === 'POST' && at(receiverRoutes.submitTask()) !== null) {
       return state(await submit(request));
     }
-    if (resource === 'tasks' && id !== undefined && sub === undefined && request.method === 'GET') {
-      const task = taskOf(decodeURIComponent(id));
+    const read = at(receiverRoutes.getTask(ID));
+    if (request.method === 'GET' && read !== null) {
+      const task = taskOf(read);
       advance(task);
       return state(task);
     }
-    if (
-      resource === 'tasks' &&
-      id !== undefined &&
-      sub === 'replies' &&
-      request.method === 'POST'
-    ) {
-      const task = taskOf(decodeURIComponent(id));
+    const replied = at(receiverRoutes.replyToTask(ID));
+    if (request.method === 'POST' && replied !== null) {
+      const task = taskOf(replied);
       await reply(task, request);
       return state(task);
     }
@@ -244,7 +256,13 @@ export const startMockReceiver = async (
         res.end();
         return;
       }
-      if (req.method === 'POST' && req.url === `${RECEIVER_API_PREFIX}/tasks`) submissions += 1;
+      if (
+        req.method === 'POST' &&
+        matchRoute(receiverRoutes.submitTask(), new URL(req.url ?? '/', 'http://mock').pathname) !==
+          null
+      ) {
+        submissions += 1;
+      }
       const fault = faults.shift();
       if (fault === 'unavailable') {
         req.resume();

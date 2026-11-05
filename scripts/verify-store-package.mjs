@@ -23,6 +23,7 @@ import { strFromU8, unzipSync } from 'fflate';
  *   options_ui?: { page?: string },
  *   action?: { default_title?: string, default_popup?: string },
  *   commands?: Record<string, { description?: string }>,
+ *   web_accessible_resources?: { resources?: string[] }[],
  * }} Manifest
  */
 
@@ -147,6 +148,25 @@ const referenced = [
 for (const file of referenced)
   check(files[file] !== undefined, `${file} is referenced but missing`);
 
+// Pages the web may embed, and scripts the service worker injects by path (not in the
+// manifest, so nothing else would notice a renamed or missing file before users do).
+for (const entry of manifest.web_accessible_resources ?? []) {
+  for (const file of entry.resources ?? []) {
+    check(files[file] !== undefined, `web-accessible ${file} is missing`);
+  }
+}
+const workerSource = text(manifest.background?.service_worker ?? 'background.js');
+const injected = new Set(
+  Array.from(
+    workerSource.matchAll(/["'`]\/([\w./-]+\.(?:js|html))["'`]/g),
+    (match) => match[1] ?? '',
+  ),
+);
+check(injected.size > 0, 'the service worker names no script it injects: the check went blind');
+for (const file of injected) {
+  check(files[file] !== undefined, `${file} is injected by the service worker but missing`);
+}
+
 // Permissions: the declared set only, no host access at install time.
 for (const permission of manifest.permissions ?? []) {
   check(
@@ -172,8 +192,11 @@ for (const [name, bytes] of Object.entries(files)) {
   }
   if (name.endsWith('.js')) {
     const source = strFromU8(bytes);
-    check(!/\beval\s*\(|new Function\s*\(/.test(source), `${name} evaluates strings as code`);
-    check(!/import\s*\(\s*["']https?:/.test(source), `${name} imports remote code`);
+    check(!/\beval\s*\(|\bFunction\s*\(/.test(source), `${name} evaluates strings as code`);
+    check(
+      !/\b(?:import|importScripts)\s*\(\s*["'`](?:https?:)?\/\//.test(source),
+      `${name} loads remote code`,
+    );
   }
   check(!name.endsWith('.map'), `${name}: source maps do not belong in the store package`);
   check(!/(^|\/)\.[^/]+$/.test(name), `${name}: hidden files do not belong in the store package`);

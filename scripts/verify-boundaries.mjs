@@ -50,6 +50,12 @@ const probes = [
     expectRule: 'no-restricted-imports',
   },
   {
+    name: 'the shipped capture must not depend on assembly',
+    file: 'packages/pipeline/src/__boundary_probe__.ts',
+    code: "import { Packager } from '@redline/assembly';\nexport const probe = Packager;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
     name: 'a context module must not import another module',
     file: 'packages/modules/src/anchors/__boundary_probe__.ts',
     code: "import { layoutCollector } from '../layout/collector';\nexport const probe = layoutCollector;\n",

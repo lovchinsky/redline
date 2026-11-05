@@ -2,7 +2,11 @@ import { captureContext, get, mount, shapeAround, stepOf } from '@redline/module
 import { describe, expect, it } from 'vitest';
 import { shippedCapture } from './index';
 
-/** The spec's budget: collecting a step, screenshot aside, within 300 ms at the 95th percentile. */
+/**
+ * The spec's budget: collecting a step, screenshot aside, within 300 ms at the 95th percentile,
+ * on the user's machine. Far above what CI measures, it guards against blow-ups (a walk that
+ * turns quadratic), not small regressions, which are logged with each run.
+ */
 const P95_BUDGET_MS = 300;
 const RUNS = 30;
 const WARM_UP = 3;
@@ -88,7 +92,8 @@ describe('capture pipeline performance', () => {
     const samples: number[] = [];
     for (let run = 0; run < WARM_UP + RUNS; run += 1) {
       const { capture, report } = await engine.run(plan, step, captureContext());
-      expect(capture.diagnostics.filter((d) => d.outcome === 'failed')).toEqual([]);
+      // Fast because complete: no collector may time out, fail, break its schema or go unheard.
+      expect(capture.diagnostics.filter((d) => d.outcome !== 'not-applicable')).toEqual([]);
       if (run >= WARM_UP) samples.push(report.durationMs);
     }
 

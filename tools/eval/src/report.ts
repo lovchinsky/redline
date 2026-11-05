@@ -1,53 +1,41 @@
-import type { BuildMode } from './build';
-import type { CorpusApp } from './corpus';
-import type { CaseMeasurement } from './measure';
-import type { CaseScore } from './score';
+import { outcomesOf, slicesOf, solvedShare, type CaseOutcome, type ScoredCase } from './cases';
 
-export interface ScoredCase extends CaseMeasurement {
-  readonly app: CorpusApp;
-  readonly mode: BuildMode;
-  readonly score: CaseScore;
-}
+const percent = (share: number): string => `${(share * 100).toFixed(1)}%`;
 
-const percent = (part: number, whole: number): string =>
-  whole === 0 ? '—' : `${((part / whole) * 100).toFixed(1)}%`;
-
-const rate = (cases: readonly ScoredCase[]): string =>
-  `${percent(cases.filter((c) => c.score.hit).length, cases.length)} (${String(
-    cases.filter((c) => c.score.hit).length,
-  )}/${String(cases.length)})`;
-
-const groupBy = <K extends string>(
-  cases: readonly ScoredCase[],
-  key: (scored: ScoredCase) => K,
-): [K, ScoredCase[]][] => {
-  const groups = new Map<K, ScoredCase[]>();
-  for (const scored of cases) groups.set(key(scored), [...(groups.get(key(scored)) ?? []), scored]);
-  return [...groups].sort(([a], [b]) => a.localeCompare(b));
-};
+const rate = (outcomes: readonly CaseOutcome[]): string =>
+  `${percent(solvedShare(outcomes))} (${String(outcomes.filter((o) => o.solved).length)}/${String(
+    outcomes.length,
+  )})`;
 
 const cell = (text: string): string => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
-/** Markdown: the metric, its breakdowns, and every case with the anchors it produced. */
-export const renderReport = (cases: readonly ScoredCase[], target: number): string => {
-  const solved = cases.filter((c) => c.score.hit).length;
+/** What the gate requires: the share of cases overall, and of every slice. */
+export interface Targets {
+  readonly overall: number;
+  readonly slice: number;
+}
+
+/** Markdown: the metric, its slices, how early the useful anchor comes, and every build. */
+export const renderReport = (scored: readonly ScoredCase[], targets: Targets): string => {
+  const outcomes = outcomesOf(scored);
+  const firstIsUseful = outcomes.filter((o) => o.rank === 1).length / Math.max(1, outcomes.length);
   const lines = [
     '# Anchor quality',
     '',
-    `Cases where one of the top 5 anchors, searched verbatim, finds only the right file: **${rate(cases)}** (target ${percent(target, 1)}).`,
+    `Cases where, on every build, one of the top 5 anchors searched verbatim finds only the right file: **${rate(outcomes)}** (target ${percent(targets.overall)}, every slice at least ${percent(targets.slice)}).`,
+    '',
+    `The first anchor already does it in ${percent(firstIsUseful)} of cases.`,
     '',
     '| Slice | Solved |',
     '| --- | --- |',
-    ...[
-      ...groupBy(cases, (c) => `framework: ${c.app.framework}`),
-      ...groupBy(cases, (c) => `styling: ${c.app.styling}`),
-      ...groupBy(cases, (c) => `i18n: ${c.app.i18n ? 'yes' : 'no'}`),
-      ...groupBy(cases, (c) => `build: ${c.mode}`),
-    ].map(([slice, group]) => `| ${slice} | ${rate(group)} |`),
+    ...slicesOf(outcomes).map(([slice, group]) => {
+      const share = solvedShare(group);
+      return `| ${slice} | ${rate(group)}${share < targets.slice ? ' **below the floor**' : ''} |`;
+    }),
     '',
     '| Case | Build | Solved | Top anchors (→ files found) |',
     '| --- | --- | --- | --- |',
-    ...cases.map(({ app, mode, case: evalCase, score }) => {
+    ...scored.map(({ app, mode, case: evalCase, score }) => {
       const anchors = score.verdicts
         .map(
           ({ anchor, matches, hit }) =>
@@ -60,5 +48,5 @@ export const renderReport = (cases: readonly ScoredCase[], target: number): stri
     }),
     '',
   ];
-  return `${lines.join('\n')}\n<!-- ${String(solved)} of ${String(cases.length)} -->\n`;
+  return `${lines.join('\n')}\n`;
 };
