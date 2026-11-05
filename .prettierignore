@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+**/.output
+**/.wxt
+**/coverage
+**/test-results
+**/playwright-report

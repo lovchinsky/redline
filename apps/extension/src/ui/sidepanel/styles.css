@@ -1,0 +1,70 @@
+:root {
+  --rl-bg: #ffffff;
+  --rl-surface: #f5f6f8;
+  --rl-text: #1b1d21;
+  --rl-muted: #5c6370;
+  --rl-accent: #4a5cf0;
+  --rl-border: #dfe2e8;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --rl-bg: #16181d;
+    --rl-surface: #1f2228;
+    --rl-text: #e8eaee;
+    --rl-muted: #9aa1ad;
+    --rl-accent: #8b98ff;
+    --rl-border: #2e323a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--rl-bg);
+  color: var(--rl-text);
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+}
+
+main {
+  padding: 16px;
+  display: grid;
+  gap: 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.card {
+  padding: 12px;
+  border: 1px solid var(--rl-border);
+  border-radius: 8px;
+  background: var(--rl-surface);
+}
+
+.muted {
+  color: var(--rl-muted);
+}
+
+button {
+  border: 1px solid var(--rl-accent);
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--rl-accent);
+  font: inherit;
+  cursor: pointer;
+}

@@ -1,0 +1,36 @@
+{
+  "name": "redline",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @redline/extension dev",
+    "build": "pnpm --filter @redline/extension build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:boundaries:selftest": "node scripts/verify-boundaries.mjs",
+    "depcruise": "depcruise packages apps/extension/src --config .dependency-cruiser.cjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "pnpm --filter @redline/extension test:e2e",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm format:check && pnpm lint && pnpm lint:boundaries:selftest && pnpm depcruise && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
+    "dependency-cruiser": "18.7.0",
+    "eslint": "10.13.0",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-boundaries": "7.2.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "4.1.12"
+  }
+}
