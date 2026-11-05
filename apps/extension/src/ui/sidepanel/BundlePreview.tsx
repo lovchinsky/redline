@@ -10,6 +10,7 @@ import { ErrorAlert } from '../shared/ErrorAlert';
 import { formatBytes } from '../shared/format';
 import { useTranslator } from '../shared/i18n';
 import { LocalImage } from './LocalImage';
+import { useLatestLoad } from '../shared/use-latest-load';
 
 type PreviewState =
   | { readonly kind: 'assembling' }
@@ -31,21 +32,25 @@ export const PreviewSheet = ({ services, draft, onClose }: PreviewSheetProps) =>
   const [state, setState] = useState<PreviewState>({ kind: 'assembling' });
   const stale = state.kind === 'ready' && state.preview.revision !== draft.revision;
 
+  const begin = useLatestLoad();
   const assemble = useCallback(async () => {
+    const isLatest = begin();
     setState({ kind: 'assembling' });
     const preview = await services.rpc.call('task.assemble', { taskId: draft.id });
+    if (!isLatest()) return;
     if (!preview.ok) {
       setState({ kind: 'failed', error: preview.error });
       return;
     }
     const { taskId, digest, entry } = preview.value;
     const context = await services.files.bundleFile(taskId, digest, entry);
-    setState(
-      context.ok
-        ? { kind: 'ready', preview: preview.value, context: await context.value.text() }
-        : { kind: 'failed', error: context.error },
-    );
-  }, [services, draft.id]);
+    if (!context.ok) {
+      if (isLatest()) setState({ kind: 'failed', error: context.error });
+      return;
+    }
+    const text = await context.value.text();
+    if (isLatest()) setState({ kind: 'ready', preview: preview.value, context: text });
+  }, [services, draft.id, begin]);
 
   useEffect(() => {
     void assemble();
@@ -80,9 +85,10 @@ export const PreviewSheet = ({ services, draft, onClose }: PreviewSheetProps) =>
         )
       }
     >
-      <div class="preview" aria-live="polite">
+      <div class="preview">
+        {/* Only the short status lines are announced, never the bundle's text. */}
         {state.kind === 'assembling' && (
-          <p class="note">
+          <p class="note" role="status">
             <LoaderCircle size={14} class="spin" aria-hidden="true" />
             <span>{t.text('previewing')}</span>
           </p>
@@ -104,6 +110,7 @@ export const PreviewSheet = ({ services, draft, onClose }: PreviewSheetProps) =>
           <>
             <p
               class="preview-summary"
+              role="status"
               data-testid="bundle-digest"
               data-digest={state.preview.digest}
             >

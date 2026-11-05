@@ -93,6 +93,8 @@ export class CaptureSession {
   private snapshot: ViewportSnapshot | null;
   /** Snapshots are taken one at a time: each needs the overlay hidden. */
   private snapshotQueue: Promise<unknown> = Promise.resolve();
+  /** Where the glow's turn stands; it only advances while it is moving. */
+  private glowTime = 0;
   private readonly queue: CaptureEvent[] = [];
   private dispatching = false;
   private readonly renderer: LassoRenderer;
@@ -477,15 +479,25 @@ export class CaptureSession {
     });
   }
 
+  /**
+   * The glow turns while the user is choosing what to circle; once they write the comment it
+   * holds still, so the page is not repainted every frame for as long as they type.
+   */
   private paint(time: number): void {
     if (this.state.kind === 'closed') return;
     const scene = this.scene(this.state);
-    this.renderer.render(scene, this.reducedMotion ? 0 : time);
+    const moving =
+      !this.reducedMotion &&
+      scene.outlines.length > 0 &&
+      this.state.kind !== 'composing' &&
+      this.state.kind !== 'committing';
+    if (moving) this.glowTime = time;
+    this.renderer.render(scene, this.glowTime);
     if (this.viewDirty) {
       this.viewDirty = false;
       this.renderView(this.state);
     }
-    if (!this.reducedMotion && scene.outlines.length > 0) this.requestFrame();
+    if (moving) this.requestFrame();
   }
 
   /** Opens, updates or closes the composer frame to match the state. */

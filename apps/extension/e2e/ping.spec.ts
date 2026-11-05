@@ -3,19 +3,15 @@ import path from 'node:path';
 import type { Browser } from 'wxt/browser';
 import { expect, launchExtension, openOptions, openSidePanel, test } from './fixtures';
 
-test('Diagnostics reach the service worker over typed RPC and receive its events', async ({
-  context,
-}) => {
+test('Diagnostics reach the service worker over typed RPC', async ({ context }) => {
   const page = await openOptions(context);
 
   const status = page.getByTestId('sw-status');
   await expect(status).toHaveAttribute('data-status', 'connected');
   await expect(status).toContainText('v0.1.0');
-  await expect(page.getByTestId('ping-events')).toHaveText('1');
 
   await page.getByTestId('ping').click();
   await expect(status).toHaveAttribute('data-status', 'connected');
-  await expect(page.getByTestId('ping-events')).toHaveText('2');
 });
 
 test('the production manifest requests no host access and declares no content scripts', async () => {

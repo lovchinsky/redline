@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Pencil, Trash } from 'lucide-preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { LocalFiles } from '../../ports/drafts';
 import { Button, IconButton } from '../kit/Button';
+import { InlineConfirm } from '../kit/InlineConfirm';
 import { useTranslator } from '../shared/i18n';
 import { LocalImage } from './LocalImage';
 import type { DraftActions } from './use-drafts';
@@ -129,29 +130,17 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
         )}
 
         {confirming && (
-          <div class="confirm" role="alertdialog" aria-label={t.text('confirmRemoveStep')}>
-            <span>{t.text('confirmRemoveStep')}</span>
-            <div class="confirm-actions">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setConfirming(false);
-                }}
-              >
-                {t.text('cancel')}
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={() => {
-                  actions.removeStep(taskId, step.id);
-                }}
-              >
-                {t.text('removeStep')}
-              </Button>
-            </div>
-          </div>
+          <InlineConfirm
+            question={t.text('confirmRemoveStep')}
+            confirmLabel={t.text('removeStep')}
+            cancelLabel={t.text('cancel')}
+            onCancel={() => {
+              setConfirming(false);
+            }}
+            onConfirm={() => {
+              actions.removeStep(taskId, step.id);
+            }}
+          />
         )}
 
         {step.thumbnail !== null && (

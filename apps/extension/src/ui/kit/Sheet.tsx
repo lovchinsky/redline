@@ -13,33 +13,31 @@ interface SheetProps {
 }
 
 /**
- * A full-height layer over the panel, as a modal dialog: focus moves in, Escape closes, and
- * focus returns to where it was.
+ * A full-height layer over the panel: a native modal dialog, so the panel behind it is inert
+ * (Tab and screen readers stay inside), Escape closes it, and focus returns to where it was.
  */
 export const Sheet = ({ title, closeLabel, onClose, actions, children }: SheetProps) => {
-  const dialog = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    dialog.current?.focus();
+    const element = dialog.current;
+    const previous = document.activeElement;
+    element?.showModal();
     return () => {
-      previous?.focus();
+      element?.close();
+      if (previous instanceof HTMLElement) previous.focus();
     };
   }, []);
 
   return (
-    <div
+    <dialog
       ref={dialog}
       class="sheet"
-      role="dialog"
-      aria-modal="true"
       aria-label={title}
-      tabIndex={-1}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          onClose();
-        }
+      onCancel={(event) => {
+        // Escape: the owner decides, and unmounting closes the dialog.
+        event.preventDefault();
+        onClose();
       }}
     >
       <header class="sheet-header">
@@ -50,6 +48,6 @@ export const Sheet = ({ title, closeLabel, onClose, actions, children }: SheetPr
         </IconButton>
       </header>
       <div class="sheet-body">{children}</div>
-    </div>
+    </dialog>
   );
 };

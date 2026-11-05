@@ -383,6 +383,7 @@ describe('delivery', () => {
       project: null,
       conflict: false,
       sites: [{ origin: 'https://acme.io', binding: null }],
+      hostPermissions: ['https://acme.io/*'],
     });
 
     value(await submit(taskId, project()));

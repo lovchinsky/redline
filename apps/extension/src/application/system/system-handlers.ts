@@ -1,23 +1,15 @@
-import { ok, type Clock, type Logger } from '@redline/core';
-import type { AppEvents, AppProtocol, EventPublisher, ProtocolHandlers } from '@redline/rpc';
+import { ok, type Clock } from '@redline/core';
+import type { AppProtocol, ProtocolHandlers } from '@redline/rpc';
 
 export interface SystemHandlerDeps {
   readonly clock: Clock;
   readonly version: string;
-  readonly events: EventPublisher<AppEvents>;
-  readonly logger: Logger;
 }
 
+/** Whether the service worker answers, and which version it runs. */
 export const createSystemHandlers = ({
   clock,
   version,
-  events,
-  logger,
 }: SystemHandlerDeps): Pick<ProtocolHandlers<AppProtocol>, 'system.ping'> => ({
-  'system.ping': ({ nonce }) => {
-    const receivedAt = clock.now();
-    const published = events.publish('system.pinged', { nonce, at: receivedAt });
-    if (!published.ok) logger.error('Could not publish system.pinged', { ...published.error });
-    return Promise.resolve(ok({ nonce, version, receivedAt }));
-  },
+  'system.ping': ({ nonce }) => Promise.resolve(ok({ nonce, version, receivedAt: clock.now() })),
 });

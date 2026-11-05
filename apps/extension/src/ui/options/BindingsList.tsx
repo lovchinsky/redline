@@ -7,6 +7,7 @@ import { Button, IconButton } from '../kit/Button';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { useTranslator } from '../shared/i18n';
 import { SettingsSection } from './SettingsSection';
+import { useLatestLoad } from '../shared/use-latest-load';
 
 /** Site patterns and the projects they send to; adding one asks for access to that site. */
 export const BindingsList = ({ services }: { services: UiServices }) => {
@@ -17,15 +18,18 @@ export const BindingsList = ({ services }: { services: UiServices }) => {
   const [projectId, setProjectId] = useState('');
   const [error, setError] = useState<AppError | null>(null);
 
+  const begin = useLatestLoad();
   const load = useCallback(async () => {
+    const isLatest = begin();
     const [listed, available] = await Promise.all([
       services.rpc.call('bindings.list', {}),
       services.rpc.call('projects.list', {}),
     ]);
+    if (!isLatest()) return;
     if (listed.ok) setBindings(listed.value.bindings);
     else setError(listed.error);
     setProjects(available.ok ? available.value.projects : []);
-  }, [services]);
+  }, [services, begin]);
 
   useEffect(() => {
     void load();

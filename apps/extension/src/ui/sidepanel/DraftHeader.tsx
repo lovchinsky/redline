@@ -2,7 +2,8 @@ import { MAX_TITLE_LENGTH, TaskId } from '@redline/core';
 import type { DraftSummary, DraftView } from '@redline/rpc';
 import { ChevronsUpDown, Ellipsis, Plus, Trash } from 'lucide-preact';
 import { useState } from 'preact/hooks';
-import { Button, IconButton } from '../kit/Button';
+import { IconButton } from '../kit/Button';
+import { InlineConfirm } from '../kit/InlineConfirm';
 import { Menu, type MenuEntry } from '../kit/Menu';
 import { useTranslator } from '../shared/i18n';
 import { titleOf } from './task-state';
@@ -55,7 +56,7 @@ export const DraftHeader = ({ drafts, draft, actions }: DraftHeaderProps) => {
             data-testid="draft-title"
             type="text"
             maxLength={MAX_TITLE_LENGTH}
-            aria-label={t.text('untitledTask')}
+            aria-label={t.text('taskTitleLabel')}
             defaultValue={draft.title ?? ''}
             placeholder={draft.steps[0]?.comment ?? t.text('untitledTask')}
             onChange={(event) => {
@@ -105,30 +106,18 @@ export const DraftHeader = ({ drafts, draft, actions }: DraftHeaderProps) => {
         </p>
       )}
       {draft !== null && confirming && (
-        <div class="confirm" role="alertdialog" aria-label={t.text('confirmDeleteDraft')}>
-          <span>{t.text('confirmDeleteDraft')}</span>
-          <div class="confirm-actions">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setConfirming(false);
-              }}
-            >
-              {t.text('cancel')}
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => {
-                setConfirming(false);
-                actions.deleteDraft(draft.id);
-              }}
-            >
-              {t.text('confirmDelete')}
-            </Button>
-          </div>
-        </div>
+        <InlineConfirm
+          question={t.text('confirmDeleteDraft')}
+          confirmLabel={t.text('confirmDelete')}
+          cancelLabel={t.text('cancel')}
+          onCancel={() => {
+            setConfirming(false);
+          }}
+          onConfirm={() => {
+            setConfirming(false);
+            actions.deleteDraft(draft.id);
+          }}
+        />
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import js from '@eslint/js';
 import boundaries from 'eslint-plugin-boundaries';
 import { defineConfig } from 'eslint/config';
 import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 /**
@@ -191,6 +192,15 @@ export default defineConfig(
         },
       ],
       'no-restricted-globals': ['error', { name: 'chrome', message: 'Use a port.' }],
+    },
+  },
+  {
+    // Preact hooks follow React's rules: stale effect dependencies are how UI races start.
+    files: ['apps/extension/src/ui/**/*.tsx', 'apps/extension/src/ui/**/*.ts'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error',
     },
   },
   {

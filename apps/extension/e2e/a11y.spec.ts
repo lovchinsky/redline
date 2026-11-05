@@ -28,6 +28,11 @@ test('side panel and options pass an automated accessibility audit', async ({
   await expect(panel.getByTestId('bundle-context')).toBeVisible();
   expect(await audit(panel)).toEqual([]);
 
+  // The preview is modal: Escape closes it and focus goes back to the button that opened it.
+  await panel.keyboard.press('Escape');
+  await expect(panel.getByTestId('bundle-context')).toHaveCount(0);
+  await expect(panel.getByTestId('assemble')).toBeFocused();
+
   // Tabs follow the WAI-ARIA pattern: arrows move between them.
   await panel.getByTestId('tab-draft').focus();
   await panel.keyboard.press('ArrowRight');

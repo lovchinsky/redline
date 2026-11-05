@@ -3,6 +3,7 @@ import {
   appError,
   err,
   formatBindingPattern,
+  hostPermissionOf,
   ok,
   queueForDelivery,
   reopenDraft,
@@ -31,6 +32,8 @@ type Done = Result<Record<string, never>, AppError>;
 interface StepSite {
   readonly origin: string;
   readonly binding: Binding | null;
+  /** The host access that lets capture start with pages of this site. */
+  readonly permission: string;
 }
 
 /**
@@ -43,7 +46,13 @@ const sitesOf = (task: Task, bindings: readonly Binding[]): StepSite[] =>
     const site = sitePatternOf(url);
     return site === null
       ? []
-      : [{ origin: formatBindingPattern(site), binding: resolveBinding(bindings, url) }];
+      : [
+          {
+            origin: formatBindingPattern(site),
+            binding: resolveBinding(bindings, url),
+            permission: hostPermissionOf(site),
+          },
+        ];
   });
 
 const targetOf = (sites: readonly StepSite[]): DeliveryTarget => {
@@ -55,10 +64,12 @@ const targetOf = (sites: readonly StepSite[]): DeliveryTarget => {
   const unique = new Map<string, StepSite>();
   for (const site of sites) if (!unique.has(site.origin)) unique.set(site.origin, site);
   const [only] = projects.values();
+  const unbound = [...unique.values()].filter((site) => site.binding === null);
   return {
-    sites: [...unique.values()],
+    sites: [...unique.values()].map(({ origin, binding }) => ({ origin, binding })),
     project: projects.size === 1 ? (only ?? null) : null,
     conflict: projects.size > 1,
+    hostPermissions: [...new Set(unbound.map((site) => site.permission))],
   };
 };
 

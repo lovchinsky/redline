@@ -158,6 +158,9 @@
   "untitledTask": {
     "message": "Untitled task"
   },
+  "taskTitleLabel": {
+    "message": "Task title"
+  },
   "draftsMenu": {
     "message": "Drafts"
   },
@@ -478,9 +481,6 @@
   },
   "swUnreachable": {
     "message": "Unreachable: $1"
-  },
-  "swPingEvents": {
-    "message": "Pings received:"
   },
   "swCheckAgain": {
     "message": "Check again"

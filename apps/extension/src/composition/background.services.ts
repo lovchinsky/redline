@@ -179,7 +179,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
   const deliveryActions = { tasks, active, outbox, writer, ids, clock };
 
   const handlers = {
-    ...createSystemHandlers({ clock, version, events: publisher, logger: logger.child('system') }),
+    ...createSystemHandlers({ clock, version }),
     ...createDiagnosticsHandlers(
       new DiagnosticsJournal({
         store: new StorageJournalStore(platform.storage),

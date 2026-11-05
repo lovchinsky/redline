@@ -181,9 +181,14 @@ describe('capture state machine', () => {
       expect(state.kind === 'composing' ? state.shapes : []).toHaveLength(1);
     });
 
-    it('discards the step from composing, then closes from armed', () => {
+    it('drops the shapes from composing but keeps the comment for the next one', () => {
       const discarded = run([...lasso, ...fillDraft, { type: 'escape' }]);
-      expect(discarded.state).toEqual(initialCaptureState());
+      expect(discarded.state).toMatchObject({ kind: 'armed', shapes: [] });
+      const redrawn = run([...lasso, ...fillDraft, { type: 'escape' }, ...lasso]).state;
+      expect(redrawn.kind === 'composing' ? redrawn.draft.comment : '').toContain('equal height');
+    });
+
+    it('closes from armed', () => {
       const closed = run([{ type: 'escape' }]);
       expect(closed.state).toEqual({ kind: 'closed', outcome: 'cancelled' });
       expect(closed.effects).toEqual([{ type: 'close' }]);

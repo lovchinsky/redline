@@ -158,6 +158,9 @@
   "untitledTask": {
     "message": "Задача без назви"
   },
+  "taskTitleLabel": {
+    "message": "Назва задачі"
+  },
   "draftsMenu": {
     "message": "Чернетки"
   },
@@ -478,9 +481,6 @@
   },
   "swUnreachable": {
     "message": "Недоступний: $1"
-  },
-  "swPingEvents": {
-    "message": "Отримано відповідей:"
   },
   "swCheckAgain": {
     "message": "Перевірити ще раз"

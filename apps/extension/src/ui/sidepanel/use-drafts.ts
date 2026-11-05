@@ -1,7 +1,8 @@
 import type { AppError, Result, StepId, TaskId } from '@redline/core';
 import type { DraftSummary, DraftView } from '@redline/rpc';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
+import { useLatestLoad } from '../shared/use-latest-load';
 
 export interface DraftsState {
   readonly loading: boolean;
@@ -38,13 +39,13 @@ const INITIAL: DraftsState = {
  */
 export const useDrafts = (services: UiServices): readonly [DraftsState, DraftActions] => {
   const [state, setState] = useState<DraftsState>(INITIAL);
-  /** Changes can arrive in bursts; only the latest reload may update the state. */
-  const latestReload = useRef(0);
+  // Changes can arrive in bursts; only the latest reload may update the state.
+  const begin = useLatestLoad();
 
   const reload = useCallback(async () => {
-    const reloadId = ++latestReload.current;
+    const isLatest = begin();
     const list = await services.rpc.call('drafts.list', {});
-    if (reloadId !== latestReload.current) return;
+    if (!isLatest()) return;
     if (!list.ok) {
       setState((s) => ({ ...s, loading: false, error: list.error }));
       return;
@@ -52,7 +53,7 @@ export const useDrafts = (services: UiServices): readonly [DraftsState, DraftAct
     const { activeId, drafts } = list.value;
     const draft =
       activeId === null ? null : await services.rpc.call('drafts.get', { taskId: activeId });
-    if (reloadId !== latestReload.current) return;
+    if (!isLatest()) return;
     setState((s) => ({
       ...s,
       loading: false,
@@ -61,7 +62,7 @@ export const useDrafts = (services: UiServices): readonly [DraftsState, DraftAct
       draft: draft?.ok ? draft.value : null,
       error: draft === null || draft.ok ? s.error : draft.error,
     }));
-  }, [services]);
+  }, [services, begin]);
 
   useEffect(() => {
     void reload();

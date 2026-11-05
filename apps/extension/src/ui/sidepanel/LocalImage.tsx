@@ -1,5 +1,5 @@
 import type { AssetId, TaskId } from '@redline/core';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { LocalFiles } from '../../ports/drafts';
 
 export type ImageSource =
@@ -31,12 +31,16 @@ interface LocalImageProps {
 /** Shows a locally stored image through an object URL that is revoked when no longer shown. */
 export const LocalImage = ({ files, source, alt, class: className }: LocalImageProps) => {
   const [url, setUrl] = useState<string | null>(null);
+  // The image is identified by its key: a new object with the same key is the same image, so
+  // the effect follows the key and reads the latest source through a ref.
   const key = keyOf(source);
+  const latest = useRef(source);
+  latest.current = source;
 
   useEffect(() => {
     let disposed = false;
     let objectUrl: string | null = null;
-    void read(files, source).then((blob) => {
+    void read(files, latest.current).then((blob) => {
       if (disposed || !blob.ok) return;
       objectUrl = URL.createObjectURL(blob.value);
       setUrl(objectUrl);
@@ -46,7 +50,6 @@ export const LocalImage = ({ files, source, alt, class: className }: LocalImageP
       if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
       setUrl(null);
     };
-    // The source is identified by its key; a new object with the same key is the same image.
   }, [files, key]);
 
   return url === null ? (

@@ -167,10 +167,12 @@ const fromArmedOrComposing = (
       return stay(afterShapes({ ...base, shapes: state.shapes.slice(0, -1) }));
     case 'submit':
       return state.kind === 'composing' ? submit(state) : stay(state);
+    // From composing, Escape drops the shapes, which are quick to draw again, but keeps the
+    // comment, which is not: it comes back with the next shape. From armed, it leaves.
     case 'escape':
       return state.kind === 'armed'
         ? { state: { kind: 'closed', outcome: 'cancelled' }, effects: [{ type: 'close' }] }
-        : stay(initialCaptureState());
+        : stay({ kind: 'armed', shapes: [], draft: { ...state.draft, problem: null } });
     default:
       return stay(state);
   }

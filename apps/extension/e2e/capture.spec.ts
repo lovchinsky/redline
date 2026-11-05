@@ -149,7 +149,7 @@ test('starting twice keeps one session, and Escape twice leaves capture', async 
   const card = await page.getByTestId('enterprise-card').boundingBox();
   if (card === null) throw new Error('fixture card is not rendered');
   await drawLassoAround(page, card);
-  await page.keyboard.press('Escape'); // discards the step, back to armed
+  await page.keyboard.press('Escape'); // drops the shape, back to armed
   await expect(page.locator('redline-overlay')).toHaveCount(1);
   await page.keyboard.press('Escape'); // leaves capture
   await expect(page.locator('redline-overlay')).toHaveCount(0);
@@ -289,4 +289,27 @@ test('a page that re-renders while the user types still gives the context of wha
     { elements: { styles: Record<string, string> }[] } | undefined;
   // Read from the live card: a detached one has no computed styles at all.
   expect(Object.keys(styles?.elements[0]?.styles ?? {}).length).toBeGreaterThan(0);
+});
+
+test('circling inside a modal dialog the page opened', async ({ context, extensionPage }) => {
+  const page = await context.newPage();
+  await page.goto(pageUrl);
+  // A modal makes everything outside it inert, an overlay on top of the page included.
+  await page.evaluate(() => {
+    const dialog = document.createElement('dialog');
+    dialog.innerHTML =
+      '<p>Upgrade your plan?</p><button data-testid="confirm-upgrade">Upgrade</button>';
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+  await page.bringToFront();
+  await startCapture(extensionPage, pageUrl);
+
+  const button = await page.getByTestId('confirm-upgrade').boundingBox();
+  if (button === null) throw new Error('the dialog is not rendered');
+  await drawLassoAround(page, button);
+  const composer = await composerOf(page);
+  await expect(composer.getByTestId('shape-summaries')).toHaveText(
+    'button[data-testid=confirm-upgrade]',
+  );
 });

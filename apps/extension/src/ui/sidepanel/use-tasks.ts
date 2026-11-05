@@ -1,7 +1,8 @@
 import { isTerminal, type AppError, type Result, type TaskId } from '@redline/core';
 import type { TaskSummary } from '@redline/rpc';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
+import { useLatestLoad } from '../shared/use-latest-load';
 
 export interface TasksState {
   readonly loading: boolean;
@@ -32,12 +33,12 @@ export const useTasks = (services: UiServices): readonly [TasksState, TaskAction
     history: [],
     error: null,
   });
-  const latest = useRef(0);
+  const begin = useLatestLoad();
 
   const reload = useCallback(async () => {
-    const id = ++latest.current;
+    const isLatest = begin();
     const list = await services.rpc.call('tasks.list', {});
-    if (id !== latest.current) return;
+    if (!isLatest()) return;
     setState((s) =>
       list.ok
         ? {
@@ -48,7 +49,7 @@ export const useTasks = (services: UiServices): readonly [TasksState, TaskAction
           }
         : { ...s, loading: false, error: list.error },
     );
-  }, [services]);
+  }, [services, begin]);
 
   useEffect(() => {
     void reload();

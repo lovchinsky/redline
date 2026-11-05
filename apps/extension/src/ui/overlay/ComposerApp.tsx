@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Translator } from '../../ports/i18n';
 import { TranslatorProvider } from '../shared/i18n';
 import { Composer } from './Composer';
@@ -40,9 +40,12 @@ const Frame = ({ port }: { port: MessagePort }) => {
   const [comment, setComment] = useState('');
   const panel = useRef<HTMLFormElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
-  const send = (message: FromComposer) => {
-    port.postMessage(message);
-  };
+  const send = useCallback(
+    (message: FromComposer) => {
+      port.postMessage(message);
+    },
+    [port],
+  );
 
   useEffect(() => {
     port.onmessage = (event: MessageEvent<ToComposer>) => {
@@ -61,7 +64,7 @@ const Frame = ({ port }: { port: MessagePort }) => {
 
   // The session places the frame; it needs the panel's size, shadow margin included.
   const reported = useRef('');
-  const reportSize = () => {
+  const reportSize = useCallback(() => {
     const element = panel.current;
     if (element === null) return;
     const width = element.offsetWidth + 2 * COMPOSER_MARGIN;
@@ -69,20 +72,21 @@ const Frame = ({ port }: { port: MessagePort }) => {
     if (`${String(width)}x${String(height)}` === reported.current) return;
     reported.current = `${String(width)}x${String(height)}`;
     send({ type: 'size', width, height });
-  };
+  }, [send]);
   // Measured after every render, synchronously: Chrome does not run frames or resize
   // observers in a cross-origin frame while it is hidden, and it stays hidden until placed.
   useLayoutEffect(reportSize);
   // Once shown, the panel can also change size by itself (the user resizing the field).
+  const shown = view !== null;
   useEffect(() => {
     const element = panel.current;
-    if (element === null) return;
+    if (!shown || element === null) return;
     const observer = new ResizeObserver(reportSize);
     observer.observe(element);
     return () => {
       observer.disconnect();
     };
-  }, [view !== null]);
+  }, [shown, reportSize]);
 
   if (view === null) return null;
   return (

@@ -129,6 +129,11 @@ export const deliveryTargetSchema = z.object({
   project: z.nullable(projectSchema),
   /** Sites are bound to different projects: the draft has to be split. */
   conflict: z.boolean(),
+  /**
+   * Host access worth asking for when sending (it lets capture start with the page on the
+   * sites being bound); the page asks, within the user's click.
+   */
+  hostPermissions: z.readonly(z.array(z.string())),
 });
 export type DeliveryTarget = z.infer<typeof deliveryTargetSchema>;
 
@@ -351,7 +356,6 @@ export const tabProtocol = defineProtocol({
 
 /** Every event the service worker broadcasts to UI contexts. */
 export const events = defineEvents({
-  'system.pinged': z.object({ nonce: z.string(), at: z.number() }),
   /** A task was created, changed or deleted; `activeId` is the draft new steps go to. */
   'tasks.changed': z.object({ taskId: TaskId, activeId: z.nullable(TaskId) }),
   /** Receiver settings or bindings changed. */

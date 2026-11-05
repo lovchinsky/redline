@@ -405,11 +405,25 @@
 .sheet {
   position: fixed;
   inset: 0;
-  z-index: 20;
-  display: grid;
-  grid-template-rows: auto 1fr;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
   background: var(--rl-bg);
   animation: sheet-in 160ms ease-out;
+}
+
+.sheet[open] {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.sheet::backdrop {
+  background: transparent;
 }
 
 @keyframes sheet-in {

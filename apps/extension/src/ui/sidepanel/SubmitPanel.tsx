@@ -1,4 +1,4 @@
-import { hostPermissionOf, parseBindingPattern, type AppError } from '@redline/core';
+import type { AppError } from '@redline/core';
 import type { DeliveryTarget, DraftView, ProjectRef } from '@redline/rpc';
 import { Eye, PlugZap, Send, TriangleAlert } from 'lucide-preact';
 import { useCallback, useEffect, useState } from 'preact/hooks';
@@ -6,6 +6,7 @@ import { Button } from '../kit/Button';
 import type { UiServices } from '../services';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { useTranslator } from '../shared/i18n';
+import { useLatestLoad } from '../shared/use-latest-load';
 
 type Projects =
   | { readonly kind: 'loading' }
@@ -32,11 +33,14 @@ export const ActionBar = ({ services, draft, onPreview }: ActionBarProps) => {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
 
+  const begin = useLatestLoad();
   const load = useCallback(async () => {
+    const isLatest = begin();
     const [resolved, listed] = await Promise.all([
       services.rpc.call('task.deliveryTarget', { taskId: draft.id }),
       services.rpc.call('projects.list', {}),
     ]);
+    if (!isLatest()) return;
     setTarget(resolved.ok ? resolved.value : null);
     setProjects(
       listed.ok
@@ -45,7 +49,7 @@ export const ActionBar = ({ services, draft, onPreview }: ActionBarProps) => {
           ? { kind: 'not-configured' }
           : { kind: 'failed', error: listed.error },
     );
-  }, [services, draft.id]);
+  }, [services, draft.id, begin]);
 
   useEffect(() => {
     void load();
@@ -65,12 +69,7 @@ export const ActionBar = ({ services, draft, onPreview }: ActionBarProps) => {
     setError(null);
     // Asked first, while the click still counts as a user gesture. Optional: the binding
     // works without it; with it, capture on that site starts without a gesture.
-    await services.hostAccess.request(
-      unbound.flatMap((origin) => {
-        const pattern = parseBindingPattern(origin);
-        return pattern.ok ? [hostPermissionOf(pattern.value)] : [];
-      }),
-    );
+    await services.hostAccess.request(target?.hostPermissions ?? []);
     // The revision on screen is what the user approves; the project is the one shown, which
     // the service worker binds the unbound sites to (and checks against the bound ones).
     const sent = await services.rpc.call('task.submit', {
@@ -83,7 +82,7 @@ export const ActionBar = ({ services, draft, onPreview }: ActionBarProps) => {
   };
 
   return (
-    <footer class="action-bar" aria-label={t.text('sendTitle')} aria-live="polite">
+    <footer class="action-bar" aria-label={t.text('sendTitle')}>
       {target?.conflict === true && (
         <p class="note warning">
           <TriangleAlert size={14} aria-hidden="true" />

@@ -30,7 +30,13 @@ export class OverlayHost {
     const ui = document.createElement('div');
     ui.className = 'ui';
     shadow.append(canvas, ui);
-    document.documentElement.append(host);
+    // The top layer, above the page's own dialogs and popovers. An open modal dialog makes
+    // everything outside it inert, so the host goes inside the topmost one, where it can still
+    // be drawn on; as a popover it is placed against the viewport, whatever the dialog's box.
+    host.popover = 'manual';
+    const modals = document.querySelectorAll('dialog:modal');
+    (modals[modals.length - 1] ?? document.documentElement).append(host);
+    host.showPopover();
     return new OverlayHost(host, canvas, ui);
   }
 
@@ -69,6 +75,13 @@ const HOST_STYLE: Readonly<Record<string, string>> = {
   all: 'initial',
   position: 'fixed',
   inset: '0',
+  width: 'auto',
+  height: 'auto',
+  margin: '0',
+  padding: '0',
+  border: '0',
+  overflow: 'visible',
+  background: 'transparent',
   'z-index': '2147483647',
   'pointer-events': 'none',
   display: 'block',

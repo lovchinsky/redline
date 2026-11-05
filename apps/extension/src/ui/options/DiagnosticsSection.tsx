@@ -11,6 +11,7 @@ import { ErrorAlert } from '../shared/ErrorAlert';
 import { useTranslator } from '../shared/i18n';
 import { ServiceWorkerStatus } from './ServiceWorkerStatus';
 import { SettingsSection } from './SettingsSection';
+import { useLatestLoad } from '../shared/use-latest-load';
 
 type Outcome = CaptureRecord['collectors'][number]['outcome'];
 
@@ -82,11 +83,14 @@ export const DiagnosticsSection = ({ services }: { services: UiServices }) => {
   const [records, setRecords] = useState<readonly CaptureRecord[]>([]);
   const [error, setError] = useState<AppError | null>(null);
 
+  const begin = useLatestLoad();
   const load = useCallback(async () => {
+    const isLatest = begin();
     const listed = await services.rpc.call('diagnostics.list', {});
+    if (!isLatest()) return;
     if (listed.ok) setRecords(listed.value.records);
     setError(listed.ok ? null : listed.error);
-  }, [services]);
+  }, [services, begin]);
 
   useEffect(() => {
     void load();
