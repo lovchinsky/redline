@@ -81,16 +81,18 @@ receiver and against the receiver in this repository.
 `apps/receiver` is a receiver for one team. Its services run with only what each needs:
 
 - `api` serves the extension (tasks, users, tokens) and has no Docker, git host or model key;
-- `worker` runs tasks: a Docker sandbox per run (gVisor), mirrors of the projects' repositories;
+- `worker` runs tasks: a Docker sandbox per run (gVisor), and mirrors of the projects'
+  repositories, a cache it fills again from the git host whenever a commit is missing;
 - `gateway` is the agent sandboxes' only way out, to the model: it filters every request, puts
   the task's model credential in place of the run's grant, and holds a task to its budget: each
   request reserves the most it can cost before it goes, and settles with what it used;
 - `egress` tunnels the setup sandboxes to their projects' package registries, and nowhere else;
 - Postgres keeps the state and the job queue; Caddy terminates TLS in front of the API.
 
-A run is two sandboxes on the run's own volumes: the project's install
-(`.redline/receiver.yaml` on the base commit) and `agent-host` (`apps/agent-host`), which runs
-Claude Code through the Agent SDK and leaves its outcome and change for the worker. A question
+A run is two sandboxes on the run's own volumes: the project's install and `agent-host`
+(`apps/agent-host`), which runs Claude Code through the Agent SDK and leaves its outcome and
+change for the worker. The team says how to install and check its code in
+`.redline/receiver.yaml` on the base commit; a file that is not valid fails the task's setup. A question
 to the requester pauses the run: the worker keeps the session and the work so far, and after the
 answer the next run goes on with them in new sandboxes. A session resumes only on the image and
 model that wrote it; after either changes, the run starts over, told the questions and answers.
@@ -110,7 +112,8 @@ docker compose exec api node dist/receiver.mjs users token ann
 ```
 
 The host needs gVisor (`runsc` registered with Docker): the worker refuses to start a sandbox
-without it, unless the configuration waives isolation by name (`isolation: unsafe-runc`). The
+without it, unless the configuration waives isolation by name (`isolation: unsafe-runc`); it says
+so as it starts, and runs that cannot start are tried again as the infrastructure's failures. The
 token is shown once; with `https://redline.example.com` it goes on the extension's options page.
 `receiver --help` lists the operator's commands: users and tokens, `config check`, `tasks show`
 and `tasks cancel`. Compose runs `receiver migrate` before the other services start: it alone, and
