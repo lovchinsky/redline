@@ -16,6 +16,18 @@ const SAFE = [
   'safe.directory=*',
 ];
 
+/** Settings for one call to reach `remote`: its authorization header, by environment only. */
+export const reaching = (remote: {
+  readonly authorization: string | null;
+}): Record<string, string> =>
+  remote.authorization === null
+    ? {}
+    : {
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'http.extraHeader',
+        GIT_CONFIG_VALUE_0: `Authorization: ${remote.authorization}`,
+      };
+
 const environment = (extra: Readonly<Record<string, string>>) => ({
   PATH: process.env['PATH'] ?? '/usr/bin:/bin',
   HOME: process.env['HOME'] ?? '/tmp',

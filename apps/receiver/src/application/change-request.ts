@@ -22,6 +22,24 @@ export const fenced = (text: string): string => {
   return `${fence}text\n${text}\n${fence}`;
 };
 
+/** How long a commit subject or change request title may be. */
+const SUBJECT_LIMIT = 72;
+
+/**
+ * The requester's title as one line that git hosts take as plain words: it cannot mention
+ * anyone, refer to or close an issue, or link anywhere. A reference is broken apart (`@ ann`,
+ * `# 12`), a link is left out; the request itself is in the body, fenced, word for word.
+ */
+export const subjectOf = (text: string): string => {
+  const plain = text
+    .replace(/\s+/g, ' ')
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '(link)')
+    .replace(/@(?=[\w-])/g, '@ ')
+    .replace(/#(?=\d)/g, '# ')
+    .trim();
+  return plain.length <= SUBJECT_LIMIT ? plain : `${plain.slice(0, SUBJECT_LIMIT - 1).trimEnd()}…`;
+};
+
 const flagLine = (flag: Flag): string =>
   flag.kind === 'flagged-path'
     ? `${flag.path} (${flag.pattern})`
@@ -99,7 +117,7 @@ const sections = (input: ChangeRequestInput): string[] => {
 
 export const composeChangeRequest = (input: ChangeRequestInput): ChangeRequestDraft => ({
   branch: branchOf(input.task),
-  title: `Redline: ${input.task.bundle.title}`,
+  title: subjectOf(`Redline: ${input.task.bundle.title}`),
   body: sections(input).join('\n\n'),
   draft: input.publishing.draft,
   labels: input.flags.length > 0 ? ['redline', 'redline:needs-attention'] : ['redline'],
@@ -113,5 +131,5 @@ export const composeCommitMessage = (task: Task, requester: User | null): string
       `Requested-by: ${requester.name}${requester.email === null ? '' : ` <${requester.email}>`}`,
     );
   }
-  return `Redline: ${task.bundle.title}\n\n${trailers.join('\n')}\n`;
+  return `${subjectOf(`Redline: ${task.bundle.title}`)}\n\n${trailers.join('\n')}\n`;
 };

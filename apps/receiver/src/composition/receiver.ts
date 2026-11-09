@@ -11,6 +11,7 @@ import { PostgresUsers } from '../adapters/postgres/users';
 import { ScriptedGit } from '../adapters/scripted/scripted-git';
 import { ScriptedRunner } from '../adapters/scripted/scripted-runner';
 import { GitMirrors } from '../adapters/git/git-mirrors';
+import { LocalRemotes } from '../adapters/git/remotes';
 import { DockerSandboxes } from '../adapters/runner-claude/docker-sandboxes';
 import { SandboxedClaudeRunner } from '../adapters/runner-claude/sandboxed-runner';
 import { jsonLogger, randomIds, systemClock } from '../adapters/system/system';
@@ -52,11 +53,9 @@ const gitOf = (settings: Settings, config: ReceiverConfig, blobs: BlobStore) => 
   const simulated = new ScriptedGit(config.git.resultBaseUrl);
   if (config.git.kind === 'scripted')
     return { source: simulated, scanner: simulated, forge: simulated, mirrors: null };
-  const root = config.git.root;
   const mirrors = new GitMirrors({
     root: settings.mirrorsPath,
-    urlOf: (repository) =>
-      repository.host === 'local' ? `file://${root}/${repository.name}` : null,
+    remotes: new LocalRemotes(config.git.root),
     identity: { name: 'Redline', email: 'redline@localhost' },
     blobs,
   });

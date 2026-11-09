@@ -5,10 +5,11 @@ import type { Readable } from 'node:stream';
 import type { DiffEntry, ScriptChange } from '../../domain/change-policy';
 import type { TaskId } from '../../domain/ids';
 import type { ChangeRef } from '../../domain/work';
-import type { RepositoryRef } from '../../ports/access';
+import type { PublishingProfile, RepositoryRef } from '../../ports/access';
 import type { BlobStore } from '../../ports/bundles';
 import type { DeterministicCommit, Publishing, SourceRepository } from '../../ports/publishing';
-import { GitError, git, streamOf } from './git';
+import { GitError, git, reaching, streamOf } from './git';
+import type { GitRemotes } from './remotes';
 
 /** The ref a change bundle carries its commit at (`CHANGE_REF` of the agent protocol). */
 const BUNDLE_REF = 'refs/redline/change';
@@ -58,8 +59,8 @@ const scriptsOf = (text: string | null): Record<string, string> => {
 export interface GitMirrorsOptions {
   /** Where the mirrors are kept. */
   readonly root: string;
-  /** The URL of a repository, or null when its git host is not one these mirrors reach. */
-  readonly urlOf: (repository: RepositoryRef) => string | null;
+  /** Where repositories are fetched from and branches pushed to. */
+  readonly remotes: GitRemotes;
   /** Who the receiver's commits are by. */
   readonly identity: { readonly name: string; readonly email: string };
   readonly blobs: BlobStore;
@@ -79,18 +80,24 @@ export class GitMirrors implements SourceRepository {
     repository: RepositoryRef,
     taskId: TaskId,
   ): Promise<Publishing<{ readonly baseSha: string }>> {
-    const url = this.options.urlOf(repository);
-    if (url === null) return fail(`No git host ${repository.host} is configured`, false);
     try {
+      const remote = await this.options.remotes.source(repository);
+      if (remote === null) return fail(`No git host ${repository.host} is configured`, false);
       return await this.locked(repository, async (mirror) => {
-        try {
-          await access(mirror);
-          await git(mirror, ['fetch', '--prune', '--quiet', url, '+refs/heads/*:refs/heads/*']);
-        } catch (error) {
-          if (error instanceof GitError) throw error;
-          await mkdir(path.dirname(mirror), { recursive: true });
-          await git(path.dirname(mirror), ['clone', '--mirror', '--quiet', url, mirror]);
+        const exists = await access(mirror).then(
+          () => true,
+          () => false,
+        );
+        if (!exists) {
+          await mkdir(mirror, { recursive: true });
+          await git(mirror, ['init', '--quiet', '--bare']);
         }
+        // Fetched by URL each time: the mirror keeps no remote, and so no credentials.
+        await git(
+          mirror,
+          ['fetch', '--prune', '--quiet', remote.url, '+refs/heads/*:refs/heads/*'],
+          reaching(remote),
+        );
         const baseSha = await git(mirror, [
           'rev-parse',
           '--verify',
@@ -213,22 +220,32 @@ export class GitMirrors implements SourceRepository {
     return ok({ sha });
   }
 
-  async push(repository: RepositoryRef, _publishing: unknown, sha: string, branch: string) {
-    const url = this.options.urlOf(repository);
-    if (url === null) return fail(`No git host ${repository.host} is configured`, false);
+  async push(
+    repository: RepositoryRef,
+    publishing: PublishingProfile,
+    sha: string,
+    branch: string,
+  ) {
     const mirror = this.mirrorOf(repository);
     try {
-      const listed = await git(mirror, ['ls-remote', url, `refs/heads/${branch}`]);
+      const remote = await this.options.remotes.target(repository, publishing);
+      if (remote === null) return fail(`No git host ${repository.host} is configured`, false);
+      const env = reaching(remote);
+      const listed = await git(mirror, ['ls-remote', remote.url, `refs/heads/${branch}`], env);
       const current = listed.split(/\s/)[0] ?? '';
       if (current === sha) return ok(undefined);
       if (current !== '') return fail(`The branch ${branch} moved to ${current}`, false);
-      await git(mirror, [
-        'push',
-        '--quiet',
-        `--force-with-lease=refs/heads/${branch}:`,
-        url,
-        `${sha}:refs/heads/${branch}`,
-      ]);
+      await git(
+        mirror,
+        [
+          'push',
+          '--quiet',
+          `--force-with-lease=refs/heads/${branch}:`,
+          remote.url,
+          `${sha}:refs/heads/${branch}`,
+        ],
+        env,
+      );
       return ok(undefined);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error), true);

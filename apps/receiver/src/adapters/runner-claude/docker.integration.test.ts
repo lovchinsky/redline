@@ -10,6 +10,7 @@ import type { RunSpec } from '../../ports/agent';
 import type { GrantToken } from '../../ports/tasks';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from '../git/git-mirrors';
+import { LocalRemotes } from '../git/remotes';
 import { DockerSandboxes } from './docker-sandboxes';
 import { SandboxedClaudeRunner } from './sandboxed-runner';
 import {
@@ -49,7 +50,7 @@ let dir: string;
 let image: string;
 let blobs: FsBlobStore;
 let mirrors: GitMirrors;
-const repository = { host: 'local', name: 'web', baseBranch: 'main' };
+const repository = { host: 'local', name: 'origin.git', baseBranch: 'main' };
 
 const sandboxes = (runtime = 'runc') =>
   new DockerSandboxes({
@@ -127,7 +128,7 @@ beforeAll(async () => {
   blobs = new FsBlobStore(path.join(dir, 'blobs'));
   mirrors = new GitMirrors({
     root: path.join(dir, 'mirrors'),
-    urlOf: () => `file://${dir}/origin.git`,
+    remotes: new LocalRemotes(dir),
     identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
   });

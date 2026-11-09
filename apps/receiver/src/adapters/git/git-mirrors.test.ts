@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -8,6 +8,8 @@ import { TaskId } from '../../domain/ids';
 import type { RepositoryRef } from '../../ports/access';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
+import { LocalRemotes } from './remotes';
+import { httpGitServer } from './testing/http-git-server';
 
 const run = promisify(execFile);
 const IDENTITY = {
@@ -23,7 +25,7 @@ let dir: string;
 let origin: string;
 let mirrors: GitMirrors;
 let blobs: FsBlobStore;
-const repository: RepositoryRef = { host: 'local', name: 'web', baseBranch: 'main' };
+const repository: RepositoryRef = { host: 'local', name: 'origin.git', baseBranch: 'main' };
 const taskId = TaskId('task-1');
 
 /** The change agent-host would leave: one commit on the base, as a bundle at its ref. */
@@ -65,7 +67,7 @@ beforeEach(async () => {
   blobs = new FsBlobStore(path.join(dir, 'blobs'));
   mirrors = new GitMirrors({
     root: path.join(dir, 'mirrors'),
-    urlOf: (ref) => (ref.host === 'local' ? `file://${dir}/origin.git` : null),
+    remotes: new LocalRemotes(dir),
     identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
   });
@@ -189,5 +191,63 @@ describe('GitMirrors', () => {
       ok: false,
       error: { transient: false },
     });
+  });
+
+  it('reaches a host over HTTPS with a header made for each call, and keeps no credentials', async () => {
+    const authorization = `Basic ${Buffer.from('x-access-token:ghs_secret').toString('base64')}`;
+    const server = await httpGitServer(dir, authorization);
+    try {
+      const remote = { url: `${server.url}/origin.git`, authorization };
+      const viaHttp = new GitMirrors({
+        root: path.join(dir, 'http-mirrors'),
+        remotes: { source: () => Promise.resolve(remote), target: () => Promise.resolve(remote) },
+        identity: { name: 'Redline', email: 'bot@redline.invalid' },
+        blobs,
+      });
+      const prepared = await viaHttp.prepare(repository, taskId);
+      if (!prepared.ok) throw new Error(prepared.error.detail);
+      const change = await agentChange(prepared.value.baseSha, (work) =>
+        writeFile(path.join(work, 'b.txt'), 'b'),
+      );
+      const commit = { taskId, baseSha: prepared.value.baseSha, change, message: 'm', at: 0 };
+      const committed = await viaHttp.commit(repository, commit);
+      if (!committed.ok) throw new Error(committed.error.detail);
+      expect(
+        await viaHttp.push(
+          repository,
+          { target: 'branch', draft: true },
+          committed.value.sha,
+          'redline/task-1',
+        ),
+      ).toEqual({
+        ok: true,
+        value: undefined,
+      });
+      expect(await git(origin, 'rev-parse', 'redline/task-1')).toBe(committed.value.sha);
+      expect(server.seen.filter((header) => header === authorization).length).toBeGreaterThan(0);
+      // Nothing about the host stays in the mirror.
+      const mirrorConfig = await readFile(
+        path.join(dir, 'http-mirrors/local/origin.git.git/config'),
+        'utf8',
+      );
+      expect(mirrorConfig).not.toContain('ghs_secret');
+      expect(mirrorConfig).not.toContain(server.url);
+
+      const refused = new GitMirrors({
+        root: path.join(dir, 'refused-mirrors'),
+        remotes: {
+          source: () => Promise.resolve({ ...remote, authorization: null }),
+          target: () => Promise.resolve(remote),
+        },
+        identity: { name: 'Redline', email: 'bot@redline.invalid' },
+        blobs,
+      });
+      expect(await refused.prepare(repository, taskId)).toMatchObject({
+        ok: false,
+        error: { transient: true },
+      });
+    } finally {
+      server.close();
+    }
   });
 });
