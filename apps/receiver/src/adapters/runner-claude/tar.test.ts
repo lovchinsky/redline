@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { extract } from 'tar-stream';
-import { OversizedArchive, filesOf, ownedBy, tarOf } from './tar';
+import { OversizedArchive, filesOf, insideRoot, ownedBy, tarOf } from './tar';
 
 const owner = { uid: 1000, gid: 1000 };
 const text = (value: string) => new TextEncoder().encode(value);
@@ -73,5 +73,21 @@ describe('ownedBy', () => {
     expect(owners).toEqual(['src/ 1000:1000', 'src/Card.css 1000:1000']);
     const files = await filesOf(Readable.from([rewritten]), all, { file: 1024 });
     expect(files.get('src/Card.css')?.toString()).toBe('.card { }');
+  });
+});
+
+describe('insideRoot', () => {
+  it('names the entries as they are inside the archive’s one directory', async () => {
+    const archive = await tarOf(
+      [
+        { path: 'out/outcome.json', content: text('{}') },
+        { path: 'out/nested/events.jsonl', content: text('{"kind":"ended"}') },
+      ],
+      { uid: 1000, gid: 1000 },
+    );
+    const files = await filesOf(insideRoot(Readable.from([archive])), () => true, { file: 1024 });
+    expect(
+      Object.fromEntries([...files].map(([name, content]) => [name, content.toString()])),
+    ).toEqual({ 'outcome.json': '{}', 'nested/events.jsonl': '{"kind":"ended"}' });
   });
 });

@@ -9,6 +9,7 @@ import { BlobDigest, ProjectId, QuestionId, RunId, TaskId } from '../../domain/i
 import type { RunSpec } from '../../ports/agent';
 import type { GrantToken } from '../../ports/tasks';
 import { FsBlobStore } from '../blobs/fs-blob-store';
+import { systemClock } from '../system/system';
 import { GitMirrors } from '../git/git-mirrors';
 import { LocalRemotes } from '../git/remotes';
 import { DockerSandboxes } from './docker-sandboxes';
@@ -59,7 +60,6 @@ const sandboxes = (runtime = 'runc') =>
   new DockerSandboxes({
     socketPath: socket,
     runtime,
-    user: `${String(SANDBOX_USER.uid)}:${String(SANDBOX_USER.gid)}`,
   });
 
 const runner = () =>
@@ -75,6 +75,7 @@ const runner = () =>
       setupTimeoutMs: 60_000,
       graceMs: 10_000,
     },
+    clock: systemClock,
     logger: silentLogger,
   });
 

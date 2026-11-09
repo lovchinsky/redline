@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { bundle, project, silentLogger } from '../../application/testing/fakes';
+import { FixedClock, bundle, project, silentLogger } from '../../application/testing/fakes';
 import { BlobDigest, ProjectId, QuestionId, RunId, TaskId } from '../../domain/ids';
 import type { RunSpec } from '../../ports/agent';
 import type { GrantToken } from '../../ports/tasks';
@@ -88,7 +88,12 @@ class FakeSandboxes implements SandboxProvider {
   start(container: string) {
     const entry = this.get(container);
     this.started.push(container);
-    entry.state = { status: 'running', labels: entry.spec.labels, startedAt: Date.now() };
+    entry.state = { status: 'running', labels: entry.spec.labels, startedAt: clock.now() };
+    return Promise.resolve();
+  }
+  kill(container: string) {
+    const entry = this.get(container);
+    if (entry.state.status === 'running') this.exit(entry, 137);
     return Promise.resolve();
   }
   state(container: string) {
@@ -100,7 +105,7 @@ class FakeSandboxes implements SandboxProvider {
     const entry = this.get(container);
     const phase = entry.spec.labels['redline.phase'] as 'setup' | 'agent';
     if (signal.aborted) return Promise.resolve(null);
-    if (phase === 'agent' && this.hangAgent) {
+    if (this.hangs.has(phase)) {
       return new Promise<number | null>((resolve) => {
         signal.addEventListener('abort', () => {
           resolve(null);
@@ -108,11 +113,22 @@ class FakeSandboxes implements SandboxProvider {
       });
     }
     const exitCode = this.exits[phase];
-    entry.state = { status: 'exited', labels: entry.spec.labels, exitCode };
+    this.exit(entry, exitCode);
     if (phase === 'agent') entry.out = this.agentOutput;
     return Promise.resolve(exitCode);
   }
-  hangAgent = false;
+  /** The phases whose containers run until they are stopped. */
+  readonly hangs = new Set<'setup' | 'agent'>();
+  private exit(entry: { spec: ContainerSpec; state: ContainerState }, exitCode: number) {
+    const startedAt = entry.state.status === 'running' ? entry.state.startedAt : clock.now();
+    entry.state = {
+      status: 'exited',
+      labels: entry.spec.labels,
+      exitCode,
+      startedAt,
+      finishedAt: clock.now(),
+    };
+  }
   logs() {
     return Promise.resolve(this.output);
   }
@@ -160,6 +176,8 @@ const settings: SandboxSettings = {
 };
 
 const runId = RunId('run-1');
+/** The time the runner and the sandboxes see: it moves only when a test moves it. */
+let clock: FixedClock;
 let dir: string;
 let blobs: FsBlobStore;
 let sandboxes: FakeSandboxes;
@@ -201,20 +219,19 @@ const runner = (
     sources: sources(settingsFile),
     blobs,
     settings,
+    clock,
     logger: silentLogger,
   });
 
 const outputOf = async (outcome: Outcome, change: string | null, work: string | null = null) =>
   tarOf(
     [
-      { path: 'out/outcome.json', content: new TextEncoder().encode(JSON.stringify(outcome)) },
-      { path: 'out/events.jsonl', content: new TextEncoder().encode('{"kind":"ended"}\n') },
+      { path: 'outcome.json', content: new TextEncoder().encode(JSON.stringify(outcome)) },
+      { path: 'events.jsonl', content: new TextEncoder().encode('{"kind":"ended"}\n') },
       ...(change === null
         ? []
-        : [{ path: 'out/change.bundle', content: new TextEncoder().encode(change) }]),
-      ...(work === null
-        ? []
-        : [{ path: 'out/work.bundle', content: new TextEncoder().encode(work) }]),
+        : [{ path: 'change.bundle', content: new TextEncoder().encode(change) }]),
+      ...(work === null ? [] : [{ path: 'work.bundle', content: new TextEncoder().encode(work) }]),
     ],
     { uid: 1000, gid: 1000 },
   );
@@ -256,6 +273,7 @@ const asked: Outcome = {
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'redline-runner-'));
   blobs = new FsBlobStore(dir);
+  clock = new FixedClock(1_000_000);
   sandboxes = new FakeSandboxes();
 });
 
@@ -452,10 +470,66 @@ describe('SandboxedClaudeRunner', () => {
     expect(await agent.live()).toEqual([]);
   });
 
+  describe('time limits', () => {
+    it('stops a setup at its limit and keeps it: whoever looks again finds it too long', async () => {
+      const agent = runner();
+      await agent.start(await spec());
+      sandboxes.hangs.add('setup');
+      // A worker that watches the setup past its limit kills it there.
+      clock.time += settings.setupTimeoutMs;
+      const tooLong = {
+        kind: 'failed',
+        reason: 'setup-failed',
+        detail: 'The project’s setup took too long',
+      };
+      expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject(
+        tooLong,
+      );
+      expect(sandboxes.containers.get('redline-run-1-setup')?.state).toMatchObject({
+        status: 'exited',
+        exitCode: 137,
+      });
+      expect(sandboxes.started).not.toContain('redline-run-1-agent');
+      expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject(
+        tooLong,
+      );
+    });
+
+    it('stops an agent past its limit and its grace, and fails the run, keeping its output', async () => {
+      const agent = runner(null);
+      await agent.start(await spec());
+      sandboxes.hangs.add('agent');
+      // A worker that attaches after the limit kills the sandbox at once.
+      clock.time += 3_600_000 + settings.graceMs;
+      const outlived = {
+        kind: 'failed',
+        reason: 'agent-failed',
+        detail: 'The agent’s sandbox outlived its time',
+      };
+      expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject(
+        outlived,
+      );
+      expect(sandboxes.containers.get('redline-run-1-agent')?.state.status).toBe('exited');
+      expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject(
+        outlived,
+      );
+    });
+
+    it('takes the outcome of an agent that ended within its limit', async () => {
+      const agent = runner(null);
+      await agent.start(await spec());
+      sandboxes.agentOutput = await outputOf(changed, 'bundle');
+      clock.time += 3_600_000;
+      expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject({
+        kind: 'change',
+      });
+    });
+  });
+
   it('stops watching when the worker shuts down, leaving the run to go on', async () => {
     const agent = runner(null);
     await agent.start(await spec());
-    sandboxes.hangAgent = true;
+    sandboxes.hangs.add('agent');
     const stopping = new AbortController();
     const watching = agent.observe(runId, stopping.signal, quiet);
     stopping.abort();
@@ -492,10 +566,7 @@ describe('SandboxedClaudeRunner', () => {
       await agent.start(await spec());
       sandboxes.agentOutput = await outputOf(asked, null, 'the work bundle');
       sandboxes.sessionArchive = await tarOf(
-        [...sessionFiles, { path: 'settings.json', content: text('{"hooks":{}}') }].map((file) => ({
-          ...file,
-          path: `session/${file.path}`,
-        })),
+        [...sessionFiles, { path: 'settings.json', content: text('{"hooks":{}}') }],
         { uid: 1000, gid: 1000 },
       );
       const outcome = await agent.observe(runId, new AbortController().signal, quiet);

@@ -1,4 +1,4 @@
-import { RUN_LAYOUT, pauseSchema, type Pause } from '@redline/agent-protocol';
+import { pauseSchema, type Pause } from '@redline/agent-protocol';
 import { Readable } from 'node:stream';
 import { filesOf, tarOf, type TarFile } from './tar';
 
@@ -7,8 +7,8 @@ export const SNAPSHOT_LIMIT = 256 * 1024 * 1024;
 
 const PAUSE = 'pause.json';
 const WORK = 'work.bundle';
-/** The directory Docker archives the session's files under: the session directory's own name. */
-export const SESSION_DIRECTORY = RUN_LAYOUT.session.split('/').at(-1) ?? 'session';
+/** The directory of a snapshot the session's files are under. */
+const SESSION_DIRECTORY = 'session';
 
 /**
  * A paused session, as one run leaves it and the run that goes on with it is given it: where
@@ -57,17 +57,15 @@ export const unpackSnapshot = async (bytes: Uint8Array): Promise<PausedSession> 
 };
 
 /**
- * Claude Code's transcripts of the session, from Docker's archive of the session directory
- * (whose entries sit under `SESSION_DIRECTORY`): `projects/**.jsonl`, all a resume needs. The
- * agent could have put anything there; its settings, hooks or any other file stay behind.
+ * Claude Code's transcripts of the session, from an archive of the session directory:
+ * `projects/**.jsonl`, all a resume needs. The agent could have put anything there; its
+ * settings, hooks or any other file stay behind.
  */
 export const sessionFilesOf = async (archive: Readable): Promise<TarFile[]> => {
-  const prefix = `${SESSION_DIRECTORY}/`;
-  const transcript = (name: string) =>
-    name.startsWith(`${prefix}projects/`) && name.endsWith('.jsonl');
+  const transcript = (name: string) => name.startsWith('projects/') && name.endsWith('.jsonl');
   const files = await filesOf(archive, transcript, {
     file: SNAPSHOT_LIMIT,
     total: SNAPSHOT_LIMIT,
   });
-  return [...files].map(([name, content]) => ({ path: name.slice(prefix.length), content }));
+  return [...files].map(([name, content]) => ({ path: name, content }));
 };

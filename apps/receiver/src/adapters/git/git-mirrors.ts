@@ -8,9 +8,14 @@ import { err, ok } from '../../domain/result';
 import type { ChangeRef } from '../../domain/work';
 import type { PublishingProfile, RepositoryRef } from '../../ports/access';
 import type { BlobStore } from '../../ports/bundles';
-import type { DeterministicCommit, Publishing, SourceRepository } from '../../ports/publishing';
+import type {
+  DeterministicCommit,
+  GitRemote,
+  GitRemotes,
+  Publishing,
+  SourceRepository,
+} from '../../ports/publishing';
 import { git, reaching, streamOf } from './git';
-import type { GitRemote, GitRemotes } from './remotes';
 
 /** The ref a change bundle carries its commit at (`CHANGE_REF` of the agent protocol). */
 const BUNDLE_REF = 'refs/redline/change';

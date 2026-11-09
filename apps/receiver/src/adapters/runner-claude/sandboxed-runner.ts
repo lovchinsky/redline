@@ -8,10 +8,10 @@ import type { Snapshot } from '../../domain/work';
 import type { ExecutionProfile, RepositoryRef } from '../../ports/access';
 import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 import type { BlobStore } from '../../ports/bundles';
-import type { Logger } from '../../ports/system';
+import type { Clock, Logger } from '../../ports/system';
 import { briefOf, runOutcomeOf, type StoredOutputs } from './exchange';
 import { REPOSITORY_SETTINGS, parseRepositorySettings } from './repository-settings';
-import type { ContainerSpec, Mount, SandboxProvider } from './sandbox';
+import type { ContainerSpec, ContainerState, Mount, SandboxProvider } from './sandbox';
 import { packSnapshot, sessionFilesOf, unpackSnapshot, type PausedSession } from './snapshot';
 import { OversizedArchive, filesOf, ownedBy, tarOf, type TarFile } from './tar';
 
@@ -43,14 +43,22 @@ const TIMEOUT_LABEL = 'redline.timeout-ms';
 const IMAGE_LABEL = 'redline.image';
 const MODEL_LABEL = 'redline.model';
 
-/** How much longer a container may run, by its start and the time limit it was created with. */
-const remaining = (container: { labels: Readonly<Record<string, string>>; startedAt: number }) =>
-  Math.max(container.startedAt + Number(container.labels[TIMEOUT_LABEL] ?? 0) - Date.now(), 0);
+/** The time limit a container was created with. */
+const limitOf = (container: { readonly labels: Readonly<Record<string, string>> }): number =>
+  Number(container.labels[TIMEOUT_LABEL] ?? 0);
+
+/**
+ * Whether an exited container ran to its time limit: the worker killed it there. Read from the
+ * container itself, a worker that looks again after a restart concludes the same.
+ */
+const outlived = (container: Extract<ContainerState, { status: 'exited' }>): boolean =>
+  container.finishedAt - container.startedAt >= limitOf(container);
+/** The files of a run's outputs the receiver takes. */
+const OUTPUTS: ReadonlySet<string> = new Set(Object.values(RUN_OUTPUTS));
 /** The most a run's outputs may take, all together. */
 const OUTPUT_LIMIT = 256 * 1024 * 1024;
 /** Where the setup phase finds the project's registry secrets; the agent has no such directory. */
 export const SETUP_SECRETS = '/redline/secrets';
-const OUT_DIRECTORY = RUN_LAYOUT.out.split('/').at(-1) ?? 'out';
 /** The most of a sandbox's output a failure quotes. */
 const EXCERPT_LIMIT = 4000;
 
@@ -104,9 +112,23 @@ export class SandboxedClaudeRunner implements AgentRunner {
       readonly sources: SourceTrees;
       readonly blobs: BlobStore;
       readonly settings: SandboxSettings;
+      readonly clock: Clock;
       readonly logger: Logger;
     },
   ) {}
+
+  /** Waits for a running container to exit, and kills it at its time limit. */
+  private async waitOut(
+    container: string,
+    state: Extract<ContainerState, { status: 'running' }>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const left = Math.max(state.startedAt + limitOf(state) - this.deps.clock.now(), 0);
+    const timer = AbortSignal.timeout(left);
+    const code = await this.deps.sandboxes.wait(container, AbortSignal.any([signal, timer]));
+    if (code === null && timer.aborted && !signal.aborted)
+      await this.deps.sandboxes.kill(container);
+  }
 
   async start(spec: RunSpec): Promise<Result<undefined, Fault>> {
     const { sandboxes, settings } = this.deps;
@@ -190,20 +212,16 @@ export class SandboxedClaudeRunner implements AgentRunner {
         continue;
       }
       if (setup.status === 'running') {
-        const timer = AbortSignal.timeout(remaining(setup));
-        const code = await sandboxes.wait(names.setup, AbortSignal.any([signal, timer]));
-        if (code === null && timer.aborted) {
-          // Neither phase is left to run: a worker that looks again finds the run gone.
-          await sandboxes.remove(names.agent);
-          await sandboxes.remove(names.setup);
-          return {
-            kind: 'failed',
-            reason: 'setup-failed',
-            detail: 'The project’s setup took too long',
-            snapshot: null,
-          };
-        }
+        await this.waitOut(names.setup, setup, signal);
         continue;
+      }
+      if (setup.status === 'exited' && outlived(setup)) {
+        return {
+          kind: 'failed',
+          reason: 'setup-failed',
+          detail: 'The project’s setup took too long',
+          snapshot: null,
+        };
       }
       if (setup.status === 'exited' && setup.exitCode !== 0) {
         const output = await sandboxes.logs(names.setup, 40);
@@ -223,18 +241,16 @@ export class SandboxedClaudeRunner implements AgentRunner {
         continue;
       }
       if (agent.status === 'running') {
-        const timer = AbortSignal.timeout(remaining(agent));
-        const code = await sandboxes.wait(names.agent, AbortSignal.any([signal, timer]));
-        if (code === null && timer.aborted) {
-          await sandboxes.remove(names.agent);
-          return {
-            kind: 'failed',
-            reason: 'agent-failed',
-            detail: 'The agent’s sandbox outlived its time',
-            snapshot: null,
-          };
-        }
+        await this.waitOut(names.agent, agent, signal);
         continue;
+      }
+      if (outlived(agent)) {
+        return {
+          kind: 'failed',
+          reason: 'agent-failed',
+          detail: 'The agent’s sandbox outlived its time',
+          snapshot: null,
+        };
       }
       return this.collect(runId, agent.exitCode, agent.labels);
     }
@@ -307,6 +323,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
       ],
       network: 'none',
       labels,
+      user: settings.user,
       limits: settings.limits,
     });
     try {
@@ -371,6 +388,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
       ],
       network: settings.networks.setup,
       labels: { ...labels, 'redline.phase': 'setup' },
+      user: settings.user,
       limits: settings.limits,
     };
   }
@@ -406,6 +424,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
       mounts,
       network: settings.networks.agent,
       labels: { ...labels, 'redline.phase': 'agent' },
+      user: settings.user,
       limits: settings.limits,
     };
   }
@@ -419,18 +438,13 @@ export class SandboxedClaudeRunner implements AgentRunner {
     const { sandboxes } = this.deps;
     const agent = containers(runId).agent;
     const archive = await sandboxes.download(agent, RUN_LAYOUT.out);
-    const path = (file: string) => `${OUT_DIRECTORY}/${file}`;
     let files = new Map<string, Buffer>();
     try {
       if (archive !== null) {
-        files = await filesOf(
-          archive,
-          (name) =>
-            [RUN_OUTPUTS.outcome, RUN_OUTPUTS.change, RUN_OUTPUTS.work, RUN_OUTPUTS.events]
-              .map(path)
-              .includes(name),
-          { file: OUTPUT_LIMIT, total: OUTPUT_LIMIT },
-        );
+        files = await filesOf(archive, (name) => OUTPUTS.has(name), {
+          file: OUTPUT_LIMIT,
+          total: OUTPUT_LIMIT,
+        });
       }
     } catch (error) {
       // Any other failure is the download's: whoever looks next reads the outputs again.
@@ -442,12 +456,12 @@ export class SandboxedClaudeRunner implements AgentRunner {
         snapshot: null,
       };
     }
-    const events = files.get(path(RUN_OUTPUTS.events));
+    const events = files.get(RUN_OUTPUTS.events);
     if (events !== undefined) {
       const stored = await this.store(events);
       this.deps.logger.info('Kept the run’s journal', { runId, journal: stored });
     }
-    const raw = files.get(path(RUN_OUTPUTS.outcome));
+    const raw = files.get(RUN_OUTPUTS.outcome);
     if (raw === undefined) {
       const output = await sandboxes.logs(agent, 40);
       return infra(
@@ -470,7 +484,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
       turns: parsed.data.usage.turns,
       estimatedCostUsd: parsed.data.usage.costUsd,
     });
-    const bundle = files.get(path(RUN_OUTPUTS.change));
+    const bundle = files.get(RUN_OUTPUTS.change);
     const stored: StoredOutputs = {
       change:
         parsed.data.result.kind === 'change' && bundle !== undefined
@@ -479,12 +493,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
       session:
         parsed.data.pause === null
           ? null
-          : await this.keepSession(
-              runId,
-              labels,
-              parsed.data.pause,
-              files.get(path(RUN_OUTPUTS.work)),
-            ),
+          : await this.keepSession(runId, labels, parsed.data.pause, files.get(RUN_OUTPUTS.work)),
     };
     return runOutcomeOf(parsed.data, stored);
   }

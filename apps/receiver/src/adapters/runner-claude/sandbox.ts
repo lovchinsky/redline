@@ -15,6 +15,8 @@ export interface Mount {
 export interface ContainerSpec {
   readonly name: string;
   readonly image: string;
+  /** The user it runs as, never root: the owner of what the runner puts on its volumes. */
+  readonly user: { readonly uid: number; readonly gid: number };
   /** The command, in place of the image's entrypoint; null runs the image's own. */
   readonly command: readonly string[] | null;
   readonly env: Readonly<Record<string, string>>;
@@ -39,6 +41,9 @@ export type ContainerState =
       readonly status: 'exited';
       readonly labels: Readonly<Record<string, string>>;
       readonly exitCode: number;
+      /** When it started and when it ended, in milliseconds since the epoch. */
+      readonly startedAt: number;
+      readonly finishedAt: number;
     };
 
 /**
@@ -57,7 +62,10 @@ export interface SandboxProvider {
   create(spec: ContainerSpec): Promise<void>;
   /** Unpacks a tar archive at `path` in the container (its volumes included). */
   upload(container: string, path: string, archive: Buffer | Readable): Promise<void>;
-  /** A tar archive of `path` in the container, or null when there is nothing there. */
+  /**
+   * A tar archive of the directory `path` in the container, its entries named as they are
+   * inside it; null when there is nothing there.
+   */
   download(container: string, path: string): Promise<Readable | null>;
   start(container: string): Promise<void>;
   state(container: string): Promise<ContainerState>;
@@ -65,6 +73,8 @@ export interface SandboxProvider {
   wait(container: string, signal: AbortSignal): Promise<number | null>;
   /** The end of the container's output. */
   logs(container: string, lines: number): Promise<string>;
+  /** Stops the container where it is, keeping it and what it wrote; does nothing unless it runs. */
+  kill(container: string): Promise<void>;
   /** Kills and removes the container; does nothing when it is gone. */
   remove(container: string): Promise<void>;
   /** Containers and volumes carrying `label`, with that label's value. */

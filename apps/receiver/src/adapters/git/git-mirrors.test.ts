@@ -8,7 +8,8 @@ import { TaskId } from '../../domain/ids';
 import type { RepositoryRef } from '../../ports/access';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
-import { LocalRemotes, type GitRemote } from './remotes';
+import type { GitRemote } from '../../ports/publishing';
+import { LocalRemotes } from './remotes';
 import { httpGitServer } from './testing/http-git-server';
 
 const run = promisify(execFile);

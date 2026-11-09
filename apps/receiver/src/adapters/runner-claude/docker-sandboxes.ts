@@ -1,6 +1,7 @@
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { Readable } from 'node:stream';
 import type { ContainerSpec, ContainerState, SandboxProvider } from './sandbox';
+import { insideRoot } from './tar';
 
 /** The Engine API version spoken: Docker 25 and later. */
 const API = '/v1.44';
@@ -38,12 +39,17 @@ const demultiplex = (body: Buffer): string => {
   return Buffer.concat(parts).toString('utf8');
 };
 
+/** A time Docker reports, in milliseconds since the epoch; one it does not know is an error. */
+const instantOf = (value: unknown): number => {
+  const instant = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+  if (Number.isNaN(instant)) throw new Error(`Docker reported no time: ${String(value)}`);
+  return instant;
+};
+
 export interface DockerOptions {
   readonly socketPath: string;
   /** The OCI runtime sandboxes run under: `runsc` (gVisor), or `runc` when isolation is waived. */
   readonly runtime: string;
-  /** The user sandboxes run as, never root. */
-  readonly user: string;
 }
 
 /**
@@ -107,7 +113,7 @@ export class DockerSandboxes implements SandboxProvider {
         ...(spec.command === null ? {} : { Entrypoint: spec.command, Cmd: [] }),
         Env: Object.entries(spec.env).map(([name, value]) => `${name}=${value}`),
         WorkingDir: spec.workdir,
-        User: this.options.user,
+        User: `${String(spec.user.uid)}:${String(spec.user.gid)}`,
         Labels: spec.labels,
         HostConfig: {
           Runtime: this.options.runtime,
@@ -159,7 +165,8 @@ export class DockerSandboxes implements SandboxProvider {
       response.resume();
       throw new Error(`Docker could not copy out of ${container} (${String(response.statusCode)})`);
     }
-    return response;
+    // Docker puts the directory itself at the archive's root.
+    return insideRoot(response);
   }
 
   async start(container: string): Promise<void> {
@@ -180,20 +187,21 @@ export class DockerSandboxes implements SandboxProvider {
         (entry): entry is [string, string] => typeof entry[1] === 'string',
       ),
     );
+    const startedAt = instantOf(state['StartedAt']);
     switch (state['Status']) {
       case 'created':
         return { status: 'created', labels };
       case 'exited':
       case 'dead':
-        return { status: 'exited', labels, exitCode: Number(state['ExitCode'] ?? 1) };
-      default:
         return {
-          status: 'running',
+          status: 'exited',
           labels,
-          startedAt:
-            Date.parse(typeof state['StartedAt'] === 'string' ? state['StartedAt'] : '') ||
-            Date.now(),
+          exitCode: Number(state['ExitCode'] ?? 1),
+          startedAt,
+          finishedAt: instantOf(state['FinishedAt']),
         };
+      default:
+        return { status: 'running', labels, startedAt };
     }
   }
 
@@ -229,6 +237,13 @@ export class DockerSandboxes implements SandboxProvider {
       `/containers/${encodeURIComponent(container)}/logs?stdout=1&stderr=1&tail=${String(lines)}`,
     );
     return answer.status === 200 ? demultiplex(answer.body) : '';
+  }
+
+  async kill(container: string): Promise<void> {
+    const answer = await this.call('POST', `/containers/${encodeURIComponent(container)}/kill`);
+    // 404: it is gone; 409: it is not running.
+    if (answer.status !== 204 && answer.status !== 404 && answer.status !== 409)
+      throw failure(`kill ${container}`, answer);
   }
 
   async remove(container: string): Promise<void> {

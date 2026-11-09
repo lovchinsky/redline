@@ -1,6 +1,6 @@
 import { PassThrough, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { extract, pack } from 'tar-stream';
+import { extract, pack, type Header } from 'tar-stream';
 
 export interface TarFile {
   readonly path: string;
@@ -96,23 +96,42 @@ export const filesOf = async (
   return files;
 };
 
-/**
- * `archive` as it is, with every entry owned by `owner`: a sandbox owns the files it is given,
- * whoever made the archive.
- */
-export const ownedBy = (archive: Readable, owner: { uid: number; gid: number }): Readable => {
+/** `archive` with each entry's header as `rewrite` makes it; one it makes null is left out. */
+const rewritten = (archive: Readable, rewrite: (header: Header) => Header | null): Readable => {
   const reader = extract();
   const writer = pack();
-  const owned = new PassThrough();
+  const out = new PassThrough();
   reader.on('entry', (header, stream, next) => {
-    stream.pipe(writer.entry({ ...header, ...owner, uname: '', gname: '' }, next));
+    const kept = rewrite(header);
+    if (kept === null) {
+      stream.on('end', () => {
+        next();
+      });
+      stream.resume();
+      return;
+    }
+    stream.pipe(writer.entry(kept, next));
   });
   reader.on('finish', () => {
     writer.finalize();
   });
   pipeline(archive, reader).catch((error: unknown) => {
-    owned.destroy(error instanceof Error ? error : new Error(String(error)));
+    out.destroy(error instanceof Error ? error : new Error(String(error)));
   });
-  pipeline(writer, owned).catch(() => undefined);
-  return owned;
+  pipeline(writer, out).catch(() => undefined);
+  return out;
 };
+
+/**
+ * `archive` as it is, with every entry owned by `owner`: a sandbox owns the files it is given,
+ * whoever made the archive.
+ */
+export const ownedBy = (archive: Readable, owner: { uid: number; gid: number }): Readable =>
+  rewritten(archive, (header) => ({ ...header, ...owner, uname: '', gname: '' }));
+
+/** `archive` of one directory, its entries named as they are inside it: the directory goes. */
+export const insideRoot = (archive: Readable): Readable =>
+  rewritten(archive, (header) => {
+    const name = header.name.split('/').slice(1).join('/');
+    return name === '' ? null : { ...header, name };
+  });

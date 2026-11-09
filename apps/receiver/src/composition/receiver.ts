@@ -168,7 +168,6 @@ export const sandboxesOf = (agent: Extract<ReceiverConfig['agent'], { kind: 'cla
   new DockerSandboxes({
     socketPath: agent.dockerSocket,
     runtime: agent.runtime,
-    user: `${String(agent.user.uid)}:${String(agent.user.gid)}`,
   });
 
 const runnerOf = (
@@ -193,6 +192,7 @@ const runnerOf = (
       setupTimeoutMs: agent.setupTimeoutMs,
       graceMs: SANDBOX_GRACE_MS,
     },
+    clock: systemClock,
     logger: logger.child({ component: 'sandboxes' }),
   });
 };
@@ -294,7 +294,7 @@ const workerOf = async (
     readonly vault: CredentialVault;
   },
   logger: Logger,
-): Promise<() => void> => {
+): Promise<() => Promise<void>> => {
   const { store, jobs, writer, projects, blobs, bundles, users, vault } = deps;
   // Only what runs tasks holds the git host's and Docker's credentials.
   const git = await gitOf(settings, config, blobs, logger);
@@ -333,10 +333,14 @@ const workerOf = async (
     runner,
     logger: logger.child({ component: 'runs' }),
   });
+  // One round of housekeeping at a time; stopping waits for the one in flight.
+  let tidying = Promise.resolve();
   const tidy = () => {
-    strays.handle().catch((error: unknown) => {
-      logger.warn('Housekeeping failed', { error: String(error) });
-    });
+    tidying = tidying.then(() =>
+      strays.handle().catch((error: unknown) => {
+        logger.warn('Housekeeping failed', { error: String(error) });
+      }),
+    );
   };
   tidy();
   const housekeeping = setInterval(tidy, HOUSEKEEPING_MS);
@@ -351,8 +355,9 @@ const workerOf = async (
     },
     workerLimitsOf(config),
   );
-  return () => {
+  return async () => {
     clearInterval(housekeeping);
+    await tidying;
   };
 };
 
@@ -385,7 +390,7 @@ export const assemble = async (
   }
 
   let api: Awaited<ReturnType<typeof buildApi>> | null = null;
-  let stopWorker = (): void => undefined;
+  let stopWorker = (): Promise<void> => Promise.resolve();
   if (jobs !== null) {
     const vault: CredentialVault =
       config.modelAccess.credentials === 'managed'
@@ -441,7 +446,7 @@ export const assemble = async (
     api,
     ...listeners,
     stop: async () => {
-      stopWorker();
+      await stopWorker();
       await api?.close();
       await Promise.all([drain(listeners.gateway), drain(listeners.egress)]);
       vaultServer?.close();

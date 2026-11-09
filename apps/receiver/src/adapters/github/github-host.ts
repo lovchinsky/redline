@@ -1,15 +1,15 @@
 import type { ChangeRequestRef } from '../../domain/work';
 import type { PublishingProfile, RepositoryRef } from '../../ports/access';
-import type { ChangeRequestDraft, Forge, Publishing } from '../../ports/publishing';
+import type {
+  ChangeRequestDraft,
+  Forge,
+  GitRemote,
+  GitRemotes,
+  Publishing,
+} from '../../ports/publishing';
 import type { Logger } from '../../ports/system';
 import { GitHubError, type GitHubApi } from './api';
 import type { GitHubAuth } from './auth';
-
-/** A repository as git reaches it on GitHub, with its token as the request's credentials. */
-interface Remote {
-  readonly url: string;
-  readonly authorization: string;
-}
 
 /** The label a pull request carries when the repository takes no drafts. */
 export const DRAFT_LABEL = 'redline:draft';
@@ -48,11 +48,11 @@ const caught = async <T>(work: () => Promise<T>): Promise<Publishing<T>> => {
  * closed. A project publishing to a fork pushes to the bot's fork and opens the pull request
  * from it; one publishing to a branch pushes to the repository itself.
  */
-export class GitHubHost implements Forge {
+export class GitHubHost implements Forge, GitRemotes {
   constructor(private readonly options: GitHubHostOptions) {}
 
   /** Where the repository is fetched from, with a token for it. */
-  source(repository: RepositoryRef): Promise<Publishing<Remote | null>> {
+  source(repository: RepositoryRef): Promise<Publishing<GitRemote | null>> {
     return caught(() =>
       repository.host === 'github' ? this.remoteOf(repository.name) : Promise.resolve(null),
     );
@@ -62,7 +62,7 @@ export class GitHubHost implements Forge {
   target(
     repository: RepositoryRef,
     publishing: PublishingProfile,
-  ): Promise<Publishing<Remote | null>> {
+  ): Promise<Publishing<GitRemote | null>> {
     return caught(() =>
       repository.host === 'github'
         ? this.remoteOf(this.headRepository(repository, publishing))
