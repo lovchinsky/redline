@@ -4,7 +4,7 @@ import {
   type Outcome,
   type Pause,
 } from '@redline/agent-protocol';
-import { QuestionId, type BlobDigest, type RunId } from '../../domain/ids';
+import type { BlobDigest } from '../../domain/ids';
 import type { RunOutcome } from '../../domain/run';
 import type { Snapshot } from '../../domain/work';
 import type { RunSpec } from '../../ports/agent';
@@ -67,20 +67,16 @@ export const briefOf = (
   };
 };
 
-/** A run asks at most one question, the one it ends with: its id is the run's. */
-export const questionIdOf = (runId: RunId): QuestionId => QuestionId(`q-${runId}`);
-
 /** What the runner stored of a run: its change bundle, and its paused session. */
 export interface StoredOutputs {
   readonly change: BlobDigest | null;
-  readonly session: Omit<Snapshot, 'questionId'> | null;
+  readonly session: Snapshot | null;
 }
 
 /** agent-host's outcome as the receiver's, with where the runner stored what the run left. */
-export const runOutcomeOf = (runId: RunId, outcome: Outcome, stored: StoredOutputs): RunOutcome => {
+export const runOutcomeOf = (outcome: Outcome, stored: StoredOutputs): RunOutcome => {
   const { result } = outcome;
-  const snapshot = (questionId: QuestionId | null): Snapshot | null =>
-    stored.session === null ? null : { ...stored.session, questionId };
+  const snapshot = stored.session;
   const change = stored.change;
   switch (result.kind) {
     case 'change':
@@ -103,28 +99,26 @@ export const runOutcomeOf = (runId: RunId, outcome: Outcome, stored: StoredOutpu
           };
     case 'no-change':
       return { kind: 'no-change', explanation: result.explanation };
-    case 'question': {
-      const id = questionIdOf(runId);
+    case 'question':
       return {
         kind: 'question',
-        question: { id, text: result.question.text, options: [...result.question.options] },
-        snapshot: snapshot(id),
+        question: { text: result.question.text, options: [...result.question.options] },
+        snapshot,
       };
-    }
     case 'quota-exhausted':
       return {
         kind: 'quota-exhausted',
         resetAt: Date.parse(result.resetAt),
-        snapshot: snapshot(null),
+        snapshot,
       };
     case 'credential-missing':
-      return { kind: 'credential-missing', snapshot: snapshot(null) };
+      return { kind: 'credential-missing', snapshot };
     case 'failed':
       return {
         kind: 'failed',
         reason: result.reason,
         detail: result.detail,
-        snapshot: snapshot(null),
+        snapshot,
       };
   }
 };

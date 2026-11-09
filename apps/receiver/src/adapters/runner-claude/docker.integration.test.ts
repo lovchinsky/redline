@@ -209,10 +209,7 @@ describe('the sandboxed runner on Docker', () => {
     const asked = await runner().observe(first, new AbortController().signal, quiet);
     if (asked.kind !== 'question') throw new Error(`Expected a question, got ${asked.kind}`);
     const { snapshot } = asked;
-    expect(snapshot).toMatchObject({
-      model: asking.execution.model,
-      questionId: asked.question.id,
-    });
+    expect(snapshot).toMatchObject({ model: asking.execution.model });
     expect(snapshot?.image).toMatch(/^sha256:/);
     await runner().release(first);
     if (snapshot === null) throw new Error('The run left no snapshot');
@@ -232,7 +229,7 @@ describe('the sandboxed runner on Docker', () => {
         ...resuming.brief,
         exchanges: [
           {
-            question: asked.question,
+            question: { id: QuestionId('q-asked'), ...asked.question },
             askedAt: 0,
             answer: { source: 'requester', text: 'Desktop only', at: 1 },
             closed: true,
@@ -251,7 +248,6 @@ describe('the sandboxed runner on Docker', () => {
     });
     // The setup worked on the base again before the agent went on.
     expect(seen).toMatchObject({ setup: 'installed', card: '.card { }\n' });
-    expect(asked.question.id).toBe(QuestionId(`q-${first}`));
     await runner().release(second);
   });
 

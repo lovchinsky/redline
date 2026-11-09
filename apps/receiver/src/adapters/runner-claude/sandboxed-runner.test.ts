@@ -10,7 +10,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { bundle, project, silentLogger } from '../../application/testing/fakes';
-import { BlobDigest, ProjectId, QuestionId, RunId, TaskId } from '../../domain/ids';
+import { BlobDigest, ProjectId, RunId, TaskId } from '../../domain/ids';
 import type { RunSpec } from '../../ports/agent';
 import type { GrantToken } from '../../ports/tasks';
 import { FsBlobStore } from '../blobs/fs-blob-store';
@@ -501,14 +501,12 @@ describe('SandboxedClaudeRunner', () => {
       const outcome = await agent.observe(runId, new AbortController().signal, quiet);
       if (outcome.kind !== 'question') throw new Error(`Expected a question, got ${outcome.kind}`);
       expect(outcome.question).toEqual({
-        id: QuestionId('q-run-1'),
         text: 'Desktop only?',
         options: ['Yes', 'No'],
       });
       expect(outcome.snapshot).toMatchObject({
         image: IMAGE_ID,
         model: project().execution.model,
-        questionId: QuestionId('q-run-1'),
       });
       const stored = await blobs.read(outcome.snapshot?.blob ?? BlobDigest('0'.repeat(64)));
       const paused = await unpackSnapshot(stored ?? new Uint8Array());
@@ -543,7 +541,6 @@ describe('SandboxedClaudeRunner', () => {
           blob: BlobDigest(digest),
           image: IMAGE_ID,
           model: project().execution.model,
-          questionId: QuestionId('q-run-0'),
         },
       });
       const into = async (target: string) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { QuestionId, RunId, type BlobDigest } from '../domain/ids';
+import { RunId, type BlobDigest } from '../domain/ids';
 import type { RunOutcome } from '../domain/run';
 import { apiKey } from './testing/fakes';
 import { never, system } from './testing/system';
@@ -19,11 +19,10 @@ const pausedAt = {
   blob: 'd'.repeat(64) as BlobDigest,
   image: 'redline-agent@sha256:1',
   model: 'claude-opus-5-5',
-  questionId: QuestionId('q1'),
 };
 const question: RunOutcome = {
   kind: 'question',
-  question: { id: QuestionId('q1'), text: 'Every breakpoint?', options: [] },
+  question: { text: 'Every breakpoint?', options: [] },
   snapshot: pausedAt,
 };
 
@@ -98,7 +97,7 @@ describe('SuperviseRun', () => {
     await app.requests.reply(
       { id: task.requester, name: 'Ann', email: null },
       task.id,
-      { questionId: QuestionId('q1'), text: 'Desktop only' },
+      { questionId: app.store.question(task.id), text: 'Desktop only' },
       null,
     );
     await app.supervise.handle(task.id, never);
@@ -120,7 +119,7 @@ describe('SuperviseRun', () => {
     await app.requests.reply(
       { id: task.requester, name: 'Ann', email: null },
       task.id,
-      { questionId: QuestionId('q1'), text: 'Desktop only' },
+      { questionId: app.store.question(task.id), text: 'Desktop only' },
       null,
     );
     // The image was updated while the task waited for the answer.
@@ -129,7 +128,10 @@ describe('SuperviseRun', () => {
     const replayed = app.runner.started[1];
     expect(replayed?.resumeFrom).toBeNull();
     expect(replayed?.brief.exchanges).toMatchObject([
-      { question: { id: 'q1' }, answer: { source: 'requester', text: 'Desktop only' } },
+      {
+        question: { id: `q-${app.runner.started[0]?.runId ?? ''}` },
+        answer: { source: 'requester', text: 'Desktop only' },
+      },
     ]);
     expect(app.store.state.runs.get(replayed?.runId ?? RunId(''))?.kind).toBe('replay');
     expect(app.store.task(task.id).state.kind).toBe('publishing');

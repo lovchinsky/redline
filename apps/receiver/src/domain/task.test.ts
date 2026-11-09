@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Question } from './exchange';
+import { questionIdOf, type AskedQuestion } from './exchange';
 import { ProjectId, QuestionId, RunId, TaskId, UserId, type BlobDigest } from './ids';
 import type { TaskPolicy } from './policy';
 import type { RunOutcome } from './run';
@@ -17,6 +17,7 @@ import {
   markPublished,
   recordPublishFailure,
   rejectByPolicy,
+  runKindOf,
   submitTask,
   type Task,
   type TransitionResult,
@@ -34,23 +35,21 @@ const policy: TaskPolicy = {
 };
 
 const digest = (char: string) => char.repeat(64) as BlobDigest;
-const snapshot = (char: string, questionId: QuestionId | null = null): Snapshot => ({
+const snapshot = (char: string): Snapshot => ({
   blob: digest(char),
   image: 'redline-agent@sha256:1',
   model: 'claude-opus-5-5',
-  questionId,
 });
 /** The paused session of a queued task, as a runner that can resume any session sees it. */
 const pausedOf = (task: Task): Snapshot | null =>
   task.state.kind === 'queued' ? task.state.resumeFrom : null;
-const question = (id: string): Question => ({
-  id: QuestionId(id),
-  text: `Question ${id}?`,
-  options: [],
-});
+const question = (name: string): AskedQuestion => ({ text: `Question ${name}?`, options: [] });
 
 const run1 = RunId('run-1');
 const run2 = RunId('run-2');
+/** The questions the runs ask are named after them. */
+const q1 = questionIdOf(run1);
+const q2 = questionIdOf(run2);
 
 const submitted = (): Task =>
   submitTask(
@@ -75,8 +74,8 @@ const running = (task = submitted(), runId = run1, now = 10) =>
 const outcome = (task: Task, result: RunOutcome, runId = run1, now = 20) =>
   value(applyOutcome(task, runId, result, policy, now));
 
-const asked = (id = 'q1', snap: Snapshot | null = snapshot('b', QuestionId(id))) =>
-  outcome(running(), { kind: 'question', question: question(id), snapshot: snap }).task;
+const asked = (snap: Snapshot | null = snapshot('b')) =>
+  outcome(running(), { kind: 'question', question: question('q1'), snapshot: snap }).task;
 
 const report = { summary: 'Renamed', changes: [], verification: 'tests', assumptions: [] };
 const publishing = () =>
@@ -130,6 +129,13 @@ describe('submitting and starting', () => {
     });
   });
 
+  it('tells a run that goes on with the paused session from one that starts over', () => {
+    expect(runKindOf(running())).toBe('start');
+    const answered = value(answerQuestion(asked(), q1, 'yes', 30)).task;
+    expect(runKindOf(value(beginRun(answered, run2, pausedOf(answered), 40)).task)).toBe('resume');
+    expect(runKindOf(value(beginRun(answered, run2, null, 40)).task)).toBe('replay');
+  });
+
   it('starts runs only on queued tasks', () => {
     expect(beginRun(running(), run2, pausedOf(running()), 20).ok).toBe(false);
   });
@@ -166,23 +172,23 @@ describe('run outcomes', () => {
     const transition = outcome(running(), {
       kind: 'question',
       question: question('q1'),
-      snapshot: snapshot('b', QuestionId('q1')),
+      snapshot: snapshot('b'),
     });
-    expect(transition.task.state).toMatchObject({ kind: 'awaiting-reply', questionId: 'q1' });
+    expect(transition.task.state).toMatchObject({ kind: 'awaiting-reply', questionId: q1 });
     expect(transition.task.exchanges).toEqual([
-      { question: question('q1'), askedAt: 20, answer: null, closed: false },
+      { question: { id: q1, ...question('q1') }, askedAt: 20, answer: null, closed: false },
     ]);
     expect(transition.effects).toEqual([
-      { kind: 'schedule-reply-timeout', questionId: 'q1', at: 20 + policy.replyTimeoutMs },
+      { kind: 'schedule-reply-timeout', questionId: q1, at: 20 + policy.replyTimeoutMs },
     ]);
   });
 
   it('fails a task whose agent asks more questions than the project allows', () => {
-    let task = asked('q1');
-    task = value(answerQuestion(task, QuestionId('q1'), 'yes', 30)).task;
+    let task = asked();
+    task = value(answerQuestion(task, q1, 'yes', 30)).task;
     task = value(beginRun(task, run2, pausedOf(task), 40)).task;
     task = outcome(task, { kind: 'question', question: question('q2'), snapshot: null }, run2).task;
-    task = value(answerQuestion(task, QuestionId('q2'), 'no', 50)).task;
+    task = value(answerQuestion(task, q2, 'no', 50)).task;
     task = value(beginRun(task, RunId('run-3'), pausedOf(task), 60)).task;
     const third = outcome(
       task,
@@ -200,10 +206,28 @@ describe('run outcomes', () => {
     });
     expect(transition.task.state).toEqual({
       kind: 'publishing',
+      baseSha: 'base',
       change: { blob: digest('c'), head: 'b'.repeat(40) },
       report,
     });
     expect(transition.effects).toEqual([{ kind: 'schedule-publish', at: null }]);
+  });
+
+  it('fails a change of a run that fixed no base: there is nothing it is a change of', () => {
+    const started = value(beginRun(submitted(), run1, null, 10)).task;
+    const transition = value(
+      applyOutcome(
+        started,
+        run1,
+        { kind: 'change', change: { blob: digest('c'), head: 'b'.repeat(40) }, report },
+        policy,
+        20,
+      ),
+    );
+    expect(transition.task.state).toMatchObject({
+      kind: 'failed',
+      failure: { code: 'agent-failed' },
+    });
   });
 
   it('fails with the explanation when there is nothing to change', () => {
@@ -266,7 +290,7 @@ describe('run outcomes', () => {
   });
 
   it('starts over, told the exchanges, when the paused session cannot be resumed', () => {
-    const answered = value(answerQuestion(asked(), QuestionId('q1'), 'yes', 30)).task;
+    const answered = value(answerQuestion(asked(), q1, 'yes', 30)).task;
     const replayed = value(beginRun(answered, run2, null, 40));
     expect(replayed.task.state).toEqual({ kind: 'running', runId: run2, resumedFrom: null });
     expect(replayed.event).toMatchObject({ type: 'run-started', resumed: false });
@@ -280,9 +304,9 @@ describe('run outcomes', () => {
   it('resumes a run that failed before its own snapshot from the one it started from', () => {
     const resumed = value(
       beginRun(
-        value(answerQuestion(asked(), QuestionId('q1'), 'yes', 30)).task,
+        value(answerQuestion(asked(), q1, 'yes', 30)).task,
         run2,
-        pausedOf(value(answerQuestion(asked(), QuestionId('q1'), 'yes', 30)).task),
+        pausedOf(value(answerQuestion(asked(), q1, 'yes', 30)).task),
         40,
       ),
     ).task;
@@ -293,7 +317,7 @@ describe('run outcomes', () => {
     );
     expect(failed.task.state).toEqual({
       kind: 'queued',
-      resumeFrom: snapshot('b', QuestionId('q1')),
+      resumeFrom: snapshot('b'),
       awaiting: null,
     });
   });
@@ -344,10 +368,10 @@ describe('run outcomes', () => {
 
 describe('questions and answers', () => {
   it('queues the resumed session when the requester answers', () => {
-    const transition = value(answerQuestion(asked(), QuestionId('q1'), 'Desktop only', 30));
+    const transition = value(answerQuestion(asked(), q1, 'Desktop only', 30));
     expect(transition.task.state).toEqual({
       kind: 'queued',
-      resumeFrom: snapshot('b', QuestionId('q1')),
+      resumeFrom: snapshot('b'),
       awaiting: null,
     });
     expect(transition.task.exchanges[0]?.answer).toEqual({
@@ -359,20 +383,20 @@ describe('questions and answers', () => {
   });
 
   it('accepts the same answer again without changing anything', () => {
-    const answered = value(answerQuestion(asked(), QuestionId('q1'), 'Yes', 30)).task;
-    const repeated = value(answerQuestion(answered, QuestionId('q1'), 'Yes', 40));
+    const answered = value(answerQuestion(asked(), q1, 'Yes', 30)).task;
+    const repeated = value(answerQuestion(answered, q1, 'Yes', 40));
     expect(repeated.event).toBeNull();
     expect(repeated.task).toBe(answered);
-    expect(answerQuestion(answered, QuestionId('q1'), 'No', 40).ok).toBe(false);
+    expect(answerQuestion(answered, q1, 'No', 40).ok).toBe(false);
   });
 
   it('refuses an answer to a question that was not asked', () => {
     expect(answerQuestion(asked(), QuestionId('q9'), 'Yes', 30).ok).toBe(false);
-    expect(answerQuestion(running(), QuestionId('q1'), 'Yes', 30).ok).toBe(false);
+    expect(answerQuestion(running(), q1, 'Yes', 30).ok).toBe(false);
   });
 
   it('goes on with the agent’s own judgement when a question times out', () => {
-    const transition = value(expireQuestion(asked(), QuestionId('q1'), policy, 1_100));
+    const transition = value(expireQuestion(asked(), q1, policy, 1_100));
     expect(transition.task.state).toMatchObject({ kind: 'queued' });
     expect(transition.task.exchanges[0]?.answer).toEqual({ source: 'timeout', at: 1_100 });
     expect(transition.effects).toEqual([{ kind: 'schedule-run', at: null }]);
@@ -380,21 +404,21 @@ describe('questions and answers', () => {
 
   it('fails a timed-out question when the project does not go on without answers', () => {
     const transition = value(
-      expireQuestion(asked(), QuestionId('q1'), { ...policy, onReplyTimeout: 'fail' }, 1_100),
+      expireQuestion(asked(), q1, { ...policy, onReplyTimeout: 'fail' }, 1_100),
     );
     expect(transition.task.state).toMatchObject({ kind: 'failed', failure: { code: 'no-reply' } });
   });
 
   it('ignores a timeout for a question answered meanwhile', () => {
-    const answered = value(answerQuestion(asked(), QuestionId('q1'), 'Yes', 30)).task;
-    const transition = value(expireQuestion(answered, QuestionId('q1'), policy, 1_100));
+    const answered = value(answerQuestion(asked(), q1, 'Yes', 30)).task;
+    const transition = value(expireQuestion(answered, q1, policy, 1_100));
     expect(transition.event).toBeNull();
     expect(transition.task).toBe(answered);
   });
 
   it('takes a late answer while the run that goes on without it has not started', () => {
-    const expired = value(expireQuestion(asked(), QuestionId('q1'), policy, 1_100)).task;
-    const late = value(answerQuestion(expired, QuestionId('q1'), 'Desktop only', 1_200));
+    const expired = value(expireQuestion(asked(), q1, policy, 1_100)).task;
+    const late = value(answerQuestion(expired, q1, 'Desktop only', 1_200));
     expect(late.task.exchanges[0]?.answer).toEqual({
       source: 'requester',
       text: 'Desktop only',
@@ -403,11 +427,11 @@ describe('questions and answers', () => {
     expect(late.effects).toEqual([]);
 
     const started = value(beginRun(expired, run2, pausedOf(expired), 1_150)).task;
-    expect(answerQuestion(started, QuestionId('q1'), 'Desktop only', 1_200).ok).toBe(false);
+    expect(answerQuestion(started, q1, 'Desktop only', 1_200).ok).toBe(false);
   });
 
   it('takes no late answer once a run went on without it, even if the task is queued again', () => {
-    const expired = value(expireQuestion(asked(), QuestionId('q1'), policy, 1_100)).task;
+    const expired = value(expireQuestion(asked(), q1, policy, 1_100)).task;
     const started = value(beginRun(expired, run2, pausedOf(expired), 1_150)).task;
     const requeued = outcome(
       started,
@@ -416,7 +440,7 @@ describe('questions and answers', () => {
       1_160,
     ).task;
     expect(requeued.state.kind).toBe('queued');
-    expect(answerQuestion(requeued, QuestionId('q1'), 'Desktop only', 1_200).ok).toBe(false);
+    expect(answerQuestion(requeued, q1, 'Desktop only', 1_200).ok).toBe(false);
   });
 });
 

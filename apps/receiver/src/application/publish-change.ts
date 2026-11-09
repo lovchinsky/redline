@@ -1,11 +1,11 @@
 import { describeViolation, evaluateChange, type Flag } from '../domain/change-policy';
 import type { TaskId } from '../domain/ids';
 import {
-  cancelTask,
   markPublished,
   recordPublishFailure,
   rejectByPolicy,
   type Task,
+  type TaskState,
 } from '../domain/task';
 import type { ChangeRequestRef } from '../domain/work';
 import type { Identity, Project, ProjectCatalog } from '../ports/access';
@@ -20,8 +20,11 @@ import type {
 import type { Logger } from '../ports/system';
 import type { TaskQueries } from '../ports/tasks';
 import { branchOf, composeChangeRequest, composeCommitMessage } from './change-request';
-import { PROJECT_GONE } from './errors';
+import { projectGone } from './projects';
 import type { TaskWriter } from './task-writer';
+
+/** What a task being published holds: the change, on top of its base, and the agent's report. */
+type Publication = Extract<TaskState, { readonly kind: 'publishing' }>;
 
 type Verdict =
   | { readonly kind: 'publish'; readonly flags: readonly Flag[] }
@@ -53,13 +56,11 @@ export class PublishChange {
     if (task?.state.kind !== 'publishing') return;
     const project = this.deps.projects.get(task.projectId);
     if (project === null) {
-      await this.deps.writer.update(taskId, (current, now) =>
-        cancelTask(current, PROJECT_GONE, now),
-      );
+      await this.deps.writer.update(taskId, projectGone);
       return;
     }
 
-    const published = await this.publish(task, project);
+    const published = await this.publish(task, task.state, project);
     if (!published.ok) {
       await this.deps.writer.update(taskId, (current, now) =>
         recordPublishFailure(current, published.error, project.policy, now),
@@ -82,6 +83,7 @@ export class PublishChange {
 
   private async publish(
     task: Task,
+    publication: Publication,
     project: Project,
   ): Promise<
     Publishing<
@@ -89,20 +91,17 @@ export class PublishChange {
       | { readonly kind: 'opened'; readonly changeRequest: ChangeRequestRef }
     >
   > {
-    if (task.state.kind !== 'publishing' || task.baseSha === null) {
-      return fail({ transient: false, detail: 'the task has no change to publish' });
-    }
-    const { change, report } = task.state;
+    const { baseSha, change, report } = publication;
     const { repository, publishing } = project;
 
-    const judged = await this.judge(task, project, task.baseSha);
+    const judged = await this.judge(publication, project);
     if (!judged.ok) return judged;
     if (judged.value.kind === 'reject') return { ok: true, value: judged.value };
 
     const requester = await this.deps.identity.get(task.requester);
     const committed = await this.deps.source.commit(repository, {
       taskId: task.id,
-      baseSha: task.baseSha,
+      baseSha,
       change,
       message: composeCommitMessage(task, requester),
       at: task.createdAt,
@@ -132,10 +131,10 @@ export class PublishChange {
       : opened;
   }
 
-  private async judge(task: Task, project: Project, baseSha: string): Promise<Publishing<Verdict>> {
-    if (task.state.kind !== 'publishing')
-      return fail({ transient: false, detail: 'nothing to judge' });
-    const { change } = task.state;
+  private async judge(
+    { baseSha, change }: Publication,
+    project: Project,
+  ): Promise<Publishing<Verdict>> {
     const [described, secrets] = await Promise.all([
       this.deps.source.describe(project.repository, baseSha, change),
       this.deps.scanner.scan(project.repository, baseSha, change),

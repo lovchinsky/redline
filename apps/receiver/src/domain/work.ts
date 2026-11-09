@@ -1,4 +1,4 @@
-import type { BlobDigest, QuestionId } from './ids';
+import type { BlobDigest } from './ids';
 
 /**
  * What a paused session needs to go on: the work so far and the agent's session, stored as one
@@ -9,8 +9,6 @@ export interface Snapshot {
   readonly blob: BlobDigest;
   readonly image: string;
   readonly model: string;
-  /** The question the session stopped at, whose answer it is waiting for. */
-  readonly questionId: QuestionId | null;
 }
 
 /** The agent's proposed change: one commit on top of the task's base, stored as a git bundle. */

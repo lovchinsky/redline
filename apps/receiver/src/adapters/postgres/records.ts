@@ -18,18 +18,10 @@ const sha = z.string().check(z.regex(/^[0-9a-f]{40}$/));
 const id = <T>(name: (value: string) => T) => z.pipe(text, z.transform(name));
 const digest = z.pipe(z.string().check(z.regex(/^[a-f0-9]{64}$/)), z.transform(BlobDigest));
 
-const snapshot = z.object({
-  blob: digest,
-  image: text,
-  model: text,
-  questionId: z.nullable(id(QuestionId)),
-});
+const snapshot = z.object({ blob: digest, image: text, model: text });
 
-const question = z.object({
-  id: id(QuestionId),
-  text: text,
-  options: z.array(text),
-});
+const askedQuestion = z.object({ text: text, options: z.array(text) });
+const question = z.extend(askedQuestion, { id: id(QuestionId) });
 
 const answer = z.discriminatedUnion('source', [
   z.object({ source: z.literal('requester'), text: z.string(), at: instant }),
@@ -76,6 +68,7 @@ const state = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('publishing'),
+    baseSha: text,
     change: z.object({ blob: digest, head: sha }),
     report,
   }),
@@ -113,7 +106,11 @@ const runFailureReason = z.enum([
 ]);
 
 const outcome = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('question'), question, snapshot: z.nullable(snapshot) }),
+  z.object({
+    kind: z.literal('question'),
+    question: askedQuestion,
+    snapshot: z.nullable(snapshot),
+  }),
   z.object({ kind: z.literal('change'), change: z.object({ blob: digest, head: sha }), report }),
   z.object({ kind: z.literal('no-change'), explanation: z.string() }),
   z.object({

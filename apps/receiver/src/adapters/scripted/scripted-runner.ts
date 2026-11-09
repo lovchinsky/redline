@@ -1,4 +1,4 @@
-import { QuestionId, type BlobDigest, type RunId } from '../../domain/ids';
+import type { BlobDigest, RunId } from '../../domain/ids';
 import type { RunOutcome } from '../../domain/run';
 import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 
@@ -73,7 +73,6 @@ export class ScriptedRunner implements AgentRunner {
       return {
         kind: 'question',
         question: {
-          id: QuestionId(`q-${spec.taskId}-1`),
           text: 'Should the change apply to every breakpoint?',
           options: ['Yes', 'Desktop only'],
         },

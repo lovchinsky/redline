@@ -5,6 +5,7 @@ import type { Task, TaskEffect, Transition, TransitionResult } from '../domain/t
 import type { Clock } from '../ports/system';
 import type { InsertResult, Job, UnitOfWork, WorkScope } from '../ports/tasks';
 import { conflictError, notFound, type RequestError } from './errors';
+import { closeRun } from './runs';
 
 /** Optimistic writes that keep losing to concurrent ones: something is wrong, not just busy. */
 const MAX_ATTEMPTS = 5;
@@ -44,9 +45,7 @@ const carryOut = async (scope: WorkScope, task: Task, transition: Transition): P
   if (event !== null) await scope.history.append(task.id, event);
   for (const effect of transition.effects) {
     if (effect.kind === 'abort-run') {
-      await scope.grants.revoke(effect.runId);
-      const run = await scope.runs.get(effect.runId);
-      if (run?.state.kind === 'started') await scope.runs.save(abortRun(run, task.updatedAt));
+      await closeRun(scope, effect.runId, (run) => abortRun(run, task.updatedAt));
     }
     await scope.jobs.schedule(jobOf(task, effect), startAfter(effect));
   }

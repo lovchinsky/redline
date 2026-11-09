@@ -1,12 +1,12 @@
 import type { QuestionId, RunId, TaskId } from '../domain/ids';
-import { cancelTask, expireQuestion } from '../domain/task';
+import { expireQuestion } from '../domain/task';
 import type { CredentialVault, ProjectCatalog } from '../ports/access';
 import type { AgentRunner } from '../ports/agent';
 import type { Forge } from '../ports/publishing';
 import type { Logger } from '../ports/system';
 import type { TaskQueries, UnitOfWork } from '../ports/tasks';
 import { branchOf } from './change-request';
-import { PROJECT_GONE } from './errors';
+import { withProject } from './projects';
 import type { TaskWriter } from './task-writer';
 
 /** A question's time ran out: the task goes on or fails, as its project chooses. */
@@ -16,12 +16,12 @@ export class ExpireQuestion {
   ) {}
 
   async handle(taskId: TaskId, questionId: QuestionId): Promise<void> {
-    await this.deps.writer.update(taskId, (task, now) => {
-      const project = this.deps.projects.get(task.projectId);
-      return project === null
-        ? cancelTask(task, PROJECT_GONE, now)
-        : expireQuestion(task, questionId, project.policy, now);
-    });
+    await this.deps.writer.update(
+      taskId,
+      withProject(this.deps.projects, (task, project, now) =>
+        expireQuestion(task, questionId, project.policy, now),
+      ),
+    );
   }
 }
 

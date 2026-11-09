@@ -1,4 +1,4 @@
-import type { Instant, QuestionId } from './ids';
+import { QuestionId, type Instant, type RunId } from './ids';
 
 /** A question the agent asks the person who requested the change. */
 export interface Question {
@@ -7,6 +7,12 @@ export interface Question {
   /** Suggested answers; the person may still answer in their own words. */
   readonly options: readonly string[];
 }
+
+/** A question as a run asks it: the task names it. */
+export type AskedQuestion = Omit<Question, 'id'>;
+
+/** A run asks at most one question, the one it ends with: the question is named after the run. */
+export const questionIdOf = (runId: RunId): QuestionId => QuestionId(`q-${runId}`);
 
 /**
  * How a question was settled: the requester answered it, or nobody did in time and the agent

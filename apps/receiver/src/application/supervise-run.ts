@@ -11,9 +11,9 @@ import {
   applyOutcome,
   awaitCredential,
   beginRun,
-  cancelTask,
   fixBase,
   loseRun,
+  runKindOf,
   type Task,
   type TransitionResult,
 } from '../domain/task';
@@ -23,9 +23,10 @@ import type { AgentRunner, RunSpec } from '../ports/agent';
 import type { BundleReader } from '../ports/bundles';
 import type { SourceRepository } from '../ports/publishing';
 import type { Clock, IdGenerator, Logger } from '../ports/system';
-import type { TaskQueries, UnitOfWork, WorkScope } from '../ports/tasks';
+import type { TaskQueries, UnitOfWork } from '../ports/tasks';
 import { composeBrief } from './brief';
-import { PROJECT_GONE } from './errors';
+import { projectGone, withProject } from './projects';
+import { closeRun } from './runs';
 import type { TaskWriter } from './task-writer';
 
 /** How starting a run went. */
@@ -77,9 +78,7 @@ export class SuperviseRun {
     const log = this.deps.logger.child({ taskId: task.id });
     const project = this.deps.projects.get(task.projectId);
     if (project === null) {
-      await this.deps.writer.update(task.id, (current, now) =>
-        cancelTask(current, PROJECT_GONE, now),
-      );
+      await this.deps.writer.update(task.id, projectGone);
       return null;
     }
     const credential =
@@ -110,13 +109,11 @@ export class SuperviseRun {
       task.id,
       (current, now) => beginRun(current, runId, resumable, now),
       async (scope, transition) => {
-        const resumed =
-          transition.task.state.kind === 'running' && transition.task.state.resumedFrom !== null;
         await scope.runs.insert(
           startRun({
             id: runId,
             taskId: task.id,
-            kind: resumed ? 'resume' : paused === null ? 'start' : 'replay',
+            kind: runKindOf(transition.task),
             image: project.execution.image,
             model: project.execution.model,
             startedAt: transition.event?.at ?? this.deps.clock.now(),
@@ -157,16 +154,13 @@ export class SuperviseRun {
         await this.settle(
           task.id,
           runId,
-          (current, policyOf, now) =>
-            policyOf === null
-              ? cancelTask(current, PROJECT_GONE, now)
-              : applyOutcome(current, runId, launch.outcome, policyOf.policy, now),
+          (current, of, now) => applyOutcome(current, runId, launch.outcome, of.policy, now),
           (run, applied, at) => finishRun(run, launch.outcome, applied, at),
         );
         return null;
       case 'superseded':
         await this.deps.uow.run((scope) =>
-          this.closeRun(scope, runId, (run) => interruptRun(run, this.deps.clock.now())),
+          closeRun(scope, runId, (run) => interruptRun(run, this.deps.clock.now())),
         );
         return null;
     }
@@ -234,10 +228,7 @@ export class SuperviseRun {
       await this.settle(
         taskId,
         runId,
-        (current, project, now) =>
-          project === null
-            ? cancelTask(current, PROJECT_GONE, now)
-            : loseRun(current, runId, observed.detail, project.policy, now),
+        (current, project, now) => loseRun(current, runId, observed.detail, project.policy, now),
         (lost, _applied, at) => interruptRun(lost, at),
       );
     } else {
@@ -247,10 +238,7 @@ export class SuperviseRun {
       await this.settle(
         taskId,
         runId,
-        (current, project, now) =>
-          project === null
-            ? cancelTask(current, PROJECT_GONE, now)
-            : applyOutcome(current, runId, outcome, project.policy, now),
+        (current, project, now) => applyOutcome(current, runId, outcome, project.policy, now),
         (finished, applied, at) => finishRun(finished, outcome, applied, at),
       );
     }
@@ -258,33 +246,27 @@ export class SuperviseRun {
   }
 
   /**
-   * Ends a run: the task moves when the run is still its current one, and the run's record and
-   * grant are closed either way. An outcome of a superseded run is kept, marked as not applied.
+   * Ends a run: the task moves when the run is still its current one, and the run is closed
+   * either way. An outcome of a superseded run is kept, marked as not applied.
    */
   private async settle(
     taskId: TaskId,
     runId: RunId,
-    decide: (task: Task, project: Project | null, now: Instant) => TransitionResult,
+    decide: (task: Task, project: Project, now: Instant) => TransitionResult,
     record: (run: Run, applied: boolean, at: Instant) => Run,
   ): Promise<void> {
     const settled = await this.deps.writer.update(
       taskId,
-      (current, now) => decide(current, this.deps.projects.get(current.projectId), now),
+      withProject(this.deps.projects, decide),
       (scope, transition) =>
-        this.closeRun(scope, runId, (run) =>
+        closeRun(scope, runId, (run) =>
           record(run, true, transition.event?.at ?? this.deps.clock.now()),
         ),
     );
     if (!settled.ok) {
       await this.deps.uow.run((scope) =>
-        this.closeRun(scope, runId, (run) => record(run, false, this.deps.clock.now())),
+        closeRun(scope, runId, (run) => record(run, false, this.deps.clock.now())),
       );
     }
-  }
-
-  private async closeRun(scope: WorkScope, runId: RunId, close: (run: Run) => Run): Promise<void> {
-    const run = await scope.runs.get(runId);
-    if (run?.state.kind === 'started') await scope.runs.save(close(run));
-    await scope.grants.revoke(runId);
   }
 }

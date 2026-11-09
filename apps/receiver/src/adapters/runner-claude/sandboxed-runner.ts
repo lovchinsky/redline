@@ -490,7 +490,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
               files.get(path(RUN_OUTPUTS.work)),
             ),
     };
-    return runOutcomeOf(runId, parsed.data, stored);
+    return runOutcomeOf(parsed.data, stored);
   }
 
   /**

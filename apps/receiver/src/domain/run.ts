@@ -1,4 +1,4 @@
-import type { Question } from './exchange';
+import type { AskedQuestion } from './exchange';
 import type { GatewayRefusal } from './grant';
 import type { Instant, RunId, TaskId } from './ids';
 import type { AgentReport, ChangeRef, Snapshot } from './work';
@@ -15,7 +15,11 @@ export type RunFailureReason =
 
 /** How a run ended, as the agent runner reports it. */
 export type RunOutcome =
-  | { readonly kind: 'question'; readonly question: Question; readonly snapshot: Snapshot | null }
+  | {
+      readonly kind: 'question';
+      readonly question: AskedQuestion;
+      readonly snapshot: Snapshot | null;
+    }
   | { readonly kind: 'change'; readonly change: ChangeRef; readonly report: AgentReport }
   | { readonly kind: 'no-change'; readonly explanation: string }
   /** The subscription's session or weekly limit ran out; it resets at `resetAt`. */
@@ -48,8 +52,8 @@ export type RunState =
   | { readonly kind: 'aborted'; readonly at: Instant };
 
 /**
- * How a run begins: the task's first, one that goes on with a paused session, or one that
- * starts over, told the exchanges so far, because the paused session cannot be resumed.
+ * How a run begins: from scratch (`start`), with the task's paused session (`resume`), or over
+ * again, told the exchanges so far because no session is there to go on with (`replay`).
  */
 export type RunKind = 'start' | 'resume' | 'replay';
 

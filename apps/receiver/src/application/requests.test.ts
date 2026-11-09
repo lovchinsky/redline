@@ -155,7 +155,6 @@ describe('answering', () => {
     app.runner.outcomes.push({
       kind: 'question',
       question: {
-        id: QuestionId('q1'),
         text: 'Every breakpoint?',
         options: ['Yes', 'Desktop only'],
       },
@@ -165,7 +164,7 @@ describe('answering', () => {
     const answered = await app.requests.reply(
       ann,
       task.id,
-      { questionId: QuestionId('q1'), text: 'Yes' },
+      { questionId: app.store.question(task.id), text: 'Yes' },
       null,
     );
     expect(answered.ok && answered.value.state.kind).toBe('queued');

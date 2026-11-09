@@ -1,10 +1,17 @@
 import type { CredentialSource } from './grant';
-import { lastExchange, openExchange, settleLast, type Answer, type Exchange } from './exchange';
+import {
+  lastExchange,
+  openExchange,
+  questionIdOf,
+  settleLast,
+  type Answer,
+  type Exchange,
+} from './exchange';
 import { failure, type Failure, type FailureCode } from './failure';
 import type { BlobDigest, Instant, ProjectId, QuestionId, RunId, TaskId, UserId } from './ids';
 import { retryDelay, type TaskPolicy } from './policy';
 import { err, ok, type Result } from './result';
-import type { RunFailureReason, RunOutcome } from './run';
+import type { RunFailureReason, RunKind, RunOutcome } from './run';
 import type { AgentReport, ChangeRef, ChangeRequestRef, Snapshot } from './work';
 
 /** The bundle a task was submitted with. Its files live in the blob store, by their hashes. */
@@ -33,7 +40,13 @@ export type TaskState =
       readonly questionId: QuestionId;
       readonly snapshot: Snapshot | null;
     }
-  | { readonly kind: 'publishing'; readonly change: ChangeRef; readonly report: AgentReport }
+  /** The change, one commit on top of `baseSha`, is being published. */
+  | {
+      readonly kind: 'publishing';
+      readonly baseSha: string;
+      readonly change: ChangeRef;
+      readonly report: AgentReport;
+    }
   | { readonly kind: 'published'; readonly changeRequest: ChangeRequestRef }
   | { readonly kind: 'failed'; readonly failure: Failure }
   | { readonly kind: 'cancelled'; readonly reason: string };
@@ -217,6 +230,12 @@ export const beginRun = (
   );
 };
 
+/** How the task's current run begins (`RunKind`). */
+export const runKindOf = (task: Task): RunKind => {
+  if (task.state.kind === 'running' && task.state.resumedFrom !== null) return 'resume';
+  return task.exchanges.length > 0 ? 'replay' : 'start';
+};
+
 /**
  * The task's run cannot start without the requester's credential, which the gateway does not
  * hold: the task waits for it. Saying so again changes nothing.
@@ -286,8 +305,9 @@ export const applyOutcome = (
       if (questionsLeft(task, policy) === 0) {
         return fail(task, 'agent-failed', 'it asked more questions than the project allows', now);
       }
+      const questionId = questionIdOf(runId);
       const exchange: Exchange = {
-        question: outcome.question,
+        question: { id: questionId, ...outcome.question },
         askedAt: now,
         answer: null,
         closed: false,
@@ -295,28 +315,27 @@ export const applyOutcome = (
       return move(
         task,
         {
-          state: {
-            kind: 'awaiting-reply',
-            questionId: outcome.question.id,
-            snapshot: outcome.snapshot,
-          },
+          state: { kind: 'awaiting-reply', questionId, snapshot: outcome.snapshot },
           exchanges: [...task.exchanges, exchange],
         },
-        { type: 'question-asked', questionId: outcome.question.id, at: now },
-        [
-          {
-            kind: 'schedule-reply-timeout',
-            questionId: outcome.question.id,
-            at: now + policy.replyTimeoutMs,
-          },
-        ],
+        { type: 'question-asked', questionId, at: now },
+        [{ kind: 'schedule-reply-timeout', questionId, at: now + policy.replyTimeoutMs }],
       );
     }
     case 'change':
+      // A change is a commit on the task's base: a run fixes the base before its agent starts.
+      if (task.baseSha === null) {
+        return fail(task, 'agent-failed', 'the run proposed a change without a base commit', now);
+      }
       return move(
         task,
         {
-          state: { kind: 'publishing', change: outcome.change, report: outcome.report },
+          state: {
+            kind: 'publishing',
+            baseSha: task.baseSha,
+            change: outcome.change,
+            report: outcome.report,
+          },
           publishAttempts: 0,
         },
         { type: 'change-proposed', runId, at: now },

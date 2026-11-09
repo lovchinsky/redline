@@ -26,7 +26,6 @@ import {
   SequentialIds,
   silentLogger,
 } from '../../application/testing/fakes';
-import { QuestionId } from '../../domain/ids';
 import type { ModelAccessPolicy } from '../../ports/access';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { StoredBundles } from '../blobs/stored-bundles';
@@ -324,7 +323,6 @@ describe('receiver-api.v1 over HTTP', () => {
     runner.outcomes.push({
       kind: 'question',
       question: {
-        id: QuestionId('q1'),
         text: 'Every breakpoint?',
         options: ['Yes', 'Desktop only'],
       },
@@ -333,24 +331,25 @@ describe('receiver-api.v1 over HTTP', () => {
     const taskId = [...store.state.tasks.keys()][0];
     if (taskId === undefined) throw new Error('No task');
     await supervise.handle(taskId, new AbortController().signal);
+    const questionId = store.question(taskId);
     const asked = await app.inject({ method: 'GET', url: `/v1/tasks/${remoteId}`, headers: ANN });
     expect(asked.json()).toMatchObject({
       status: {
         phase: 'needs-input',
-        question: { id: 'q1', text: 'Every breakpoint?', options: ['Yes', 'Desktop only'] },
+        question: { id: questionId, text: 'Every breakpoint?', options: ['Yes', 'Desktop only'] },
       },
       pollAfterSec: 60,
     });
-    const reply = (questionId: string, text: string) =>
+    const reply = (text: string) =>
       app.inject({
         method: 'POST',
         url: `/v1/tasks/${remoteId}/replies`,
         headers: ANN,
         payload: { questionId, text },
       });
-    expect((await reply('q1', 'Yes')).json()).toMatchObject({ status: { phase: 'queued' } });
-    expect((await reply('q1', 'Yes')).statusCode).toBe(200);
-    expect((await reply('q1', 'No')).statusCode).toBe(409);
+    expect((await reply('Yes')).json()).toMatchObject({ status: { phase: 'queued' } });
+    expect((await reply('Yes')).statusCode).toBe(200);
+    expect((await reply('No')).statusCode).toBe(409);
     expect(
       (
         await app.inject({

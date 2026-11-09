@@ -10,6 +10,7 @@ import {
   UserId,
   type BlobDigest,
   type Instant,
+  type QuestionId as QuestionIdType,
   type TaskId as TaskIdType,
   type UserId as UserIdType,
 } from '../../domain/ids';
@@ -197,6 +198,13 @@ export class MemoryStore implements UnitOfWork, TaskQueries {
     const task = this.state.tasks.get(id);
     if (task === undefined) throw new Error(`No task ${id}`);
     return task;
+  }
+
+  /** The question the task waits on an answer to. */
+  question(id: TaskIdType): QuestionIdType {
+    const { state } = this.task(id);
+    if (state.kind !== 'awaiting-reply') throw new Error(`Task ${id} is ${state.kind}`);
+    return state.questionId;
   }
 
   jobsOf(queue: Job['queue']) {
