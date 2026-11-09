@@ -178,7 +178,7 @@ export const migrations: Record<string, Migration> = {
         .addColumn('token_hash', 'text', (column) => column.notNull().unique())
         .addColumn('issued_at', 'timestamptz', (column) => column.notNull())
         .execute();
-      // The gateway reads grants with its own, narrower role.
+      // A grant's token is the run's: the receiver keeps only its hash.
       await sql`comment on table run_grants is 'Grants of model access for running runs; hashes only.'`.execute(
         db,
       );

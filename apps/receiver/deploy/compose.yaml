@@ -15,6 +15,7 @@ x-receiver: &receiver
     REDLINE_VAULT_SOCKET: /run/redline/vault.sock
   depends_on:
     postgres: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
   restart: unless-stopped
 
 services:
@@ -31,6 +32,18 @@ services:
       retries: 12
     networks: [service]
     restart: unless-stopped
+
+  # Brings the database schema and the queues up to date, then exits; every other service of
+  # the receiver starts after it.
+  migrate:
+    <<: *receiver
+    command: [migrate]
+    volumes:
+      - ./receiver.yaml:/etc/redline/receiver.yaml:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [service]
+    restart: 'no'
 
   # The extension's receiver-api.v1: tasks and users. No Docker, no git host, no model key.
   api:

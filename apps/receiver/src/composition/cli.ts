@@ -1,7 +1,14 @@
 import type { Server } from 'node:http';
 import { parseArgs } from 'node:util';
 import { TaskId, UserId } from '../domain/ids';
-import { administration, assemble, loadConfig, loggerFor, type Role } from './receiver';
+import {
+  administration,
+  assemble,
+  loadConfig,
+  loggerFor,
+  migrateStorage,
+  type Role,
+} from './receiver';
 import { checkDeployment } from './check';
 import { settingsFrom } from './settings';
 
@@ -10,7 +17,8 @@ const USAGE = `Usage: receiver <command>
   serve api|worker|gateway|egress|all
                                   Serve the API, work the queues, serve the gateway's model or
                                   egress side, or all of them in one process
-  migrate                         Bring the database schema up to date
+  migrate                         Bring the database schema and the queues up to date: before
+                                  the first start and after each upgrade (a worker does too)
   config check [--offline]        Validate the configuration, then check what it names:
                                   repositories, publishing targets, the secret scanner,
                                   sandboxes and their image, the operator's credential
@@ -37,27 +45,6 @@ const argument = (positionals: readonly string[], index: number, name: string): 
 };
 
 const ROLES: readonly Role[] = ['api', 'worker', 'gateway', 'egress', 'all'];
-
-/** How long a stopping gateway lets the answers and tunnels in flight finish. */
-const DRAIN_MS = 60_000;
-
-/**
- * Stops taking connections and waits for those open to end, for at most `DRAIN_MS`: a model
- * answer still streaming is metered before the database goes. Past that, they are cut; their
- * reservations stay counted.
- */
-const drain = (server: Server | null) =>
-  server === null
-    ? Promise.resolve()
-    : new Promise<void>((resolve) => {
-        const cut = setTimeout(() => {
-          server.closeAllConnections();
-        }, DRAIN_MS);
-        server.close(() => {
-          clearTimeout(cut);
-          resolve();
-        });
-      });
 
 const listen = (server: Server, host: string, port: number) =>
   new Promise<string>((resolve, reject) => {
@@ -125,7 +112,6 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
         process.once('SIGTERM', stop);
         process.once('SIGINT', stop);
       });
-      await Promise.all([drain(receiver.gateway), drain(receiver.egress)]);
       await receiver.stop();
       return 0;
     }
@@ -148,16 +134,22 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
       return checks.every((check) => check.ok) ? 0 : 1;
     }
 
+    if (command === 'migrate') {
+      await migrateStorage(
+        settings,
+        await loadConfig(settings.configPath),
+        loggerFor(settings, 'cli'),
+      );
+      print('The database schema and the queues are up to date.');
+      return 0;
+    }
+
     const admin = await administration(
       settings,
       await loadConfig(settings.configPath),
       loggerFor(settings, 'cli'),
     );
     try {
-      if (command === 'migrate') {
-        print('The database schema is up to date.');
-        return 0;
-      }
       if (command === 'users' && sub === 'add') {
         const id = argument(positionals, 2, 'user id');
         if (values.name === undefined) throw new UsageError('users add needs --name');

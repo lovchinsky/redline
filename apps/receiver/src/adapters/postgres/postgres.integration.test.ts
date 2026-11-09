@@ -26,8 +26,9 @@ beforeAll(async () => {
   drop = database.drop;
   db = openDatabase(database.url);
   expect(await migrate(db)).toEqual(Object.keys(migrations));
-  jobs = PgBossJobs.create(database.url, limits, silentLogger);
+  jobs = PgBossJobs.create(database.url, silentLogger, { maintains: true });
   await jobs.start();
+  await jobs.prepare(limits);
   store = new PostgresStore(db, (trx) => jobs.scheduler(trx));
   users = new PostgresUsers(db);
   await users.add({ id: UserId('ann'), name: 'Ann Lee', email: 'ann@example.com' }, new Date());
@@ -256,7 +257,7 @@ describe('PgBossJobs', () => {
       'withdraw-change': () => Promise.resolve(),
       'forget-credential': () => Promise.resolve(),
     };
-    await jobs.work(handlers);
+    await jobs.work(handlers, limits);
     await expect
       .poll(() => delivered, { timeout: 20_000, interval: 200 })
       .toEqual([{ queue: 'publish', taskId: submitted.task.id, projectId: 'acme' }]);

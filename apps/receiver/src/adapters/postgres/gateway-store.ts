@@ -7,7 +7,7 @@ import type { TokenUsage } from '../../domain/usage';
 import type { GrantBook, MeteredRequest, UsageLedger } from '../../ports/gateway';
 import { grantTermsFromRecord, refusalToRecord } from './records';
 import type { Database } from './schema';
-import { refusalOf, sha256 } from './store';
+import { refusalOf, sha256 } from './shared';
 
 /**
  * What the gateway reads and writes in Postgres: the grants in force (read only), its refusals

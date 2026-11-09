@@ -5,7 +5,7 @@ import { StoredBundles } from '../adapters/blobs/stored-bundles';
 import { ConfiguredProjects, parseConfig, type ReceiverConfig } from '../adapters/config/config';
 import { buildApi } from '../adapters/http/server';
 import { migrate, openDatabase } from '../adapters/postgres/database';
-import { PgBossJobs } from '../adapters/postgres/jobs';
+import { PgBossJobs, type WorkerLimits } from '../adapters/postgres/jobs';
 import { PostgresStore } from '../adapters/postgres/store';
 import { PostgresUsers } from '../adapters/postgres/users';
 import { ScriptedGit } from '../adapters/scripted/scripted-git';
@@ -51,6 +51,50 @@ import type { Settings } from './settings';
  */
 export type Role = 'api' | 'worker' | 'gateway' | 'egress' | 'all';
 
+interface Parts {
+  readonly api: boolean;
+  readonly worker: boolean;
+  /** The gateway's model side. */
+  readonly gateway: boolean;
+  readonly egress: boolean;
+}
+
+const PARTS: Record<Role, Parts> = {
+  api: { api: true, worker: false, gateway: false, egress: false },
+  worker: { api: false, worker: true, gateway: false, egress: false },
+  gateway: { api: false, worker: false, gateway: true, egress: false },
+  egress: { api: false, worker: false, gateway: false, egress: true },
+  all: { api: true, worker: true, gateway: true, egress: true },
+};
+
+/** What a role runs under `config`: a scripted agent calls no model, so nothing is its gateway. */
+const partsOf = (role: Role, config: ReceiverConfig): Parts => {
+  const parts = PARTS[role];
+  const sandboxed = config.agent.kind === 'claude';
+  return role === 'all' && !sandboxed ? { ...parts, gateway: false, egress: false } : parts;
+};
+
+/** How long a stopping gateway lets the answers and tunnels in flight finish. */
+const DRAIN_MS = 60_000;
+
+/**
+ * Stops taking connections and waits for those open to end, for at most `DRAIN_MS`: a model
+ * answer still streaming is metered before the database goes. Past that, they are cut; their
+ * reservations stay counted.
+ */
+const drain = (server: Server | null) =>
+  server === null || !server.listening
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        const cut = setTimeout(() => {
+          server.closeAllConnections();
+        }, DRAIN_MS);
+        server.close(() => {
+          clearTimeout(cut);
+          resolve();
+        });
+      });
+
 /** How long an idle requester's credential stays in memory: past every polling interval. */
 const CREDENTIAL_IDLE_MS = 24 * 3_600_000;
 /** How often a worker frees what finished runs still hold. */
@@ -59,7 +103,7 @@ const HOUSEKEEPING_MS = 10 * 60_000;
 const SANDBOX_GRACE_MS = 2 * 60_000;
 
 /** A secret file's content, which must not be empty. */
-const secretOf = async (file: string, what: string): Promise<string> => {
+export const secretOf = async (file: string, what: string): Promise<string> => {
   const secret = (await readFile(file, 'utf8')).trim();
   if (secret === '') throw new Error(`${what} in ${file} is empty`);
   return secret;
@@ -119,6 +163,14 @@ export const gitOf = async (
   return { source: mirrors, scanner, forge: github, mirrors, github };
 };
 
+/** The Docker the sandboxes of a sandboxed agent run in. */
+export const sandboxesOf = (agent: Extract<ReceiverConfig['agent'], { kind: 'claude' }>) =>
+  new DockerSandboxes({
+    socketPath: agent.dockerSocket,
+    runtime: agent.runtime,
+    user: `${String(agent.user.uid)}:${String(agent.user.gid)}`,
+  });
+
 const runnerOf = (
   config: ReceiverConfig,
   blobs: BlobStore,
@@ -130,11 +182,7 @@ const runnerOf = (
   if (mirrors === null)
     throw new Error('The claude agent needs real repositories (git: local or github)');
   return new SandboxedClaudeRunner({
-    sandboxes: new DockerSandboxes({
-      socketPath: agent.dockerSocket,
-      runtime: agent.runtime,
-      user: `${String(agent.user.uid)}:${String(agent.user.gid)}`,
-    }),
+    sandboxes: sandboxesOf(agent),
     sources: mirrors,
     blobs,
     settings: {
@@ -179,12 +227,12 @@ const gatewayOf = async (
   config: ReceiverConfig,
   db: ReturnType<typeof openDatabase>,
   vault: MemoryVault,
-  sides: { readonly model: boolean; readonly egress: boolean },
+  parts: Parts,
   logger: Logger,
 ): Promise<Listeners> => {
   const book = new PostgresGateway(db);
   const prices = config.gateway.prices;
-  const gateway = sides.model
+  const gateway = parts.gateway
     ? createModelProxy({
         access: new ModelGateway({
           grants: book,
@@ -200,7 +248,7 @@ const gatewayOf = async (
         logger: logger.child({ component: 'gateway' }),
       })
     : null;
-  const egress = sides.egress
+  const egress = parts.egress
     ? createEgressProxy({
         access: new EgressGate({ grants: book, logger: logger.child({ component: 'egress' }) }),
         logger: logger.child({ component: 'egress' }),
@@ -209,9 +257,109 @@ const gatewayOf = async (
   return { gateway, egress };
 };
 
+/** The queues' limits under `config`: a run job lasts as long as the longest project's run. */
+const workerLimitsOf = (config: ReceiverConfig): WorkerLimits => ({
+  runSlots: config.worker.runSlots,
+  runsPerProject: config.worker.runsPerProject,
+  runTimeoutSeconds:
+    Math.max(...config.projects.map((project) => project.execution.timeoutMs)) / 1000,
+});
+
+/**
+ * Brings storage up to date: the database schema, pg-boss's own, and the queues with the
+ * policies `config` calls for. The `migrate` command and the worker do this; no other role does.
+ */
+const prepareStorage = async (
+  db: ReturnType<typeof openDatabase>,
+  jobs: PgBossJobs,
+  config: ReceiverConfig,
+): Promise<void> => {
+  await migrate(db);
+  await jobs.start();
+  await jobs.prepare(workerLimitsOf(config));
+};
+
+/** The worker: runs tasks' agents and publishes their changes, as the queues hand them out. */
+const workerOf = async (
+  settings: Settings,
+  config: ReceiverConfig,
+  deps: {
+    readonly store: PostgresStore;
+    readonly jobs: PgBossJobs;
+    readonly writer: TaskWriter;
+    readonly projects: ConfiguredProjects;
+    readonly blobs: BlobStore;
+    readonly bundles: StoredBundles;
+    readonly users: PostgresUsers;
+    readonly vault: CredentialVault;
+  },
+  logger: Logger,
+): Promise<() => void> => {
+  const { store, jobs, writer, projects, blobs, bundles, users, vault } = deps;
+  // Only what runs tasks holds the git host's and Docker's credentials.
+  const git = await gitOf(settings, config, blobs, logger);
+  const runner = runnerOf(config, blobs, git.mirrors, logger);
+  const supervise = new SuperviseRun({
+    queries: store,
+    uow: store,
+    writer,
+    projects,
+    bundles,
+    source: git.source,
+    runner,
+    vault,
+    access: config.modelAccess,
+    ids: randomIds,
+    clock: systemClock,
+    logger: logger.child({ component: 'runs' }),
+  });
+  const publish = new PublishChange({
+    queries: store,
+    writer,
+    projects,
+    bundles,
+    identity: users,
+    source: git.source,
+    scanner: git.scanner,
+    forge: git.forge,
+    logger: logger.child({ component: 'publishing' }),
+  });
+  const expire = new ExpireQuestion({ writer, projects });
+  const abort = new AbortRun({ runner });
+  const forget = new ForgetCredential({ vault });
+  const withdraw = new WithdrawChange({ queries: store, projects, forge: git.forge, logger });
+  const strays = new ReleaseStrays({
+    uow: store,
+    runner,
+    logger: logger.child({ component: 'runs' }),
+  });
+  const tidy = () => {
+    strays.handle().catch((error: unknown) => {
+      logger.warn('Housekeeping failed', { error: String(error) });
+    });
+  };
+  tidy();
+  const housekeeping = setInterval(tidy, HOUSEKEEPING_MS);
+  await jobs.work(
+    {
+      run: (job, signal) => supervise.handle(job.taskId, signal),
+      publish: (job) => publish.handle(job.taskId),
+      'reply-timeout': (job) => expire.handle(job.taskId, job.questionId),
+      'abort-run': (job) => abort.handle(job.runId),
+      'withdraw-change': (job) => withdraw.handle(job.taskId),
+      'forget-credential': (job) => forget.handle(job.taskId),
+    },
+    workerLimitsOf(config),
+  );
+  return () => {
+    clearInterval(housekeeping);
+  };
+};
+
 /**
  * The receiver assembled from its adapters: the one place that knows which adapter serves
- * which port. Returns what the chosen role runs and how to stop it.
+ * which port. Returns what the chosen role serves and how to stop it; stopping drains the
+ * gateway's servers before the database goes.
  *
  * Requesters' credentials live in the gateway's memory. In one process (`all`) everything
  * shares that memory; split, the API and the worker reach it over the vault's socket.
@@ -222,168 +370,111 @@ export const assemble = async (
   role: Role,
   logger: Logger,
 ) => {
-  const clock = systemClock;
-  const memory = new MemoryVault(clock, CREDENTIAL_IDLE_MS);
-
-  if (role === 'gateway' || role === 'egress') {
-    const db = openDatabase(settings.databaseUrl, 4);
-    const listeners = await gatewayOf(
-      config,
-      db,
-      memory,
-      { model: role === 'gateway', egress: role === 'egress' },
-      logger,
-    );
-    const vaultServer = role === 'gateway' ? await serveVault(memory, settings.vaultSocket) : null;
-    return {
-      api: null,
-      ...listeners,
-      stop: async () => {
-        vaultServer?.close();
-        await db.destroy();
-      },
-    };
+  const parts = partsOf(role, config);
+  const tasks = parts.api || parts.worker;
+  const memory = new MemoryVault(systemClock, CREDENTIAL_IDLE_MS);
+  const db = openDatabase(settings.databaseUrl, tasks ? 10 : 4);
+  const jobs = tasks
+    ? PgBossJobs.create(settings.databaseUrl, logger.child({ component: 'jobs' }), {
+        maintains: parts.worker,
+      })
+    : null;
+  if (jobs !== null) {
+    if (parts.worker) await prepareStorage(db, jobs, config);
+    else await jobs.start();
   }
 
-  const vault: CredentialVault =
-    config.modelAccess.credentials === 'managed'
-      ? new EmptyVault()
-      : role === 'all'
-        ? memory
-        : new SocketVault(settings.vaultSocket);
-  const db = openDatabase(settings.databaseUrl);
-  await migrate(db);
-  const runTimeoutSeconds =
-    Math.max(...config.projects.map((project) => project.execution.timeoutMs)) / 1000;
-  const jobs = PgBossJobs.create(
-    settings.databaseUrl,
-    {
-      runSlots: config.worker.runSlots,
-      runsPerProject: config.worker.runsPerProject,
-      runTimeoutSeconds,
-    },
-    logger.child({ component: 'jobs' }),
-  );
-  await jobs.start();
-
-  const store = new PostgresStore(db, (trx) => jobs.scheduler(trx));
-  const users = new PostgresUsers(db);
-  const blobs = new FsBlobStore(settings.blobsPath);
-  const bundles = new StoredBundles(blobs);
-  const projects = new ConfiguredProjects(config.projects);
-  const writer = new TaskWriter({ uow: store, clock });
-  const relay = new CredentialRelay({ vault, writer, policy: config.modelAccess, logger });
-
-  const requests = new TaskRequests({
-    queries: store,
-    writer,
-    projects,
-    bundles,
-    vault,
-    relay,
-    access: config.modelAccess,
-    ids: randomIds,
-    clock,
-  });
-  const api =
-    role === 'worker'
-      ? null
-      : await buildApi({
-          requests,
-          identity: users,
-          blobs,
-          intake: config.intake,
-          polling: config.polling,
-          clock,
-          logger: logger.child({ component: 'api' }),
-        });
-  let housekeeping: NodeJS.Timeout | null = null;
-  if (role !== 'api') {
-    // Only what runs tasks holds the git host's and Docker's credentials.
-    const git = await gitOf(settings, config, blobs, logger);
-    const runner = runnerOf(config, blobs, git.mirrors, logger);
-    const supervise = new SuperviseRun({
-      queries: store,
-      uow: store,
-      writer,
-      projects,
-      bundles,
-      source: git.source,
-      runner,
-      vault,
-      access: config.modelAccess,
-      ids: randomIds,
-      clock,
-      logger: logger.child({ component: 'runs' }),
-    });
-    const publish = new PublishChange({
-      queries: store,
-      writer,
-      projects,
-      bundles,
-      identity: users,
-      source: git.source,
-      scanner: git.scanner,
-      forge: git.forge,
-      logger: logger.child({ component: 'publishing' }),
-    });
-    const expire = new ExpireQuestion({ writer, projects });
-    const abort = new AbortRun({ runner });
-    const forget = new ForgetCredential({ vault });
-    const withdraw = new WithdrawChange({ queries: store, projects, forge: git.forge, logger });
-    const strays = new ReleaseStrays({
-      uow: store,
-      runner,
-      logger: logger.child({ component: 'runs' }),
-    });
-    const tidy = () => {
-      strays.handle().catch((error: unknown) => {
-        logger.warn('Housekeeping failed', { error: String(error) });
+  let api: Awaited<ReturnType<typeof buildApi>> | null = null;
+  let stopWorker = (): void => undefined;
+  if (jobs !== null) {
+    const vault: CredentialVault =
+      config.modelAccess.credentials === 'managed'
+        ? new EmptyVault()
+        : role === 'all'
+          ? memory
+          : new SocketVault(settings.vaultSocket);
+    const store = new PostgresStore(db, (trx) => jobs.scheduler(trx));
+    const users = new PostgresUsers(db);
+    const blobs = new FsBlobStore(settings.blobsPath);
+    const bundles = new StoredBundles(blobs);
+    const projects = new ConfiguredProjects(config.projects);
+    const writer = new TaskWriter({ uow: store, clock: systemClock });
+    if (parts.api) {
+      const relay = new CredentialRelay({ vault, writer, policy: config.modelAccess, logger });
+      const requests = new TaskRequests({
+        queries: store,
+        writer,
+        projects,
+        bundles,
+        vault,
+        relay,
+        access: config.modelAccess,
+        ids: randomIds,
+        clock: systemClock,
       });
-    };
-    tidy();
-    housekeeping = setInterval(tidy, HOUSEKEEPING_MS);
-    await jobs.work({
-      run: (job, signal) => supervise.handle(job.taskId, signal),
-      publish: (job) => publish.handle(job.taskId),
-      'reply-timeout': (job) => expire.handle(job.taskId, job.questionId),
-      'abort-run': (job) => abort.handle(job.runId),
-      'withdraw-change': (job) => withdraw.handle(job.taskId),
-      'forget-credential': (job) => forget.handle(job.taskId),
-    });
+      api = await buildApi({
+        requests,
+        identity: users,
+        blobs,
+        intake: config.intake,
+        polling: config.polling,
+        clock: systemClock,
+        logger: logger.child({ component: 'api' }),
+      });
+    }
+    if (parts.worker) {
+      stopWorker = await workerOf(
+        settings,
+        config,
+        { store, jobs, writer, projects, blobs, bundles, users, vault },
+        logger,
+      );
+    }
   }
-  // One process with sandboxed agents is their gateway too; a scripted agent calls no model.
-  const listeners: Listeners =
-    role === 'all' && config.agent.kind === 'claude'
-      ? await gatewayOf(config, db, memory, { model: true, egress: true }, logger)
-      : { gateway: null, egress: null };
+
+  const listeners = await gatewayOf(config, db, memory, parts, logger);
+  // The API and the worker of another process reach the vault through its socket.
+  const vaultServer =
+    parts.gateway && role !== 'all' ? await serveVault(memory, settings.vaultSocket) : null;
 
   return {
     api,
     ...listeners,
     stop: async () => {
-      if (housekeeping !== null) clearInterval(housekeeping);
+      stopWorker();
       await api?.close();
-      await jobs.stop();
+      await Promise.all([drain(listeners.gateway), drain(listeners.egress)]);
+      vaultServer?.close();
+      await jobs?.stop();
       await db.destroy();
     },
   };
 };
 
-/** What the operator's commands work on: the database and the queues, without serving either. */
+/** Brings storage up to date (`prepareStorage`): the operator's `migrate`. */
+export const migrateStorage = async (
+  settings: Settings,
+  config: ReceiverConfig,
+  logger: Logger,
+) => {
+  const db = openDatabase(settings.databaseUrl, 2);
+  const jobs = PgBossJobs.create(settings.databaseUrl, logger, { maintains: true });
+  try {
+    await prepareStorage(db, jobs, config);
+  } finally {
+    await jobs.stop();
+    await db.destroy();
+  }
+};
+
+/** What the operator's commands work on: the database and the queues, as `migrate` left them. */
 export const administration = async (
   settings: Settings,
   config: ReceiverConfig,
   logger: Logger,
 ) => {
   const db = openDatabase(settings.databaseUrl, 2);
-  await migrate(db);
-  const jobs = PgBossJobs.create(
-    settings.databaseUrl,
-    { runSlots: 1, runsPerProject: 1, runTimeoutSeconds: 3600 },
-    logger,
-    false,
-  );
+  const jobs = PgBossJobs.create(settings.databaseUrl, logger, { maintains: false });
   await jobs.start();
   const store = new PostgresStore(db, (trx) => jobs.scheduler(trx));
   const writer = new TaskWriter({ uow: store, clock: systemClock });

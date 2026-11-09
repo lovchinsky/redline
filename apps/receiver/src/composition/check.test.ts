@@ -71,4 +71,32 @@ projects:
     expect(byName['sandboxes']).toMatchObject({ ok: false });
     expect(byName['sandbox image redline-agent:latest']).toMatchObject({ ok: false });
   });
+
+  it('fails the git host alone when its secret cannot be read, and checks the rest', async () => {
+    const parsed = parseConfig(`
+agent: { kind: scripted }
+git:
+  kind: github
+  auth: { app: { id: 1, privateKeyFile: ${path.join(dir, 'missing.pem')} } }
+  fork: { owner: acme-bot }
+  gitleaks: ${path.join(dir, 'no-gitleaks')}
+models:
+  credentials: managed
+  operator: { kind: api-key, secretFile: ${path.join(dir, 'operator-key')} }
+projects:
+  - { id: web, name: Web, repository: { host: github, name: acme/web } }
+`);
+    if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+    const settings = {
+      blobsPath: path.join(dir, 'blobs'),
+      mirrorsPath: path.join(dir, 'mirrors'),
+    } as Settings;
+    const checks = await checkDeployment(settings, parsed.value, silentLogger);
+    expect(checks.map((check) => [check.name, check.ok])).toEqual([
+      ['operator’s model credential', false],
+      ['git host', false],
+      ['secret scanner', false],
+    ]);
+    expect(checks[1]?.detail).toContain('missing.pem');
+  });
 });

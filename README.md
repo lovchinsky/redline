@@ -113,7 +113,8 @@ The host needs gVisor (`runsc` registered with Docker): the worker refuses to st
 without it, unless the configuration waives isolation by name (`isolation: unsafe-runc`). The
 token is shown once; with `https://redline.example.com` it goes on the extension's options page.
 `receiver --help` lists the operator's commands: users and tokens, `config check`, `tasks show`
-and `tasks cancel`. `agent: { kind: scripted }` runs the whole flow (a question, an answer, a
+and `tasks cancel`. Compose runs `receiver migrate` before the other services start: it alone, and
+the worker, bring the database schema and the queues up to date. `agent: { kind: scripted }` runs the whole flow (a question, an answer, a
 change request) without a model or sandboxes. With `git: github` the worker publishes pull requests through a
 GitHub App or a bot's token, to the bot's fork or to a confirmed branch, after gitleaks found no
 secret in the change; `receiver config check` then also checks every repository and publishing

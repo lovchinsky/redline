@@ -11,8 +11,7 @@ import type { Logger } from '../../ports/system';
 import type { Job, JobQueue, JobScheduler } from '../../ports/tasks';
 import type { Database } from './schema';
 
-/** What a worker does with each kind of job. A handler that throws has its job retried. */
-/** A handler for each queue, given the queue's jobs. */
+/** A handler for each queue, given the queue's jobs. A handler that throws has its job retried. */
 export type JobHandlers = {
   readonly [Queue in JobQueue]: (
     job: Extract<Job, { queue: Queue }>,
@@ -141,40 +140,42 @@ const jobFrom = (queue: JobQueue, data: Payload): Job => {
   }
 };
 
-/** Jobs as pg-boss queues in the receiver's Postgres. */
+/**
+ * Jobs as pg-boss queues in the receiver's Postgres. Only a process that `maintains` the queues
+ * installs pg-boss's schema and keeps the queues (expiry, retries, clean-up); one that only
+ * schedules jobs uses them as they are.
+ */
 export class PgBossJobs {
   constructor(
     private readonly boss: PgBoss,
-    private readonly limits: WorkerLimits,
     private readonly logger: Logger,
   ) {}
 
-  /**
-   * `background`: whether this process also maintains the queues (expiry, retries, clean-up).
-   * Long-running processes do; a short command that only schedules does not.
-   */
   static create(
     connectionString: string,
-    limits: WorkerLimits,
     logger: Logger,
-    background = true,
+    options: { readonly maintains: boolean },
   ): PgBossJobs {
     const boss = new PgBoss({
       connectionString,
       schema: 'pgboss',
-      supervise: background,
-      schedule: background,
+      migrate: options.maintains,
+      supervise: options.maintains,
+      schedule: options.maintains,
     });
     boss.on('error', (error: unknown) => {
       logger.error('Job queue error', { error: String(error) });
     });
-    return new PgBossJobs(boss, limits, logger);
+    return new PgBossJobs(boss, logger);
   }
 
-  /** Starts the queue (creating its schema on first use) and makes sure every queue exists. */
   async start(): Promise<void> {
     await this.boss.start();
-    const options = queueOptions(this.limits);
+  }
+
+  /** Makes every queue exist with the policies `limits` call for. */
+  async prepare(limits: WorkerLimits): Promise<void> {
+    const options = queueOptions(limits);
     const existing = new Set((await this.boss.getQueues()).map((queue) => queue.name));
     for (const queue of QUEUES) {
       if (existing.has(queue)) await this.boss.updateQueue(queue, updatable(options[queue]));
@@ -203,15 +204,15 @@ export class PgBossJobs {
    * Works the queues with `handlers`. A handler cut short by shutdown fails its job, so it is
    * delivered again and continues where it was, instead of being recorded as done.
    */
-  async work(handlers: JobHandlers): Promise<void> {
+  async work(handlers: JobHandlers, limits: WorkerLimits): Promise<void> {
     for (const queue of QUEUES) {
       const runs = queue === 'run';
       await this.boss.work<Payload>(
         queue,
         {
-          localConcurrency: runs ? this.limits.runSlots : 2,
+          localConcurrency: runs ? limits.runSlots : 2,
           ...(runs || queue === 'publish'
-            ? { groupConcurrency: runs ? this.limits.runsPerProject : 1 }
+            ? { groupConcurrency: runs ? limits.runsPerProject : 1 }
             : {}),
         },
         async ([delivered]) => {

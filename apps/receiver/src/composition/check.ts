@@ -1,11 +1,10 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { FsBlobStore } from '../adapters/blobs/fs-blob-store';
 import type { ReceiverConfig } from '../adapters/config/config';
-import { DockerSandboxes } from '../adapters/runner-claude/docker-sandboxes';
+import type { Fault, Result } from '../domain/result';
 import type { Logger } from '../ports/system';
-import { gitOf } from './receiver';
+import { gitOf, sandboxesOf, secretOf } from './receiver';
 import type { Settings } from './settings';
 
 const run = promisify(execFile);
@@ -16,17 +15,18 @@ export interface Check {
   readonly detail: string;
 }
 
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 const attempt = async (name: string, work: () => Promise<string>): Promise<Check> => {
   try {
     return { name, ok: true, detail: await work() };
   } catch (error) {
-    return { name, ok: false, detail: error instanceof Error ? error.message : String(error) };
+    return { name, ok: false, detail: messageOf(error) };
   }
 };
 
-const unwrap = <T>(
-  result: { ok: true; value: T } | { ok: false; error: { detail: string } },
-): T => {
+const unwrap = <T>(result: Result<T, Fault>): T => {
   if (!result.ok) throw new Error(result.error.detail);
   return result.value;
 };
@@ -46,17 +46,22 @@ export const checkDeployment = async (
   if (operator !== null) {
     checks.push(
       await attempt('operator’s model credential', async () => {
-        const secret = (await readFile(operator.secretFile, 'utf8')).trim();
-        if (secret === '') throw new Error(`${operator.secretFile} is empty`);
+        await secretOf(operator.secretFile, 'The operator’s credential');
         return `${operator.kind} in ${operator.secretFile}`;
       }),
     );
   }
 
-  const git = await gitOf(settings, config, new FsBlobStore(settings.blobsPath), logger);
+  // The git side as the worker assembles it: a secret it cannot read fails this check alone.
+  const git = await gitOf(settings, config, new FsBlobStore(settings.blobsPath), logger).catch(
+    (error: unknown) => {
+      checks.push({ name: 'git host', ok: false, detail: messageOf(error) });
+      return null;
+    },
+  );
+  const { mirrors, github } = git ?? { mirrors: null, github: null };
   for (const project of config.projects) {
-    const { mirrors, github } = git;
-    if (mirrors === null) continue;
+    if (mirrors === null) break;
     checks.push(
       await attempt(`${project.id}: repository`, async () => {
         const head = unwrap(await mirrors.reach(project.repository));
@@ -84,11 +89,7 @@ export const checkDeployment = async (
 
   const agent = config.agent;
   if (agent.kind === 'claude') {
-    const sandboxes = new DockerSandboxes({
-      socketPath: agent.dockerSocket,
-      runtime: agent.runtime,
-      user: `${String(agent.user.uid)}:${String(agent.user.gid)}`,
-    });
+    const sandboxes = sandboxesOf(agent);
     checks.push(
       await attempt('sandboxes', async () => {
         const unfit = await sandboxes.unfit([agent.networks.setup, agent.networks.agent]);

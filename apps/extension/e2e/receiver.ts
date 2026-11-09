@@ -79,6 +79,7 @@ export const startReceiver = async (
     REDLINE_LOG_LEVEL: 'warn',
   };
   const cli = (...args: string[]) => run(tsx, [main, ...args], { env, cwd: receiverDir });
+  await cli('migrate');
   await cli('users', 'add', 'ann', '--name', 'Ann Lee');
   const token = (await cli('users', 'token', 'ann')).stdout.trim();
 

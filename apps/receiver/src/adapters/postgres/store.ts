@@ -1,6 +1,5 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { sql, type Kysely, type Transaction } from 'kysely';
-import type { GatewayRefusal } from '../../domain/grant';
 import type { RunId, TaskId, UserId } from '../../domain/ids';
 import type { Run } from '../../domain/run';
 import type { Task } from '../../domain/task';
@@ -19,25 +18,11 @@ import {
   taskFromRecord,
   taskToRecord,
   grantTermsToRecord,
-  refusalFromRecord,
 } from './records';
 import type { Database } from './schema';
-
-type Executor = Kysely<Database> | Transaction<Database>;
-
-export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
+import { refusalOf, sha256, type Executor } from './shared';
 
 const json = (value: unknown): string => JSON.stringify(value);
-
-/** The gateway's last refusal of a run (`run_refusals`), read by the gateway and the worker. */
-export const refusalOf = async (db: Executor, runId: RunId): Promise<GatewayRefusal | null> => {
-  const row = await db
-    .selectFrom('run_refusals')
-    .select('refusal')
-    .where('run_id', '=', runId)
-    .executeTakeFirst();
-  return row === undefined ? null : refusalFromRecord(row.refusal, runId);
-};
 
 const readTask = (row: { id: string; record: unknown; version: number }): Task =>
   taskFromRecord(row.record, row.version, row.id);

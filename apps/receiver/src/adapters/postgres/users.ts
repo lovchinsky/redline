@@ -3,7 +3,7 @@ import type { Kysely } from 'kysely';
 import { UserId } from '../../domain/ids';
 import type { Identity, User } from '../../ports/access';
 import type { Database } from './schema';
-import { sha256 } from './store';
+import { sha256 } from './shared';
 
 const userOf = (row: { id: string; name: string; email: string | null }): User => ({
   id: UserId(row.id),
