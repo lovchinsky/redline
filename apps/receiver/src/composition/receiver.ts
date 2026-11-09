@@ -60,7 +60,8 @@ const gitOf = (settings: Settings, config: ReceiverConfig, blobs: BlobStore) => 
     identity: { name: 'Redline', email: 'redline@localhost' },
     blobs,
   });
-  // Change requests are simulated: nothing is published anywhere, so there is nothing to scan.
+  // A change goes only to the operator's own repository, as a branch with a simulated change
+  // request; secrets are scanned for once changes leave for a git host.
   return { source: mirrors, scanner: simulated, forge: simulated, mirrors };
 };
 

@@ -1,9 +1,19 @@
 # The receiver's configuration. Copy to receiver.yaml next to compose.yaml and adjust.
 
-# The agent and the git host. `scripted` runs the whole flow without a model or a repository:
-# the agent asks one question and proposes a change, the change request is simulated.
-agent: { kind: scripted, durationSeconds: 5, asks: true }
-git: { kind: scripted, resultBaseUrl: 'https://git.example/acme/web/pull/' }
+# The agent: Claude Code in a Docker sandbox per run, isolated by gVisor. The networks and the
+# gateway's addresses are the ones compose.yaml creates. `kind: scripted` instead runs the
+# whole flow without a model or sandboxes, for trying the receiver out.
+agent:
+  kind: claude
+  networks: { setup: redline-sandbox-setup, agent: redline-sandbox-agent }
+  gateway: { model: 'http://10.89.1.2:8788', egress: 'http://10.89.2.2:3128' }
+  limits: { cpus: 2, memoryMegabytes: 4096, pids: 1024 }
+  setupTimeoutMinutes: 15
+
+# The git host. `local` works on repositories by path under `root` (REDLINE_GIT_ROOT, mounted
+# into the worker): a change is pushed there as the branch `redline/<task>`, and its change
+# request is simulated at `resultBaseUrl`.
+git: { kind: local, root: /srv/git, resultBaseUrl: 'https://git.example/acme/web/pull/' }
 
 # Whose model credential tasks run with: managed (the operator's), required (each requester
 # brings their own with every request), optional (theirs when given, the operator's otherwise).
@@ -18,10 +28,20 @@ worker: { runSlots: 2, runsPerProject: 1 }
 
 defaults:
   policy: { maxQuestions: 3, replyTimeoutHours: 168, onReplyTimeout: proceed }
+  # The sandbox image (built from apps/agent-host/Dockerfile, or a project's image FROM it),
+  # the model, and the task's limits: dollars with an API key, tokens with a subscription.
+  execution:
+    image: redline-agent
+    model: claude-opus-5-5
+    maxTurns: 200
+    timeoutMinutes: 45
+    budgetUsd: 10
+    budgetTokens: 10000000
+    setupHosts: [registry.npmjs.org]
 
 projects:
   - id: acme-web
     name: Acme Web
     access: everyone
-    repository: { host: github, name: acme/web, baseBranch: main }
+    repository: { host: local, name: acme/web.git, baseBranch: main }
     publishing: { target: fork, draft: true }

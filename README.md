@@ -78,24 +78,39 @@ receiver and against the receiver in this repository.
 
 ## Running the receiver
 
-`apps/receiver` is a receiver for one team: an HTTP API, a worker that runs the agent and
-publishes changes, Postgres for state and its job queue. Its agent and git host are scripted for
-now: the whole flow runs (a question, an answer, a change request) without a model or a
-repository.
+`apps/receiver` is a receiver for one team. Its services run with only what each needs:
+
+- `api` serves the extension (tasks, users, tokens) and has no Docker, git host or model key;
+- `worker` runs tasks: a Docker sandbox per run (gVisor), mirrors of the projects' repositories;
+- `gateway` is the agent sandboxes' only way out, to the model: it filters every request, puts
+  the task's model credential in place of the run's grant and stops a task at its budget;
+- `egress` tunnels the setup sandboxes to their projects' package registries, and nowhere else;
+- Postgres keeps the state and the job queue; Caddy terminates TLS in front of the API.
+
+A run is two sandboxes on the run's own volumes: the project's install
+(`.redline/receiver.yaml` on the base commit) and `agent-host` (`apps/agent-host`), which runs
+Claude Code through the Agent SDK and leaves its outcome and change for the worker.
 
 ```bash
+docker build -f apps/agent-host/Dockerfile -t redline-agent .   # the sandbox image
 cd apps/receiver/deploy
 cp receiver.example.yaml receiver.yaml   # projects, limits, whose model credentials
+mkdir -p secrets && printf %s "$ANTHROPIC_API_KEY" > secrets/anthropic-api-key
 echo "REDLINE_DOMAIN=redline.example.com" >> .env
 echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+echo "DOCKER_GID=$(stat -c %g /var/run/docker.sock)" >> .env
+echo "REDLINE_GIT_ROOT=/srv/git" >> .env   # the repositories of `git: local`
 docker compose up -d
-docker compose exec receiver node dist/receiver.mjs users add ann --name "Ann Lee"
-docker compose exec receiver node dist/receiver.mjs users token ann
+docker compose exec api node dist/receiver.mjs users add ann --name "Ann Lee"
+docker compose exec api node dist/receiver.mjs users token ann
 ```
 
-The token is shown once; with `https://redline.example.com` it goes on the extension's options
-page. `receiver --help` lists the operator's commands: users and tokens, `config check`,
-`tasks show` and `tasks cancel`.
+The host needs gVisor (`runsc` registered with Docker): the worker refuses to start a sandbox
+without it, unless the configuration waives isolation by name (`isolation: unsafe-runc`). The
+token is shown once; with `https://redline.example.com` it goes on the extension's options page.
+`receiver --help` lists the operator's commands: users and tokens, `config check`, `tasks show`
+and `tasks cancel`. `agent: { kind: scripted }` runs the whole flow (a question, an answer, a
+change request) without a model or sandboxes.
 
 A bundle is `manifest.json` plus `context.md` (the summary an agent reads first, within a token
 budget per step), `more-context.md` (what did not fit), screenshots under `assets/` and detail
@@ -132,6 +147,9 @@ secret URL parameters. There is no telemetry. See
 | `apps/extension/src/ui`          | Preact UI: overlay, side panel, options                                                 |
 | `apps/extension/src/entrypoints` | WXT entry points; they only start a composition root                                    |
 | `apps/receiver`                  | The receiver: domain, use cases, ports and adapters, like the extension                 |
+| `apps/agent-host`                | The program in a run's sandbox: one brief, Claude Code, an outcome and a change         |
+| `packages/agent-protocol`        | What the receiver and agent-host exchange: the run's files, brief, outcome, refusals    |
+| `packages/path-patterns`         | Path globs read the same way by the change policy and the agent's write guard           |
 | `tools/mock-receiver`            | In-memory receiver implementing `receiver-api.v1`, for e2e tests and trying things out  |
 | `tools/contract-conformance`     | What the extension relies on in `receiver-api.v1`, run against any receiver             |
 | `tools/eval`                     | Anchor quality on a corpus of real-world apps; gates CI                                 |

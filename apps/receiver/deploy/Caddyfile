@@ -7,5 +7,5 @@
 		# (413), past this the edge does.
 		max_size 100MB
 	}
-	reverse_proxy receiver:8787
+	reverse_proxy api:8787
 }

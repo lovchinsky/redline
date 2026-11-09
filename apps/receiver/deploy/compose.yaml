@@ -1,6 +1,21 @@
 # The receiver for one team: `docker compose up -d` in this directory, after setting
-# REDLINE_DOMAIN and POSTGRES_PASSWORD in `.env` and writing `receiver.yaml`.
+# REDLINE_DOMAIN, POSTGRES_PASSWORD, DOCKER_GID and REDLINE_GIT_ROOT in `.env`, writing `receiver.yaml`, putting
+# the operator's model credential in `secrets/anthropic-api-key` and building the sandbox image
+# (`docker build -f apps/agent-host/Dockerfile -t redline-agent .` from the repository root).
+# The host runs gVisor: Docker has the `runsc` runtime.
 name: redline
+
+x-receiver: &receiver
+  build:
+    context: ../../..
+    dockerfile: apps/receiver/Dockerfile
+  environment: &environment
+    DATABASE_URL: postgres://redline:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/redline
+    REDLINE_CONFIG: /etc/redline/receiver.yaml
+    REDLINE_VAULT_SOCKET: /run/redline/vault.sock
+  depends_on:
+    postgres: { condition: service_healthy }
+  restart: unless-stopped
 
 services:
   postgres:
@@ -17,19 +32,14 @@ services:
     networks: [service]
     restart: unless-stopped
 
-  receiver:
-    build:
-      context: ../../..
-      dockerfile: apps/receiver/Dockerfile
-    command: [serve, all]
-    environment:
-      DATABASE_URL: postgres://redline:${POSTGRES_PASSWORD}@postgres:5432/redline
-      REDLINE_CONFIG: /etc/redline/receiver.yaml
+  # The extension's receiver-api.v1: tasks and users. No Docker, no git host, no model key.
+  api:
+    <<: *receiver
+    command: [serve, api]
     volumes:
       - ./receiver.yaml:/etc/redline/receiver.yaml:ro
       - blobs:/var/lib/redline/blobs
-    depends_on:
-      postgres: { condition: service_healthy }
+      - vault:/run/redline
     healthcheck:
       test:
         [
@@ -40,7 +50,53 @@ services:
         ]
       interval: 10s
     networks: [public, service]
-    restart: unless-stopped
+
+  # Runs tasks: sandboxes through Docker, mirrors of the repositories. Nobody calls it.
+  worker:
+    <<: *receiver
+    command: [serve, worker]
+    group_add: ['${DOCKER_GID:?set DOCKER_GID in .env to the group of /var/run/docker.sock}']
+    volumes:
+      - ./receiver.yaml:/etc/redline/receiver.yaml:ro
+      - blobs:/var/lib/redline/blobs
+      - mirrors:/var/lib/redline/mirrors
+      - ${REDLINE_GIT_ROOT:?set REDLINE_GIT_ROOT in .env to the directory of the repositories}:/srv/git
+      - vault:/run/redline
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [service, outbound]
+
+  # The model side of the gateway: the agent sandboxes' only way out. It holds the model
+  # credentials, the operator's from its secret file and requesters' in memory.
+  gateway:
+    <<: *receiver
+    command: [serve, gateway]
+    environment:
+      <<: *environment
+      REDLINE_GATEWAY_PORT: '8788'
+    secrets: [anthropic-api-key]
+    volumes:
+      - ./receiver.yaml:/etc/redline/receiver.yaml:ro
+      - vault:/run/redline
+    networks:
+      service:
+      outbound:
+      sandbox-agent:
+        ipv4_address: 10.89.1.2
+
+  # The egress side: the setup sandboxes' tunnels to their projects' package registries.
+  egress:
+    <<: *receiver
+    command: [serve, egress]
+    environment:
+      <<: *environment
+      REDLINE_EGRESS_PORT: '3128'
+    volumes:
+      - ./receiver.yaml:/etc/redline/receiver.yaml:ro
+    networks:
+      service:
+      outbound:
+      sandbox-setup:
+        ipv4_address: 10.89.2.2
 
   # TLS in front of the API: the extension accepts a receiver only over https (or on localhost).
   edge:
@@ -51,17 +107,37 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy:/data
-    depends_on: [receiver]
+    depends_on: [api]
     networks: [public]
     restart: unless-stopped
 
 networks:
-  # The edge reaches the receiver; only the receiver reaches the database.
+  # The edge reaches the API; the services reach the database; nothing on them reaches out.
   public:
   service:
     internal: true
+  # The internet, for the worker (git hosts), the gateway (the model) and egress (registries).
+  outbound:
+  # A run's sandboxes: internal networks whose only other member is one side of the gateway.
+  # Their names and the gateway's addresses are what `agent.networks` and `agent.gateway` say.
+  sandbox-agent:
+    name: redline-sandbox-agent
+    internal: true
+    ipam:
+      config: [{ subnet: 10.89.1.0/24 }]
+  sandbox-setup:
+    name: redline-sandbox-setup
+    internal: true
+    ipam:
+      config: [{ subnet: 10.89.2.0/24 }]
+
+secrets:
+  anthropic-api-key:
+    file: ./secrets/anthropic-api-key
 
 volumes:
   postgres:
   blobs:
+  mirrors:
+  vault:
   caddy:

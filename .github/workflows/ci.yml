@@ -102,8 +102,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Storage, the job queue in one transaction, and the contract the extension relies on.
       - run: pnpm test:integration
-      # The image the deployment builds (apps/receiver/deploy/compose.yaml).
+      # The images the deployment builds (apps/receiver/deploy/compose.yaml).
       - run: docker build -f apps/receiver/Dockerfile -t redline-receiver .
+      - run: docker build -f apps/agent-host/Dockerfile -t redline-agent .
+      # agent-host starts in its image and fails only for want of a grant: the bundle and the
+      # Agent SDK it loads are in place.
+      - run: |
+          docker run --rm --entrypoint node redline-agent /opt/agent-host/dist/agent-host.mjs 2>&1 \
+            | grep -q 'No grant'
 
   eval:
     name: Anchor quality (tools/eval)

@@ -93,8 +93,9 @@ const agent = z.discriminatedUnion('kind', [
 ]);
 
 /**
- * The git host: `scripted` simulates one; `local` reads repositories by path under `root`
- * (`repository.host: local`) and publishes nowhere: its change requests are simulated.
+ * The git host: `scripted` simulates one; `local` works on repositories by path under `root`
+ * (`repository.host: local`), pushes a change there as its branch and simulates the change
+ * request.
  */
 const git = z.discriminatedUnion('kind', [
   z.object({
