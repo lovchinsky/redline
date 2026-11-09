@@ -6,6 +6,7 @@ import {
   beginRun,
   fixBase,
   loseRun,
+  resumptionOf,
   runKindOf,
   type Task,
   type TransitionResult,
@@ -200,14 +201,13 @@ export class SuperviseRun {
       baseSha,
       setup: settings.value.setup,
       brief: composeBrief(task, bundle, project, settings.value),
-      resumeFrom: task.state.kind === 'running' ? task.state.resumedFrom : null,
+      resume: resumptionOf(task),
       grants: access.grants,
       credential: access.credential,
       execution: project.execution,
     });
-    return started.ok
-      ? { kind: 'started' }
-      : ended(started.error.transient ? 'infra' : 'agent-failed', started.error.detail);
+    // Where runs run failed it, not the task: its run is tried again.
+    return started.ok ? { kind: 'started' } : ended('infra', started.error.detail);
   }
 
   private async supervise(taskId: TaskId, runId: RunId, signal: AbortSignal): Promise<void> {

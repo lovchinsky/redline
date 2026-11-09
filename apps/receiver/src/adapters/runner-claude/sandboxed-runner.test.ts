@@ -213,7 +213,7 @@ const spec = async (
       limits: { maxFiles: 50, maxChangedLines: 2000 },
       checks: ['pnpm test'],
     },
-    resumeFrom: null,
+    resume: null,
     grants: { setup: 'setup-grant' as GrantToken, agent: 'agent-grant' as GrantToken },
     credential,
     execution: project().execution,
@@ -448,7 +448,7 @@ describe('SandboxedClaudeRunner', () => {
     sandboxes.unfitReason = 'Docker has no runsc runtime';
     expect(await runner().start(await spec())).toEqual({
       ok: false,
-      error: { transient: false, detail: 'Docker has no runsc runtime' },
+      error: { detail: 'Docker has no runsc runtime' },
     });
     expect(sandboxes.containers.size).toBe(0);
   });
@@ -556,7 +556,7 @@ describe('SandboxedClaudeRunner', () => {
     sandboxes.images.clear();
     expect(await runner().start(await spec())).toMatchObject({
       ok: false,
-      error: { transient: false, detail: expect.stringContaining('no image') as string },
+      error: { detail: expect.stringContaining('no image') as string },
     });
   });
 
@@ -615,10 +615,9 @@ describe('SandboxedClaudeRunner', () => {
       await runner().start({
         ...base,
         brief: { ...base.brief, exchanges: [asked] },
-        resumeFrom: {
-          blob: BlobDigest(digest),
-          image: IMAGE_ID,
-          model: project().execution.model,
+        resume: {
+          snapshot: { blob: BlobDigest(digest), image: IMAGE_ID, model: project().execution.model },
+          answer: asked.answer,
         },
       });
       const into = async (target: string) => {

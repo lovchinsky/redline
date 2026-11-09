@@ -248,6 +248,25 @@ export const beginRun = (
   );
 };
 
+/**
+ * A paused session a run goes on with, and how the question it paused on was settled: a run
+ * ends with at most one question, so the session waits on the task's last exchange.
+ */
+export interface Resumption {
+  readonly snapshot: Snapshot;
+  /** Null when the session paused on no question (the subscription's limit, a credential). */
+  readonly answer: Answer | null;
+}
+
+/** What the task's current run goes on with, or null when it starts anew or over. */
+export const resumptionOf = (task: Task): Resumption | null => {
+  if (task.state.kind !== 'running' || task.state.resumedFrom === null) return null;
+  return {
+    snapshot: task.state.resumedFrom,
+    answer: lastExchange(task.exchanges)?.answer ?? null,
+  };
+};
+
 /** How the task's current run begins (`RunKind`). */
 export const runKindOf = (task: Task): RunKind => {
   if (task.state.kind === 'running' && task.state.resumedFrom !== null) return 'resume';

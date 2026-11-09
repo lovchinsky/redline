@@ -1,8 +1,9 @@
 import type { CredentialKind } from '../domain/grant';
 import type { Exchange } from '../domain/exchange';
 import type { ProjectId, RunId, TaskId } from '../domain/ids';
-import type { Fault, Result } from '../domain/result';
+import type { Result } from '../domain/result';
 import type { RunOutcome } from '../domain/run';
+import type { Resumption } from '../domain/task';
 import type { Snapshot } from '../domain/work';
 import type { BundleContents } from './bundles';
 import type { ExecutionProfile, RepositoryRef } from './access';
@@ -33,8 +34,11 @@ export interface RunSpec {
   /** The project's setup at the base (`RepositorySettings`), or null when it has none. */
   readonly setup: RepositorySettings['setup'];
   readonly brief: AgentBrief;
-  /** The paused session the run goes on with (`resumable` said it can), or null to start anew. */
-  readonly resumeFrom: Snapshot | null;
+  /**
+   * The paused session the run goes on with (`resumable` said it can) and the answer it waits
+   * on (`resumptionOf`), or null to start anew.
+   */
+  readonly resume: Resumption | null;
   /** The grants of the run's two sandboxes: the setup's (registries) and the agent's (the model). */
   readonly grants: { readonly setup: GrantToken; readonly agent: GrantToken };
   /** The kind of credential behind the agent's grant, which decides how the agent presents it. */
@@ -56,8 +60,11 @@ export interface RunPhases {
  * `observe` attaches to a run started earlier, possibly by a process that is gone.
  */
 export interface AgentRunner {
-  /** Starts a run; does nothing when the run already exists. */
-  start(spec: RunSpec): Promise<Result<undefined, Fault>>;
+  /**
+   * Starts a run; does nothing when the run already exists. It fails only for the reasons of
+   * where runs run (sandboxes, their image, their isolation): the task's run is tried again.
+   */
+  start(spec: RunSpec): Promise<Result<undefined, { readonly detail: string }>>;
   /**
    * Waits for the run's outcome, telling `phases` how far the run got. A run that no longer
    * exists and left no outcome is `lost`. Aborting `signal` stops waiting; the run goes on.

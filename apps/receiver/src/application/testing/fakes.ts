@@ -440,7 +440,7 @@ type Observed = RunOutcome | { kind: 'lost'; detail: string };
 export class FakeRunner implements AgentRunner {
   readonly started: RunSpec[] = [];
   readonly released: string[] = [];
-  startError: Fault | null = null;
+  startError: { readonly detail: string } | null = null;
   /** Whether the paused sessions it is asked about can be resumed. */
   resumes = true;
   /** Whether its runs go on until the test says otherwise: their outcome does not come. */
@@ -465,7 +465,7 @@ export class FakeRunner implements AgentRunner {
   }
 
   /** Starts a run once: a run that exists is left as it is. */
-  start(spec: RunSpec): Promise<Result<undefined, Fault>> {
+  start(spec: RunSpec): Promise<Result<undefined, { readonly detail: string }>> {
     if (this.startError !== null) return Promise.resolve(err(this.startError));
     if (!this.started.some((started) => started.runId === spec.runId)) this.started.push(spec);
     return Promise.resolve(ok(undefined));

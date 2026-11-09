@@ -37,7 +37,7 @@ describe('SuperviseRun', () => {
     expect(spec).toMatchObject({
       taskId: task.id,
       baseSha: 'base-sha',
-      resumeFrom: null,
+      resume: null,
       brief: { title: task.bundle.title, questionsLeft: 2 },
     });
     const runId = spec?.runId ?? RunId('');
@@ -100,7 +100,8 @@ describe('SuperviseRun', () => {
     await app.supervise.handle(task.id, never);
     const resumed = app.runner.started[1];
     expect(resumed).toMatchObject({
-      resumeFrom: pausedAt,
+      // The session goes on with the answer it waits on.
+      resume: { snapshot: pausedAt, answer: { source: 'requester', text: 'Desktop only' } },
       baseSha: 'base-sha',
       brief: { questionsLeft: 1 },
     });
@@ -123,7 +124,7 @@ describe('SuperviseRun', () => {
     app.runner.resumes = false;
     await app.supervise.handle(task.id, never);
     const replayed = app.runner.started[1];
-    expect(replayed?.resumeFrom).toBeNull();
+    expect(replayed?.resume).toBeNull();
     expect(replayed?.brief.exchanges).toMatchObject([
       {
         question: { id: `q-${app.runner.started[0]?.runId ?? ''}` },
@@ -205,16 +206,27 @@ describe('SuperviseRun', () => {
     });
   });
 
-  it('turns a refused start into a run outcome', async () => {
+  it('tries a run again when where runs run refused to start it', async () => {
     const app = system();
     const task = await app.submit();
-    app.runner.startError = { transient: false, detail: 'image not found' };
+    app.runner.startError = { detail: 'Docker has no image redline-agent@sha256:1' };
     await app.supervise.handle(task.id, never);
-    expect(app.store.task(task.id).state).toMatchObject({
-      kind: 'failed',
-      failure: { code: 'agent-failed' },
+    expect(app.store.task(task.id)).toMatchObject({
+      state: { kind: 'queued', resumeFrom: null, awaiting: null },
+      runAttempts: 1,
     });
     expect(app.store.state.grants.size).toBe(0);
+    // Until the task's attempts run out, with the infrastructure's own words.
+    for (let attempt = 1; attempt < 3; attempt += 1) {
+      await app.supervise.handle(task.id, never);
+    }
+    expect(app.store.task(task.id).state).toMatchObject({
+      kind: 'failed',
+      failure: {
+        code: 'agent-failed',
+        message: expect.stringContaining('Docker has no image redline-agent@sha256:1') as string,
+      },
+    });
   });
 
   it('fails a task whose repository cannot be read, and retries a transient failure', async () => {

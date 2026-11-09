@@ -39,5 +39,6 @@ export interface BundleContents {
 }
 
 export interface BundleReader {
+  /** The bundle, or null when its manifest or any file it lists is no longer stored. */
   read(manifest: BlobDigest): Promise<BundleContents | null>;
 }

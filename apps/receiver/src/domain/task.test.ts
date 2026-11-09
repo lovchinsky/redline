@@ -17,6 +17,7 @@ import {
   markPublished,
   recordPublishFailure,
   rejectByPolicy,
+  resumptionOf,
   runKindOf,
   submitTask,
   type Task,
@@ -607,5 +608,25 @@ describe('a run’s end', () => {
   it('does not follow a transition that keeps the run', () => {
     expect(value(fixBase(running(), run1, 'base', 15)).effects).toEqual([]);
     expect(value(fixBase(based(), run1, 'other', 16)).effects).toEqual([]);
+  });
+});
+
+describe('resuming', () => {
+  it('goes on with the paused session and the answer it waits on', () => {
+    const paused = outcome(running(), {
+      kind: 'question',
+      question: question('q1'),
+      snapshot: snapshot('b'),
+    }).task;
+    const answered = value(answerQuestion(paused, q1, 'Desktop only', 30)).task;
+    const resumed = value(beginRun(answered, RunId('run-2'), snapshot('b'), 40)).task;
+    expect(resumptionOf(resumed)).toEqual({
+      snapshot: snapshot('b'),
+      answer: { source: 'requester', text: 'Desktop only', at: 30 },
+    });
+    // A run that starts over has no session to go on with.
+    const replayed = value(beginRun(answered, RunId('run-2'), null, 40)).task;
+    expect(resumptionOf(replayed)).toBeNull();
+    expect(resumptionOf(answered)).toBeNull();
   });
 });

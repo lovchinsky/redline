@@ -331,6 +331,13 @@ const workerOf = async (
   // Only what runs tasks holds the git host's and Docker's credentials.
   const git = await gitOf(settings, config, blobs, logger);
   const runner = runnerOf(config, blobs, git, logger);
+  if (config.agent.kind === 'claude') {
+    // A worker whose sandboxes cannot be isolated still publishes and tidies up; its runs fail
+    // to start, as the infrastructure's failures, until the operator fixes what this names.
+    const { networks } = config.agent;
+    const unfit = await sandboxesOf(config.agent).unfit([networks.setup, networks.agent]);
+    if (unfit !== null) logger.error('Sandboxes cannot run as configured', { unfit });
+  }
   const supervise = new SuperviseRun({
     queries: store,
     uow: store,

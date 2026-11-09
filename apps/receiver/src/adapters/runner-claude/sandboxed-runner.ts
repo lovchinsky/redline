@@ -2,7 +2,7 @@ import { RUN_LAYOUT, RUN_OUTPUTS, outcomeSchema, type Pause } from '@redline/age
 import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { BlobDigest, RunId } from '../../domain/ids';
-import { err, ok, type Fault, type Result } from '../../domain/result';
+import { err, ok, type Result } from '../../domain/result';
 import type { RunOutcome } from '../../domain/run';
 import type { Snapshot } from '../../domain/work';
 import type { ExecutionProfile } from '../../ports/access';
@@ -124,20 +124,20 @@ export class SandboxedClaudeRunner implements AgentRunner {
       await this.deps.sandboxes.kill(container);
   }
 
-  async start(spec: RunSpec): Promise<Result<undefined, Fault>> {
+  async start(spec: RunSpec): Promise<Result<undefined, { readonly detail: string }>> {
     const { sandboxes, settings } = this.deps;
     const names = containers(spec.runId);
     try {
       const unfit = await sandboxes.unfit([settings.networks.setup, settings.networks.agent]);
-      if (unfit !== null) return err({ transient: false, detail: unfit });
+      if (unfit !== null) return err({ detail: unfit });
       if ((await sandboxes.state(names.agent)).status !== 'missing') return ok(undefined);
 
       // Every container of the run runs this very image, whatever its name points at later.
       const image = await sandboxes.imageId(spec.execution.image);
       if (image === null) {
-        return err({ transient: false, detail: `Docker has no image ${spec.execution.image}` });
+        return err({ detail: `Docker has no image ${spec.execution.image}` });
       }
-      const paused = spec.resumeFrom === null ? null : await this.pausedSession(spec.resumeFrom);
+      const paused = spec.resume === null ? null : await this.pausedSession(spec.resume.snapshot);
       const labels = {
         [RUN_LABEL]: spec.runId,
         'redline.task': spec.taskId,
@@ -174,7 +174,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
         runId: spec.runId,
         error: String(error),
       });
-      return err({ transient: true, detail: String(error) });
+      return err({ detail: String(error) });
     }
   }
 

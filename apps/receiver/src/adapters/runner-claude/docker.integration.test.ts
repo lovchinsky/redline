@@ -108,7 +108,7 @@ const specFor = async (runId: RunId, title: string): Promise<RunSpec> => {
       limits: { maxFiles: 50, maxChangedLines: 2000 },
       checks: settings.value.checks,
     },
-    resumeFrom: null,
+    resume: null,
     grants: { setup: 'setup-grant' as GrantToken, agent: 'agent-grant' as GrantToken },
     credential: 'api-key',
     execution: {
@@ -243,7 +243,7 @@ describe('the sandboxed runner on Docker', () => {
           },
         ],
       },
-      resumeFrom: snapshot,
+      resume: { snapshot, answer: { source: 'requester', text: 'Desktop only', at: 1 } },
     });
     const seen = report(await runner().observe(second, new AbortController().signal, quiet));
     expect(seen['resumed']).toEqual({

@@ -16,6 +16,9 @@ export class StoredBundles implements BundleReader {
       );
     }
     const { steps, files, entry } = parsed.data;
+    for (const file of files) {
+      if (!(await this.blobs.has(BlobDigest(file.sha256)))) return null;
+    }
     return {
       steps: steps.map((step) => ({
         id: step.id,
