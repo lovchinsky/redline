@@ -39,25 +39,17 @@ export const spendingOf = (usage: TokenUsage, price: ModelPrice | null): Budget 
   tokens: countedTokens(usage),
 });
 
-/** Bytes of a request per token of its input, as a reservation reckons them: on the high side. */
-const BYTES_PER_TOKEN = 3;
-
 /**
- * The most a request is reckoned to cost before it is sent: its input from its size, and all
- * the output it may ask for. Requests in flight hold this much of the task's budget, so that
+ * The most a request is reckoned to cost before it is sent: its input as reckoned, and all the
+ * output it may ask for. Requests in flight hold this much of the task's budget, so that
  * requests sent together cannot together spend more than the task has.
  */
 export const reservationOf = (
-  request: { readonly bytes: number; readonly maxTokens: number },
+  request: { readonly inputTokens: number; readonly maxTokens: number },
   price: ModelPrice | null,
 ): Budget =>
   spendingOf(
-    {
-      input: Math.ceil(request.bytes / BYTES_PER_TOKEN),
-      output: request.maxTokens,
-      cacheWrite: 0,
-      cacheRead: 0,
-    },
+    { input: request.inputTokens, output: request.maxTokens, cacheWrite: 0, cacheRead: 0 },
     price,
   );
 

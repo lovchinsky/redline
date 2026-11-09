@@ -57,11 +57,14 @@ export interface Admission {
   readonly reservation: string | null;
 }
 
-/** A model request as the sandbox sent it: its parsed body, and its size. */
-export interface ModelRequest {
-  readonly body: unknown;
-  readonly bytes: number;
-}
+/**
+ * What a let-through request used: nothing (it never reached the model, or the answer was an
+ * error or refused), what its answer said, or not known (the answer did not say so in whole).
+ */
+export type RequestUsage =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'measured'; readonly usage: TokenUsage }
+  | { readonly kind: 'unknown' };
 
 export type Admitted =
   | { readonly ok: true; readonly admission: Admission }
@@ -83,11 +86,11 @@ export type ModelEndpoint = 'messages' | 'count-tokens';
 /** The gateway's model side, as its HTTP adapter drives it. */
 export interface ModelAccess {
   /** Judges a request of the sandbox holding `token`, before anything is forwarded. */
-  admit(token: string | null, request: ModelRequest, endpoint: ModelEndpoint): Promise<Admitted>;
+  admit(token: string | null, body: unknown, endpoint: ModelEndpoint): Promise<Admitted>;
   /** Judges the provider's answer before it reaches the sandbox; null lets it through. */
   inspect(admission: Admission, answer: ProviderAnswer): Promise<GatewayRefusal | null>;
-  /** Records what an answer used; null when the request used nothing. */
-  meter(admission: Admission, usage: TokenUsage | null): Promise<void>;
+  /** Records what a request used. */
+  meter(admission: Admission, used: RequestUsage): Promise<void>;
   /** Why the gateway last refused the run whose grant `token` is. */
   status(token: string | null): Promise<GrantStatusView>;
 }

@@ -11,16 +11,18 @@ const usageOf = (value: unknown): ProviderUsage | null => {
   return isRecord(usage) ? usage : null;
 };
 
-/** The largest JSON answer read for its usage; a larger one passes through unmetered. */
+/** The largest JSON answer read for its usage; a larger one has usage that is not known. */
 const JSON_LIMIT = 8 * 1024 * 1024;
 
 /**
  * Reads the usage of a Messages answer as it passes: from `message_start` and `message_delta`
- * events of a stream (whose counts are running totals), or from the body of a JSON answer.
+ * events of a stream (whose counts are running totals, the last one whole), or from the body of
+ * a JSON answer.
  */
 export class UsageMeter {
   private readonly totals = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
-  private seen = false;
+  /** Whether the answer said what it used in whole: its final usage was read. */
+  private whole = false;
   private readonly decoder = new TextDecoder();
   private pending = '';
   private json: Uint8Array[] | null;
@@ -43,18 +45,21 @@ export class UsageMeter {
     for (const line of lines) this.line(line);
   }
 
-  /** What the answer used, or null when it reported nothing. */
+  /**
+   * What the answer used, or null when it did not say so in whole: cut off before its last
+   * usage, too large to read, or of a shape this meter does not know.
+   */
   finish(): TokenUsage | null {
     if (this.kind === 'stream') {
       this.line(this.pending + this.decoder.decode());
     } else if (this.json !== null) {
       try {
-        this.add(usageOf(JSON.parse(Buffer.concat(this.json).toString('utf8'))));
+        this.whole = this.add(usageOf(JSON.parse(Buffer.concat(this.json).toString('utf8'))));
       } catch {
-        // Not JSON: an answer without usage.
+        // Not JSON: its usage is not known.
       }
     }
-    return this.seen ? { ...this.totals } : null;
+    return this.whole ? { ...this.totals } : null;
   }
 
   private line(line: string): void {
@@ -67,13 +72,13 @@ export class UsageMeter {
     }
     if (!isRecord(event)) return;
     if (event['type'] === 'message_start') this.add(usageOf(event['message']));
-    else if (event['type'] === 'message_delta') this.add(usageOf(event));
+    // The delta that ends the message carries its final counts.
+    else if (event['type'] === 'message_delta') this.whole = this.add(usageOf(event)) || this.whole;
   }
 
-  /** Takes the counts a usage block reports; later blocks carry running totals. */
-  private add(usage: ProviderUsage | null): void {
-    if (usage === null) return;
-    this.seen = true;
+  /** Takes the counts a usage block reports (later blocks carry running totals); false for none. */
+  private add(usage: ProviderUsage | null): boolean {
+    if (usage === null) return false;
     const take = (field: string, current: number) => {
       const value = usage[field];
       return typeof value === 'number' ? Math.max(value, current) : current;
@@ -82,5 +87,6 @@ export class UsageMeter {
     this.totals.output = take('output_tokens', this.totals.output);
     this.totals.cacheWrite = take('cache_creation_input_tokens', this.totals.cacheWrite);
     this.totals.cacheRead = take('cache_read_input_tokens', this.totals.cacheRead);
+    return true;
   }
 }

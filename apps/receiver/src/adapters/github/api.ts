@@ -12,6 +12,8 @@ export class GitHubError extends Error {
     readonly status: number | null,
     readonly transient: boolean,
     message: string,
+    /** What GitHub itself said: its message and those of its `errors`, as it wrote them. */
+    readonly reasons: readonly string[] = [],
   ) {
     super(message);
   }
@@ -21,12 +23,21 @@ export class GitHubError extends Error {
   }
 }
 
-const messageOf = (body: unknown): string =>
-  typeof body === 'object' &&
-  body !== null &&
-  typeof (body as Record<string, unknown>)['message'] === 'string'
-    ? String((body as Record<string, unknown>)['message'])
-    : '';
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+/** The messages of an error answer: its own, and each of its `errors`'. */
+const reasonsOf = (body: unknown): string[] => {
+  if (!isRecord(body)) return [];
+  const own = typeof body['message'] === 'string' ? [body['message']] : [];
+  const errors = Array.isArray(body['errors']) ? body['errors'] : [];
+  return [
+    ...own,
+    ...errors.flatMap((entry: unknown) =>
+      isRecord(entry) && typeof entry['message'] === 'string' ? [entry['message']] : [],
+    ),
+  ];
+};
 
 /**
  * Whether a failed answer may succeed when asked again: the server's errors, rate limits
@@ -39,7 +50,7 @@ const transientOf = (answer: GitHubAnswer): boolean =>
   (answer.status === 403 &&
     (answer.headers.get('x-ratelimit-remaining') === '0' ||
       answer.headers.has('retry-after') ||
-      /rate limit/i.test(messageOf(answer.body))));
+      reasonsOf(answer.body).some((reason) => /rate limit/i.test(reason))));
 
 /** GitHub's REST API, as the receiver calls it: JSON in and out, one version. */
 export class GitHubApi {
@@ -86,10 +97,12 @@ export class GitHubApi {
     }
     const answer = { status: response.status, headers: response.headers, body: parsed };
     if (!ok.includes(answer.status)) {
+      const reasons = reasonsOf(parsed);
       throw new GitHubError(
         answer.status,
         transientOf(answer),
-        `GitHub answered ${method} ${path} with ${String(answer.status)}${messageOf(parsed) === '' ? '' : `: ${messageOf(parsed)}`}`,
+        `GitHub answered ${method} ${path} with ${String(answer.status)}${reasons.length === 0 ? '' : `: ${reasons.join('; ')}`}`,
+        reasons,
       );
     }
     return answer;

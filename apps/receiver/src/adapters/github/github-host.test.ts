@@ -200,6 +200,22 @@ describe('GitHubHost', () => {
     expect(calls[2]?.body).toEqual({ labels: ['redline', DRAFT_LABEL] });
   });
 
+  it('takes no other refusal for drafts not being available, whatever the repository is called', async () => {
+    const { calls, api } = fakeGitHub(() => ({
+      status: 422,
+      body: {
+        message: 'Validation Failed',
+        errors: [{ message: 'A pull request already exists for acme:redline/task-1.' }],
+      },
+    }));
+    const drafts = { ...repository, name: 'acme/drafts' };
+    expect(await host(api).open(drafts, { target: 'branch', draft: true }, draft)).toMatchObject({
+      ok: false,
+      error: { transient: false },
+    });
+    expect(calls.filter((call) => call.path === '/repos/acme/drafts/pulls')).toHaveLength(1);
+  });
+
   it('retries what may pass, and names what will not', async () => {
     const answer = (
       status: number,

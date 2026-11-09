@@ -2,8 +2,7 @@ import { GATEWAY_REFUSALS, GRANT_STATUS_PATH, type GrantStatus } from '@redline/
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { GatewayRefusal } from '../../domain/grant';
 import type { Instant } from '../../domain/ids';
-import type { TokenUsage } from '../../domain/usage';
-import type { ModelAccess, ModelEndpoint } from '../../ports/gateway';
+import type { ModelAccess, ModelEndpoint, RequestUsage } from '../../ports/gateway';
 import type { Logger } from '../../ports/system';
 import { UsageMeter } from './usage-meter';
 
@@ -162,11 +161,7 @@ export const createModelProxy = (options: ModelProxyOptions): Server => {
       return;
     }
     const body = parseJson(raw);
-    const admitted = await options.access.admit(
-      grantOf(request),
-      { body, bytes: raw.byteLength },
-      endpoint,
-    );
+    const admitted = await options.access.admit(grantOf(request), body, endpoint);
     if (!admitted.ok) {
       sendRefusal(response, admitted.refusal);
       return;
@@ -184,7 +179,7 @@ export const createModelProxy = (options: ModelProxyOptions): Server => {
     // The answer is read to its end whatever the sandbox does: the provider bills for all it
     // generates, and only the end of an answer says how much that was.
     const metered = endpoint === 'messages';
-    let usage: TokenUsage | null = null;
+    let used: RequestUsage = { kind: 'none' };
     try {
       let answer: Response;
       try {
@@ -241,11 +236,14 @@ export const createModelProxy = (options: ModelProxyOptions): Server => {
         options.logger.info('A model answer was cut off', { error: String(error) });
         response.destroy();
       } finally {
-        if (metered && answer.ok) usage = meter.finish();
+        if (metered && answer.ok) {
+          const usage = meter.finish();
+          used = usage === null ? { kind: 'unknown' } : { kind: 'measured', usage };
+        }
       }
     } finally {
-      // What the request used, or that it used nothing: its reservation is settled either way.
-      await options.access.meter(admission, usage).catch((error: unknown) => {
+      // What the request used, or that it used nothing or is not known: its reservation goes by it.
+      await options.access.meter(admission, used).catch((error: unknown) => {
         // Its reservation stays counted: the task is never thought to have spent less.
         options.logger.error('A model answer could not be metered', { error: String(error) });
       });

@@ -302,33 +302,20 @@ export class GitMirrors implements SourceRepository {
   }
 
   /**
-   * Fetches a change bundle into the mirror. A change is one commit whose parent is the base:
-   * anything else is not a change the receiver takes.
+   * Takes a change bundle into the mirror: one commit, the one the run named, whose parent is
+   * the base. A bundle is checked and stored once (it is stored by its content's hash), and
+   * each later import of it only checks the commit again.
    */
   async importChange(
     repository: RepositoryRef,
     baseSha: string,
     change: ChangeRef,
   ): Promise<Publishing<string>> {
-    const bytes = await this.options.blobs.read(change.blob);
-    if (bytes === null) return fail('The change is no longer stored', false);
-    const mirror = this.mirrorOf(repository);
-    const scratch = await mkdtemp(path.join(tmpdir(), 'redline-change-'));
-    try {
-      const file = path.join(scratch, 'change.bundle');
-      await writeFile(file, bytes);
+    return this.locked(repository, async (mirror) => {
       const ref = `refs/redline/changes/${change.blob}`;
-      try {
-        await git(mirror, ['bundle', 'verify', '--quiet', file]);
-        await this.inspectObjects(mirror, scratch, bytes);
-      } catch (error) {
-        return fail(`The change is not a git bundle of this repository: ${String(error)}`, false);
-      }
-      try {
-        await git(mirror, ['fetch', '--quiet', '--no-tags', file, `+${BUNDLE_REF}:${ref}`]);
-      } catch (error) {
-        // The bundle is sound: storing it failed (a lock, the disk), and may not next time.
-        return fail(`The change could not be stored in the mirror: ${String(error)}`, true);
+      if ((await git(mirror, ['for-each-ref', '--format=%(objectname)', ref])) === '') {
+        const stored = await this.storeChange(mirror, ref, change);
+        if (!stored.ok) return stored;
       }
       const head = await git(mirror, ['rev-parse', ref]);
       if (head !== change.head) {
@@ -341,6 +328,34 @@ export class GitMirrors implements SourceRepository {
         return fail('The change is not one commit on the task’s base', false);
       }
       return ok(head);
+    });
+  }
+
+  /** Checks a change bundle's objects and fetches it into the mirror at `ref`. */
+  private async storeChange(
+    mirror: string,
+    ref: string,
+    change: ChangeRef,
+  ): Promise<Publishing<undefined>> {
+    const bytes = await this.options.blobs.read(change.blob);
+    if (bytes === null) return fail('The change is no longer stored', false);
+    const scratch = await mkdtemp(path.join(tmpdir(), 'redline-change-'));
+    try {
+      const file = path.join(scratch, 'change.bundle');
+      await writeFile(file, bytes);
+      try {
+        await git(mirror, ['bundle', 'verify', '--quiet', file]);
+        await this.inspectObjects(mirror, scratch, bytes);
+      } catch (error) {
+        return fail(`The change is not a git bundle of this repository: ${String(error)}`, false);
+      }
+      try {
+        await git(mirror, ['fetch', '--quiet', '--no-tags', file, `+${BUNDLE_REF}:${ref}`]);
+      } catch (error) {
+        // The bundle is sound: storing it failed (the disk), and may not next time.
+        return fail(`The change could not be stored in the mirror: ${String(error)}`, true);
+      }
+      return ok(undefined);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
@@ -390,7 +405,10 @@ export class GitMirrors implements SourceRepository {
     return path.join(this.options.root, safe(repository.host), `${safe(repository.name)}.git`);
   }
 
-  /** One git operation per mirror at a time. */
+  /**
+   * Fetches into a mirror (preparing it, taking a change in), one at a time in this process: a
+   * worker publishes one change of a project at a time, so this is all that writes there at once.
+   */
   private async locked<T>(
     repository: RepositoryRef,
     work: (mirror: string) => Promise<T>,

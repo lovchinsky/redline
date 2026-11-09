@@ -108,7 +108,7 @@ export class GitHubHost implements Forge {
           draft.draft &&
           error instanceof GitHubError &&
           error.status === 422 &&
-          /draft/i.test(error.message)
+          error.reasons.some((reason) => /draft/i.test(reason))
         )) {
           throw error;
         }

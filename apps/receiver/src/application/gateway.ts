@@ -1,7 +1,7 @@
 import type { GatewayRefusal } from '../domain/grant';
 import { EGRESS_PORT, egressAllows } from '../domain/egress';
 import { judgeModelRequest } from '../domain/model-request';
-import { NO_USAGE, admits, reservationOf, spendingOf, type TokenUsage } from '../domain/usage';
+import { NO_USAGE, admits, reservationOf, spendingOf } from '../domain/usage';
 import type { HeldCredentials, ModelCredential } from '../ports/access';
 import type {
   Admission,
@@ -13,9 +13,9 @@ import type {
   GrantStatusView,
   ModelAccess,
   ModelEndpoint,
-  ModelRequest,
   PriceList,
   ProviderAnswer,
+  RequestUsage,
   UsageLedger,
 } from '../ports/gateway';
 import type { Clock, Logger } from '../ports/system';
@@ -42,11 +42,7 @@ export class ModelGateway implements ModelAccess {
     },
   ) {}
 
-  async admit(
-    token: string | null,
-    request: ModelRequest,
-    endpoint: ModelEndpoint,
-  ): Promise<Admitted> {
+  async admit(token: string | null, body: unknown, endpoint: ModelEndpoint): Promise<Admitted> {
     const terms = token === null ? null : await this.deps.grants.terms(token);
     if (terms?.phase !== 'agent') return { ok: false, refusal: { kind: 'grant-revoked' } };
     const refuse = async (refusal: GatewayRefusal): Promise<Admitted> => {
@@ -54,7 +50,7 @@ export class ModelGateway implements ModelAccess {
       return { ok: false, refusal };
     };
 
-    const verdict = judgeModelRequest(request.body, {
+    const verdict = judgeModelRequest(body, {
       models: [terms.model],
       maxTokens: this.deps.maxTokens,
     });
@@ -71,7 +67,7 @@ export class ModelGateway implements ModelAccess {
     let reservation: string | null = null;
     if (endpoint === 'messages') {
       // The request holds the most it can cost until its answer says what it did cost.
-      const amount = reservationOf({ bytes: request.bytes, maxTokens: verdict.maxTokens }, price);
+      const amount = reservationOf(verdict, price);
       reservation = await this.deps.ledger.reserve(
         { runId: terms.runId, taskId: terms.taskId, model: verdict.model },
         amount,
@@ -110,16 +106,24 @@ export class ModelGateway implements ModelAccess {
   }
 
   /**
-   * Records what an answer used in place of the request's reservation; null when the request
-   * used nothing (it never reached the model, or the gateway refused the answer).
+   * Settles the request's reservation with what it used. A request whose usage is not known
+   * keeps its reservation, the most it could have cost: the task is never taken to have spent
+   * less than it did.
    */
-  async meter(admission: Admission, usage: TokenUsage | null): Promise<void> {
+  async meter(admission: Admission, used: RequestUsage): Promise<void> {
     if (admission.reservation === null) return;
-    const used = usage ?? NO_USAGE;
+    if (used.kind === 'unknown') {
+      this.deps.logger.warn('A model answer did not say what it used: it counts as reserved', {
+        runId: admission.terms.runId,
+        taskId: admission.terms.taskId,
+      });
+      return;
+    }
+    const usage = used.kind === 'measured' ? used.usage : NO_USAGE;
     await this.deps.ledger.settle(
       admission.reservation,
-      used,
-      spendingOf(used, this.deps.prices.priceOf(admission.model)),
+      usage,
+      spendingOf(usage, this.deps.prices.priceOf(admission.model)),
       this.deps.clock.now(),
     );
   }

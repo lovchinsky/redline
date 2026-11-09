@@ -318,6 +318,15 @@ describe('the model proxy, from a sandbox', () => {
     expect(ledger.entries[0]?.usage).toMatchObject({ output: 1200 });
   });
 
+  it('keeps a request at its reservation when its answer does not say what it used', async () => {
+    const [start = ''] = streamed.split('\n\n');
+    const { ask, ledger } = await harness(() => ({ ...ok(), body: `${start}\n\n` }));
+    await (await ask('/v1/messages')).text();
+    await expect.poll(() => ledger.entries.length).toBe(1);
+    expect(ledger.entries[0]).toMatchObject({ settled: false, usage: null });
+    expect(ledger.entries[0]?.spending.usd).toBeGreaterThan(0);
+  });
+
   it('forwards the request as it was judged, with the provider’s headers only', async () => {
     const { ask, seen } = await harness(ok);
     const raw = JSON.stringify(request()).replace(

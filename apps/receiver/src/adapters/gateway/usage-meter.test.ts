@@ -30,4 +30,18 @@ describe('UsageMeter', () => {
     none.push(encoder.encode('event: ping\ndata: {"type":"ping"}\n\n'));
     expect(none.finish()).toBeNull();
   });
+
+  it('does not take the start of a stream for its whole usage', () => {
+    const cut = new UsageMeter('stream');
+    cut.push(
+      encoder.encode(
+        'data: {"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":1}}}\n\n',
+      ),
+    );
+    // Cut off before the delta that ends the message: what it used is not known.
+    expect(cut.finish()).toBeNull();
+    const large = new UsageMeter('json');
+    large.push(new Uint8Array(9 * 1024 * 1024));
+    expect(large.finish()).toBeNull();
+  });
 });

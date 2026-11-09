@@ -16,6 +16,8 @@ export type ModelRequestVerdict =
       readonly stream: boolean;
       /** The most output the request may ask for: its own limit, or the rules' when it sets none. */
       readonly maxTokens: number;
+      /** Its input reckoned on the high side (`inputTokensOf`), before the model counts it. */
+      readonly inputTokens: number;
     }
   | { readonly admitted: false; readonly detail: string };
 
@@ -95,5 +97,27 @@ export const judgeModelRequest = (body: unknown, rules: ModelRequestRules): Mode
     model,
     stream: body['stream'] === true,
     maxTokens: typeof maxTokens === 'number' ? maxTokens : rules.maxTokens,
+    inputTokens: inputTokensOf(body),
   };
+};
+
+/** Characters of a request per token of its input, reckoned on the high side. */
+const CHARACTERS_PER_TOKEN = 3;
+/** The most an image costs as input: the model scales an image down to about this many. */
+const IMAGE_TOKENS = 1_600;
+
+/**
+ * A request's input in tokens, reckoned on the high side: its text by length, and each image at
+ * the most an image costs, not by the size of its data.
+ */
+export const inputTokensOf = (body: unknown): number => {
+  let images = 0;
+  const text = JSON.stringify(body, (_key, value: unknown) => {
+    if (isRecord(value) && value['type'] === 'image') {
+      images += 1;
+      return { type: 'image' };
+    }
+    return value;
+  });
+  return Math.ceil(text.length / CHARACTERS_PER_TOKEN) + images * IMAGE_TOKENS;
 };

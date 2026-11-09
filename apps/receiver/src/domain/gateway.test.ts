@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EGRESS_PORT, egressAllows, isEgressRule, isPublicAddress } from './egress';
-import { judgeModelRequest } from './model-request';
+import { inputTokensOf, judgeModelRequest } from './model-request';
 import { admits, costOf, countedTokens, reservationOf } from './usage';
 
 const rules = { models: ['claude-opus-5-5'], maxTokens: 64_000 };
@@ -21,6 +21,7 @@ describe('judgeModelRequest', () => {
       model: 'claude-opus-5-5',
       stream: true,
       maxTokens: 32_000,
+      inputTokens: inputTokensOf(request()),
     });
     // A request that sets no limit may ask for all the rules allow.
     expect(judgeModelRequest(request({ max_tokens: undefined }), rules)).toMatchObject({
@@ -97,13 +98,28 @@ describe('usage and budget', () => {
     expect(admits({ usd: 0, tokens: 900_001 }, request, budget, 'subscription')).toBe(false);
   });
 
-  it('reckons a request at its size and all the output it may ask for', () => {
+  it('reckons a request at its input and all the output it may ask for', () => {
     const price = { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 };
-    expect(reservationOf({ bytes: 3_000, maxTokens: 10_000 }, price)).toEqual({
+    expect(reservationOf({ inputTokens: 1_000, maxTokens: 10_000 }, price)).toEqual({
       usd: (1_000 * 4 + 10_000 * 20) / 1e6,
       tokens: 11_000,
     });
-    expect(reservationOf({ bytes: 3_000, maxTokens: 10_000 }, null).usd).toBe(0);
+    expect(reservationOf({ inputTokens: 1_000, maxTokens: 10_000 }, null).usd).toBe(0);
+  });
+
+  it('reckons an image at the most an image costs, not by the size of its data', () => {
+    const screenshot = {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(3_000_000) },
+    };
+    const withImage = inputTokensOf({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'x'.repeat(300) }, screenshot] }],
+    });
+    const textOnly = inputTokensOf({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'x'.repeat(300) }] }],
+    });
+    expect(withImage - textOnly).toBeGreaterThanOrEqual(1_600);
+    expect(withImage).toBeLessThan(2_000);
   });
 });
 
