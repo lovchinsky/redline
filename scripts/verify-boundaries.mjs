@@ -122,6 +122,24 @@ const probes = [
     expectRule: 'boundaries/dependencies',
   },
   {
+    name: 'a receiver adapter must reach use cases through a port',
+    file: 'apps/receiver/src/adapters/http/__boundary_probe__.ts',
+    code: "import { TaskRequests } from '../../application/requests';\nexport const probe = TaskRequests;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'a receiver adapter must not use another adapter',
+    file: 'apps/receiver/src/adapters/http/__boundary_probe__.ts',
+    code: "import { PostgresStore } from '../postgres/store';\nexport const probe = PostgresStore;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'control: a receiver adapter may use ports and its own files',
+    file: 'apps/receiver/src/adapters/http/__boundary_probe__.ts',
+    code: "import type { Requests } from '../../ports/requests';\nimport { present } from './presenter';\nexport const probe: [Requests | null, typeof present] = [null, present];\n",
+    expectRule: null,
+  },
+  {
     name: 'control: receiver use cases may depend on the domain',
     file: 'apps/receiver/src/application/__boundary_probe__.ts',
     code: "import { ok } from '../domain/result';\nexport const probe = ok(1);\n",

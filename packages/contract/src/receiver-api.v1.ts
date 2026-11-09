@@ -10,6 +10,24 @@ export const MANIFEST_PART = 'manifest';
  */
 export const PROJECT_PART = 'projectId';
 
+/**
+ * The requester's own model credential, sent with every request when the receiver runs tasks
+ * with it (`modelCredential` of `GET /v1/projects`). The receiver keeps it in memory only.
+ */
+export const MODEL_CREDENTIAL_HEADER = 'Model-Credential';
+/** What kind of credential `Model-Credential` is: one of `MODEL_CREDENTIAL_KINDS`. */
+export const MODEL_CREDENTIAL_KIND_HEADER = 'Model-Credential-Kind';
+export const MODEL_CREDENTIAL_KINDS = ['api-key', 'subscription'] as const;
+
+/** Paths of the API as a server declares them: `:remoteId` is the task's id. */
+export const receiverRouteTemplates = {
+  listProjects: `${RECEIVER_API_PREFIX}/projects`,
+  submitTask: `${RECEIVER_API_PREFIX}/tasks`,
+  getTask: `${RECEIVER_API_PREFIX}/tasks/:remoteId`,
+  replyToTask: `${RECEIVER_API_PREFIX}/tasks/:remoteId/replies`,
+} as const;
+
+/** Paths of the API as a client requests them. */
 export const receiverRoutes = {
   listProjects: () => `${RECEIVER_API_PREFIX}/projects`,
   submitTask: () => `${RECEIVER_API_PREFIX}/tasks`,
@@ -23,7 +41,17 @@ export const projectSchema = z.object({
   name: z.string().check(z.minLength(1)),
 });
 
-export const listProjectsResponseSchema = z.object({ projects: z.array(projectSchema) });
+/**
+ * Whose model credential tasks run with: the operator's (`managed`), the requester's own on every
+ * request (`required`), or the requester's when sent and the operator's otherwise (`optional`).
+ * A receiver that does not say runs everything with the operator's.
+ */
+export const modelCredentialPolicySchema = z.enum(['managed', 'required', 'optional']);
+
+export const listProjectsResponseSchema = z.object({
+  projects: z.array(projectSchema),
+  modelCredential: z.optional(modelCredentialPolicySchema),
+});
 
 export const questionSchema = z.object({
   id: z.string().check(z.minLength(1)),
@@ -72,6 +100,8 @@ export const errorResponseSchema = z.object({
 
 export type Project = z.infer<typeof projectSchema>;
 export type ListProjectsResponse = z.infer<typeof listProjectsResponseSchema>;
+export type ModelCredentialPolicy = z.infer<typeof modelCredentialPolicySchema>;
+export type ModelCredentialKind = (typeof MODEL_CREDENTIAL_KINDS)[number];
 export type Question = z.infer<typeof questionSchema>;
 export type RemoteStatus = z.infer<typeof remoteStatusSchema>;
 /**

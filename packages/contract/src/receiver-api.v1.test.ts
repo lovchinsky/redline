@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { receiverRoutes, taskStateResponseSchema } from './receiver-api.v1';
+import {
+  listProjectsResponseSchema,
+  receiverRouteTemplates,
+  receiverRoutes,
+  taskStateResponseSchema,
+} from './receiver-api.v1';
 
 describe('receiver api v1', () => {
   it('parses every remote status phase', () => {
@@ -54,5 +59,26 @@ describe('receiver api v1', () => {
   it('encodes remote ids in routes', () => {
     expect(receiverRoutes.getTask('a/b')).toBe('/v1/tasks/a%2Fb');
     expect(receiverRoutes.replyToTask('r1')).toBe('/v1/tasks/r1/replies');
+  });
+
+  it('reads the model credential policy when a receiver states it, and not otherwise', () => {
+    const projects = [{ id: 'acme', name: 'Acme' }];
+    expect(listProjectsResponseSchema.parse({ projects, modelCredential: 'required' })).toEqual({
+      projects,
+      modelCredential: 'required',
+    });
+    expect(listProjectsResponseSchema.parse({ projects })).toEqual({ projects });
+    expect(
+      listProjectsResponseSchema.safeParse({ projects, modelCredential: 'always' }).success,
+    ).toBe(false);
+  });
+
+  it('declares the same paths for servers as it builds for clients', () => {
+    const id = 'task 1/x';
+    const fill = (template: string) => template.replace(':remoteId', encodeURIComponent(id));
+    expect(fill(receiverRouteTemplates.listProjects)).toBe(receiverRoutes.listProjects());
+    expect(fill(receiverRouteTemplates.submitTask)).toBe(receiverRoutes.submitTask());
+    expect(fill(receiverRouteTemplates.getTask)).toBe(receiverRoutes.getTask(id));
+    expect(fill(receiverRouteTemplates.replyToTask)).toBe(receiverRoutes.replyToTask(id));
   });
 });

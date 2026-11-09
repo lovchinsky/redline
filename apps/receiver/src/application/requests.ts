@@ -1,4 +1,4 @@
-import type { BlobDigest, ProjectId, QuestionId, TaskId } from '../domain/ids';
+import type { QuestionId, TaskId } from '../domain/ids';
 import { err, ok, type Result } from '../domain/result';
 import { answerQuestion, submitTask, type Task } from '../domain/task';
 import {
@@ -11,6 +11,7 @@ import {
 } from '../ports/access';
 import type { BundleContents, BundleReader } from '../ports/bundles';
 import type { Clock, IdGenerator } from '../ports/system';
+import type { ProjectListing, Requests, Submission } from '../ports/requests';
 import type { TaskQueries } from '../ports/tasks';
 import { credentialsFor, type CredentialRelay } from './credentials';
 import { invalid, notFound, type RequestError } from './errors';
@@ -27,22 +28,8 @@ export const titleOf = (bundle: BundleContents): string => {
     : `${comment.slice(0, TITLE_LENGTH - 1).trimEnd()}…`;
 };
 
-export interface ProjectListing {
-  readonly projects: readonly { readonly id: ProjectId; readonly name: string }[];
-  readonly modelCredential: ModelAccessPolicy['credentials'];
-}
-
-export interface Submission {
-  readonly requester: User;
-  readonly idempotencyKey: string;
-  readonly projectId: ProjectId;
-  /** The stored and verified `manifest.json` of the bundle. */
-  readonly manifest: BlobDigest;
-  readonly credential: ModelCredential | null;
-}
-
-/** What the extension asks of the receiver: projects, new tasks, their state, answers. */
-export class TaskRequests {
+/** The receiver's answers to the extension (`Requests`), on top of the domain's transitions. */
+export class TaskRequests implements Requests {
   constructor(
     private readonly deps: {
       readonly queries: TaskQueries;
@@ -67,7 +54,6 @@ export class TaskRequests {
     };
   }
 
-  /** The task a requester already submitted under this key: its body need not be read again. */
   async findSubmitted(
     user: User,
     idempotencyKey: string,
