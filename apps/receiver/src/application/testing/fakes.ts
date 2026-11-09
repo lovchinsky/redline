@@ -256,6 +256,7 @@ export const project = (overrides: Partial<Project> = {}): Project => ({
     stallTimeoutMs: 600_000,
     budget: { usd: 10, tokens: 10_000_000 },
     setupHosts: ['registry.npmjs.org'],
+    setupSecrets: {},
   },
   publishing: { target: 'branch', draft: true },
   ...overrides,

@@ -1,4 +1,5 @@
 import { RUN_LAYOUT, RUN_OUTPUTS, outcomeSchema } from '@redline/agent-protocol';
+import { readFile } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import { BlobDigest, RunId, type TaskId } from '../../domain/ids';
 import type { RunOutcome } from '../../domain/run';
@@ -40,6 +41,8 @@ const TIMEOUT_LABEL = 'redline.timeout-ms';
 const remaining = (container: { labels: Readonly<Record<string, string>>; startedAt: number }) =>
   Math.max(container.startedAt + Number(container.labels[TIMEOUT_LABEL] ?? 0) - Date.now(), 0);
 const OUTPUT_LIMIT = 256 * 1024 * 1024;
+/** Where the setup phase finds the project's registry secrets; the agent has no such directory. */
+export const SETUP_SECRETS = '/redline/secrets';
 const OUT_DIRECTORY = RUN_LAYOUT.out.split('/').at(-1) ?? 'out';
 
 const containers = (runId: RunId) => ({
@@ -52,6 +55,7 @@ const volumes = (runId: RunId) => ({
   input: `redline-${runId}-input`,
   out: `redline-${runId}-out`,
   session: `redline-${runId}-session`,
+  secrets: `redline-${runId}-secrets`,
 });
 
 const infra = (detail: string): RunOutcome => ({
@@ -236,6 +240,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
       mounts: [
         { volume: run.workspace, target: RUN_LAYOUT.workspace, readOnly: false },
         { volume: run.input, target: RUN_LAYOUT.input, readOnly: false },
+        { volume: run.secrets, target: SETUP_SECRETS, readOnly: false },
       ],
       network: 'none',
       labels,
@@ -243,6 +248,13 @@ export class SandboxedClaudeRunner implements AgentRunner {
     });
     try {
       await sandboxes.upload(loader, RUN_LAYOUT.input, await tarOf(files, settings.user));
+      const secrets: TarFile[] = [];
+      for (const [name, file] of Object.entries(spec.execution.setupSecrets)) {
+        secrets.push({ path: name, content: await readFile(file) });
+      }
+      if (secrets.length > 0) {
+        await sandboxes.upload(loader, SETUP_SECRETS, await tarOf(secrets, settings.user, 0o400));
+      }
       await sandboxes.upload(
         loader,
         RUN_LAYOUT.workspace,
@@ -270,10 +282,12 @@ export class SandboxedClaudeRunner implements AgentRunner {
         http_proxy: proxy,
         npm_config_proxy: proxy,
         npm_config_https_proxy: proxy,
+        REDLINE_SECRETS: SETUP_SECRETS,
       },
       workdir: RUN_LAYOUT.workspace,
       mounts: [
         { volume: volumes(spec.runId).workspace, target: RUN_LAYOUT.workspace, readOnly: false },
+        { volume: volumes(spec.runId).secrets, target: SETUP_SECRETS, readOnly: true },
       ],
       network: settings.networks.setup,
       labels: { ...labels, 'redline.phase': 'setup' },

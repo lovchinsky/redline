@@ -33,6 +33,9 @@ const execution = z.object({
   budgetUsd: z.optional(z.number().check(z.positive())),
   budgetTokens: z.optional(positive),
   setupHosts: z.optional(z.array(text)),
+  setupSecrets: z.optional(
+    z.record(z.string().check(z.regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/, 'a file name')), text),
+  ),
 });
 
 const changePolicy = z.object({
@@ -279,6 +282,7 @@ const executionOf = (base: RawExecution, own: RawExecution): ExecutionProfile =>
     stallTimeoutMs: (merged.stallMinutes ?? 10) * MINUTE,
     budget: { usd: merged.budgetUsd ?? 10, tokens: merged.budgetTokens ?? 10_000_000 },
     setupHosts: merged.setupHosts ?? ['registry.npmjs.org'],
+    setupSecrets: merged.setupSecrets ?? {},
   };
 };
 

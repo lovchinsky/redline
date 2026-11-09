@@ -1,5 +1,5 @@
 import { AGENT_PROTOCOL_VERSION, type Outcome } from '@redline/agent-protocol';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -216,6 +216,7 @@ describe('SandboxedClaudeRunner', () => {
     expect([...sandboxes.volumes.keys()].sort()).toEqual([
       'redline-run-1-input',
       'redline-run-1-out',
+      'redline-run-1-secrets',
       'redline-run-1-session',
       'redline-run-1-workspace',
     ]);
@@ -227,7 +228,10 @@ describe('SandboxedClaudeRunner', () => {
       command: ['sh', '-c', 'pnpm install --frozen-lockfile'],
       network: 'redline-setup',
       env: { HTTPS_PROXY: 'http://redline:setup-grant@10.89.2.2:3128' },
-      mounts: [{ volume: 'redline-run-1-workspace', target: '/workspace', readOnly: false }],
+      mounts: [
+        { volume: 'redline-run-1-workspace', target: '/workspace', readOnly: false },
+        { volume: 'redline-run-1-secrets', target: '/redline/secrets', readOnly: true },
+      ],
     });
     expect(setup?.env).not.toHaveProperty('ANTHROPIC_API_KEY');
     expect(agent).toMatchObject({
@@ -244,6 +248,31 @@ describe('SandboxedClaudeRunner', () => {
     });
     // Only the setup runs first.
     expect(sandboxes.started).toEqual(['redline-run-1-setup']);
+  });
+
+  it('gives the registries’ secrets to the setup only', async () => {
+    const file = path.join(dir, 'npm-token');
+    await writeFile(file, 'npm_secret');
+    const base = await spec();
+    const uploads: string[] = [];
+    const upload = sandboxes.upload.bind(sandboxes);
+    sandboxes.upload = (container, target, archive) => {
+      uploads.push(target);
+      return upload(container, target, archive);
+    };
+    await runner().start({
+      ...base,
+      execution: { ...base.execution, setupSecrets: { npm: file } },
+    });
+    expect(uploads).toEqual(['/redline/input', '/redline/secrets', '/workspace']);
+    const setup = sandboxes.containers.get('redline-run-1-setup')?.spec;
+    const agent = sandboxes.containers.get('redline-run-1-agent')?.spec;
+    expect(setup?.mounts).toContainEqual({
+      volume: 'redline-run-1-secrets',
+      target: '/redline/secrets',
+      readOnly: true,
+    });
+    expect(agent?.mounts.map((mount) => mount.volume)).not.toContain('redline-run-1-secrets');
   });
 
   it('presents a subscription’s grant as Claude Code’s OAuth token, and no API key', async () => {

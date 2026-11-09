@@ -6,10 +6,11 @@ export interface TarFile {
   readonly content: Uint8Array;
 }
 
-/** A tar archive of `files`, owned by `owner` (`uid:gid`) and readable only. */
+/** A tar archive of `files`, owned by `owner` (`uid:gid`) and readable only, with `mode`. */
 export const tarOf = async (
   files: readonly TarFile[],
   owner: { uid: number; gid: number },
+  mode = 0o444,
 ): Promise<Buffer> => {
   const archive = pack();
   const chunks: Buffer[] = [];
@@ -30,7 +31,7 @@ export const tarOf = async (
       archive.entry({ name: `${directory}/`, type: 'directory', mode: 0o555, ...owner });
     }
     archive.entry(
-      { name: file.path, mode: 0o444, size: file.content.byteLength, ...owner },
+      { name: file.path, mode, size: file.content.byteLength, ...owner },
       Buffer.from(file.content),
     );
   }

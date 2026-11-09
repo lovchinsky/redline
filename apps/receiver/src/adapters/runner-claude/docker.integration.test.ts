@@ -101,7 +101,12 @@ const specFor = async (runId: RunId, title: string): Promise<RunSpec> => {
     resumeFrom: null,
     grants: { setup: 'setup-grant' as GrantToken, agent: 'agent-grant' as GrantToken },
     credential: 'api-key',
-    execution: { ...project().execution, image, timeoutMs: 60_000 },
+    execution: {
+      ...project().execution,
+      image,
+      timeoutMs: 60_000,
+      setupSecrets: { registry: path.join(dir, 'registry-token') },
+    },
   };
 };
 
@@ -113,11 +118,12 @@ beforeAll(async () => {
   await writeFile(path.join(seed, 'Card.css'), '.card { }\n');
   await writeFile(
     path.join(seed, '.redline/receiver.yaml'),
-    'setup: { run: "echo installed > /workspace/setup.log" }\nchecks: [pnpm test]\n',
+    'setup: { run: "read -r token < $REDLINE_SECRETS/registry; test $token = registry-token && echo installed > /workspace/setup.log" }\nchecks: [pnpm test]\n',
   );
   await git(seed, 'add', '.');
   await git(seed, 'commit', '-qm', 'base');
   await run('git', ['clone', '-q', '--bare', seed, path.join(dir, 'origin.git')]);
+  await writeFile(path.join(dir, 'registry-token'), 'registry-token');
   blobs = new FsBlobStore(path.join(dir, 'blobs'));
   mirrors = new GitMirrors({
     root: path.join(dir, 'mirrors'),
@@ -169,6 +175,8 @@ describe('the sandboxed runner on Docker', () => {
     });
     expect(seen['writeRoot']).toBe('EROFS');
     expect(seen['writeInput']).toBe('EROFS');
+    // The setup read the registry's secret; the agent does not have it.
+    expect(seen['secrets']).toBe('ENOENT');
     expect(seen['internet']).not.toBe('reached');
     await agent.release(runId);
     expect(await agent.live()).not.toContain(runId);

@@ -44,6 +44,11 @@ export interface ExecutionProfile {
   readonly budget: { readonly usd: number; readonly tokens: number };
   /** Package registries the setup phase may reach. */
   readonly setupHosts: readonly string[];
+  /**
+   * Secrets of private registries for the setup phase, by name: the operator's files, given to
+   * the setup as `/redline/secrets/<name>` and never to the agent.
+   */
+  readonly setupSecrets: Readonly<Record<string, string>>;
 }
 
 export interface Project {

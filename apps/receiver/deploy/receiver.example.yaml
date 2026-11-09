@@ -38,6 +38,10 @@ defaults:
     budgetUsd: 10
     budgetTokens: 10000000
     setupHosts: [registry.npmjs.org]
+    # Secrets of private registries, by name: files the worker reads, which the project's setup
+    # finds as $REDLINE_SECRETS/<name> (e.g. `NPM_TOKEN=$(cat $REDLINE_SECRETS/npm) pnpm install`).
+    # The agent never sees them.
+    # setupSecrets: { npm: /run/secrets/npm-token }
 
 projects:
   - id: acme-web

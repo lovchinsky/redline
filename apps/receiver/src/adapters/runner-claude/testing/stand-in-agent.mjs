@@ -39,6 +39,7 @@ const seen = {
   bundle: readFileSync(`/redline/input/bundle/${brief.material.entry}`, 'utf8'),
   writeRoot: attempt(() => writeFileSync('/etc/redline', 'x')),
   writeInput: attempt(() => writeFileSync('/redline/input/brief.json', 'x')),
+  secrets: attempt(() => readFileSync('/redline/secrets/registry')),
   grant: process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_CODE_OAUTH_TOKEN ?? null,
   baseUrl: process.env.ANTHROPIC_BASE_URL ?? null,
   internet: await reach('1.1.1.1', 443),
