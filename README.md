@@ -83,7 +83,8 @@ receiver and against the receiver in this repository.
 - `api` serves the extension (tasks, users, tokens) and has no Docker, git host or model key;
 - `worker` runs tasks: a Docker sandbox per run (gVisor), mirrors of the projects' repositories;
 - `gateway` is the agent sandboxes' only way out, to the model: it filters every request, puts
-  the task's model credential in place of the run's grant and stops a task at its budget;
+  the task's model credential in place of the run's grant, and holds a task to its budget: each
+  request reserves the most it can cost before it goes, and settles with what it used;
 - `egress` tunnels the setup sandboxes to their projects' package registries, and nowhere else;
 - Postgres keeps the state and the job queue; Caddy terminates TLS in front of the API.
 
