@@ -2,7 +2,7 @@ import { isTerminal, type Task } from '../domain/task';
 import { err, ok, type Result } from '../domain/result';
 import type { CredentialVault, ModelAccessPolicy, ModelCredential } from '../ports/access';
 import type { Logger } from '../ports/system';
-import { invalid, type RequestError } from './errors';
+import type { RequestError } from './errors';
 import type { TaskWriter } from './task-writer';
 
 /** Whether a requester may bring a credential of this kind. */
@@ -19,14 +19,20 @@ export const credentialsFor = (
 ): Result<Task['credentials'], RequestError> => {
   if (policy.credentials === 'managed') return ok('operator');
   if (credential !== null && !accepted(policy, credential)) {
-    return err(invalid('This receiver does not accept subscription tokens; use an API key'));
+    return err({
+      code: 'credential',
+      reason: 'refused-kind',
+      message: 'This receiver does not accept subscription tokens; use an API key',
+    });
   }
   if (credential !== null) return ok('requester');
   return policy.credentials === 'optional'
     ? ok('operator')
-    : err(
-        invalid('This receiver runs tasks with your own model credential; set it in the extension'),
-      );
+    : err({
+        code: 'credential',
+        reason: 'required',
+        message: 'This receiver runs tasks with your own model credential; set it in the extension',
+      });
 };
 
 /**

@@ -37,8 +37,22 @@ describe('StorageSettingsStore', () => {
     const area = memoryStorageArea();
     const store = new StorageSettingsStore(area);
     expect(value(await store.receiver())).toBeNull();
-    value(await store.setReceiver({ baseUrl: 'https://r.acme.io', token: null }));
-    expect(value(await store.receiver())).toEqual({ baseUrl: 'https://r.acme.io', token: null });
+    value(
+      await store.setReceiver({ baseUrl: 'https://r.acme.io', token: null, modelCredential: null }),
+    );
+    expect(value(await store.receiver())).toEqual({
+      baseUrl: 'https://r.acme.io',
+      token: null,
+      modelCredential: null,
+    });
+
+    // Saved before a model credential could be set: it has none.
+    await area.set({ receiver: { baseUrl: 'https://r.acme.io', token: 't' } });
+    expect(value(await store.receiver())).toEqual({
+      baseUrl: 'https://r.acme.io',
+      token: 't',
+      modelCredential: null,
+    });
 
     await area.set({ receiver: { baseUrl: 42 } });
     expect(await store.receiver()).toMatchObject({ ok: false, error: { code: 'storage' } });

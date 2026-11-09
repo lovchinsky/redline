@@ -2,6 +2,8 @@ import {
   ERROR_CODES,
   IDEMPOTENCY_KEY_HEADER,
   MANIFEST_PART,
+  MODEL_CREDENTIAL_HEADER,
+  MODEL_CREDENTIAL_KIND_HEADER,
   PROJECT_PART,
   listProjectsResponseSchema,
   errorResponseSchema,
@@ -61,8 +63,21 @@ const httpError = async (response: Response, now: number): Promise<AppError> => 
       reason: 'token-refused',
     });
   }
-  if (status === 404 && (await errorCodeOf(response)) === ERROR_CODES.unknownTask) {
+  const code = status === 404 || status === 422 ? await errorCodeOf(response) : null;
+  if (status === 404 && code === ERROR_CODES.unknownTask) {
     return appError('not-found', 'The receiver does not know this task', details);
+  }
+  if (status === 422 && code === ERROR_CODES.modelCredentialRequired) {
+    return appError('validation', 'The receiver needs your model credential', {
+      ...details,
+      reason: 'model-credential-required',
+    });
+  }
+  if (status === 422 && code === ERROR_CODES.modelCredentialRefused) {
+    return appError('validation', 'The receiver does not take this kind of model credential', {
+      ...details,
+      reason: 'model-credential-refused',
+    });
   }
   if (status === 404 || status === 408 || status === 425 || status === 429 || status >= 500) {
     return appError(
@@ -108,16 +123,24 @@ export class HttpReceiverClient implements ReceiverPort {
     form.append(PROJECT_PART, submission.projectId);
     for (const [path, blob] of submission.bundle.files) form.append(path, blob, path);
 
-    const response = await this.request(receiverRoutes.submitTask(), {
-      method: 'POST',
-      headers: { [IDEMPOTENCY_KEY_HEADER]: submission.idempotencyKey },
-      body: form,
-    });
+    const response = await this.request(
+      receiverRoutes.submitTask(),
+      {
+        method: 'POST',
+        headers: { [IDEMPOTENCY_KEY_HEADER]: submission.idempotencyKey },
+        body: form,
+      },
+      'with-credential',
+    );
     return this.parse(response, taskStateResponseSchema);
   }
 
   async getTask(remoteId: string): Promise<Result<ReceiverReport, AppError>> {
-    const response = await this.request(receiverRoutes.getTask(remoteId), { method: 'GET' });
+    const response = await this.request(
+      receiverRoutes.getTask(remoteId),
+      { method: 'GET' },
+      'with-credential',
+    );
     return this.parse(response, taskStateResponseSchema);
   }
 
@@ -125,23 +148,39 @@ export class HttpReceiverClient implements ReceiverPort {
     remoteId: string,
     answer: { readonly questionId: string; readonly text: string },
   ): Promise<Result<ReceiverReport, AppError>> {
-    const response = await this.request(receiverRoutes.replyToTask(remoteId), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(answer),
-    });
+    const response = await this.request(
+      receiverRoutes.replyToTask(remoteId),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answer),
+      },
+      'with-credential',
+    );
     return this.parse(response, taskStateResponseSchema);
   }
 
-  private async request(path: string, init: RequestInit): Promise<Result<Response, AppError>> {
+  /**
+   * Requests about tasks carry the user's model credential, if one is set: a receiver that runs
+   * tasks with it holds it in memory only and needs it with every such request.
+   */
+  private async request(
+    path: string,
+    init: RequestInit,
+    credential: 'with-credential' | 'without' = 'without',
+  ): Promise<Result<Response, AppError>> {
     const settings = await this.settings.receiver();
     if (!settings.ok) return settings;
     if (settings.value === null) {
       return err(appError('not-configured', 'No receiver is configured'));
     }
-    const { baseUrl, token }: ReceiverSettings = settings.value;
+    const { baseUrl, token, modelCredential }: ReceiverSettings = settings.value;
     const headers = new Headers(init.headers);
     if (token !== null) headers.set('Authorization', `Bearer ${token}`);
+    if (credential === 'with-credential' && modelCredential !== null) {
+      headers.set(MODEL_CREDENTIAL_HEADER, modelCredential.secret);
+      headers.set(MODEL_CREDENTIAL_KIND_HEADER, modelCredential.kind);
+    }
     try {
       const response = await this.fetch(`${baseUrl}${path}`, {
         ...init,

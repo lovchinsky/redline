@@ -46,14 +46,23 @@ const refuse = (
 ) => reply.code(status).headers(headers).send({ error: { code, message } });
 
 const STATUS_OF: Record<RequestError['code'], number> = {
+  credential: 422,
   'not-found': 404,
   conflict: 409,
   invalid: 422,
 };
-const CODE_OF: Record<RequestError['code'], string> = {
+const CODE_OF: Record<Exclude<RequestError['code'], 'credential'>, string> = {
   'not-found': ERROR_CODES.unknownTask,
   conflict: 'conflict',
   invalid: 'invalid-request',
+};
+
+/** The contract's error code of a refusal: what the extension acts on. */
+const codeOf = (error: RequestError): string => {
+  if (error.code !== 'credential') return CODE_OF[error.code];
+  return error.reason === 'required'
+    ? ERROR_CODES.modelCredentialRequired
+    : ERROR_CODES.modelCredentialRefused;
 };
 
 const respond = (
@@ -63,7 +72,7 @@ const respond = (
 ) =>
   result.ok
     ? reply.send(present(result.value, polling))
-    : refuse(reply, STATUS_OF[result.error.code], CODE_OF[result.error.code], result.error.message);
+    : refuse(reply, STATUS_OF[result.error.code], codeOf(result.error), result.error.message);
 
 type CredentialHeader =
   { ok: true; credential: ModelCredential | null } | { ok: false; message: string };

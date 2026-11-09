@@ -1,6 +1,14 @@
 /** Ports the delivery use cases need from the platform. Implemented in adapters. */
 import type { Bundle } from '@redline/assembly';
-import type { AppError, Binding, ProjectId, RemoteReport, Result, TaskId } from '@redline/core';
+import type {
+  AppError,
+  Binding,
+  ModelCredential,
+  ProjectId,
+  RemoteReport,
+  Result,
+  TaskId,
+} from '@redline/core';
 
 export interface ReceiverProject {
   readonly id: ProjectId;
@@ -35,6 +43,8 @@ export interface ReceiverSettings {
   /** https, or http on localhost; no trailing slash. */
   readonly baseUrl: string;
   readonly token: string | null;
+  /** The user's own model credential, for a receiver that runs tasks with it. */
+  readonly modelCredential: ModelCredential | null;
 }
 
 export interface SettingsStore {

@@ -12,11 +12,11 @@ const tsx = path.join(receiverDir, 'node_modules/.bin/tsx');
 const main = path.join(receiverDir, 'src/entrypoints/main.ts');
 
 /** A receiver that answers within seconds: a scripted agent, and polling allowed every second. */
-const CONFIG = `
+const configFor = (credentials: ModelCredentials) => `
 agent: { kind: scripted, durationSeconds: 1, asks: true }
 git: { kind: scripted, resultBaseUrl: 'https://git.example/acme/web/pull/' }
 polling: { queuedSeconds: 1, workingSeconds: 1, waitingSeconds: 1, finishedSeconds: 1 }
-models: { credentials: managed }
+models: { credentials: ${credentials} }
 projects:
   - id: acme-web
     name: Acme Web
@@ -35,6 +35,9 @@ const freePort = () =>
     });
   });
 
+/** Whose model credential the receiver runs tasks with (`models.credentials`). */
+export type ModelCredentials = 'managed' | 'required' | 'optional';
+
 export interface RunningReceiver {
   readonly url: string;
   readonly token: string;
@@ -45,7 +48,9 @@ export interface RunningReceiver {
  * The real receiver, started the way an operator starts it: its command line, its own
  * database (on the Postgres server `REDLINE_TEST_DATABASE_URL` names), a user and a token.
  */
-export const startReceiver = async (): Promise<RunningReceiver> => {
+export const startReceiver = async (
+  credentials: ModelCredentials = 'managed',
+): Promise<RunningReceiver> => {
   const server = process.env['REDLINE_TEST_DATABASE_URL'];
   if (server === undefined || server === '') {
     throw new Error(
@@ -59,7 +64,7 @@ export const startReceiver = async (): Promise<RunningReceiver> => {
   databaseUrl.pathname = `/${database}`;
 
   const dir = await mkdtemp(path.join(tmpdir(), 'redline-e2e-receiver-'));
-  await writeFile(path.join(dir, 'receiver.yaml'), CONFIG);
+  await writeFile(path.join(dir, 'receiver.yaml'), configFor(credentials));
   const port = await freePort();
   const env = {
     ...process.env,

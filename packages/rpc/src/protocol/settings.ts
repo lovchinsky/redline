@@ -1,12 +1,15 @@
 /** Where tasks go: the receiver, its projects, and which sites belong to which. */
-import { bindingSchema } from '@redline/core';
+import { MODEL_CREDENTIAL_KINDS, bindingSchema, modelCredentialSchema } from '@redline/core';
 import * as z from 'zod/mini';
 import { defineProtocol } from '../runtime/define';
 import { empty, projectSchema } from './shared';
 
+/** The receiver as the settings show it: secrets are never sent back, only whether they are set. */
 export const receiverViewSchema = z.object({
   baseUrl: z.string(),
   hasToken: z.boolean(),
+  /** The kind of the stored model credential, if one is stored. */
+  modelCredential: z.nullable(z.enum(MODEL_CREDENTIAL_KINDS)),
 });
 
 export type ReceiverView = z.infer<typeof receiverViewSchema>;
@@ -17,9 +20,16 @@ export const settingsMethods = defineProtocol({
     response: z.object({ receiver: z.nullable(receiverViewSchema) }),
     callers: ['extension'],
   },
-  /** `token` omitted keeps the stored one; `null` removes it. */
+  /**
+   * `token` and `modelCredential` omitted keep the stored ones (for the same server only);
+   * `null` removes them.
+   */
   'receiver.configure': {
-    request: z.object({ baseUrl: z.string(), token: z.optional(z.nullable(z.string())) }),
+    request: z.object({
+      baseUrl: z.string(),
+      token: z.optional(z.nullable(z.string())),
+      modelCredential: z.optional(z.nullable(modelCredentialSchema)),
+    }),
     response: empty,
     callers: ['extension'],
   },

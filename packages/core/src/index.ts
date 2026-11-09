@@ -12,6 +12,7 @@ export * from './domain/draft';
 export * from './domain/task';
 export * from './domain/binding';
 export * from './domain/remote-status';
+export * from './domain/model-credential';
 export * from './domain/delivery';
 export * from './shared/rate-limiter';
 export * from './shared/serial-queue';

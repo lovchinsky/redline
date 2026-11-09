@@ -391,20 +391,34 @@ describe('delivery', () => {
       await app.rpc.call('receiver.configure', { baseUrl: 'http://receiver.acme.io' }),
     ).toMatchObject({ ok: false, error: { code: 'validation' } });
     expect(value(await app.rpc.call('receiver.get', {}))).toEqual({
-      receiver: { baseUrl: receiver.url, hasToken: true },
+      receiver: { baseUrl: receiver.url, hasToken: true, modelCredential: null },
     });
     value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url }));
     expect(value(await app.rpc.call('receiver.get', {})).receiver?.hasToken).toBe(true);
     expect(value(await app.rpc.call('projects.list', {})).projects).toEqual([acme]);
   });
 
-  it('keeps the token for the same server only, never carrying it to another origin', async () => {
+  it('keeps the token and the model key for the same server only, never carrying them elsewhere', async () => {
+    const modelCredential = { kind: 'api-key', secret: ' sk-ant-api-secret ' } as const;
+    value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url, modelCredential }));
     value(await app.rpc.call('receiver.configure', { baseUrl: `${receiver.url}/v1` }));
-    expect(value(await app.rpc.call('receiver.get', {})).receiver?.hasToken).toBe(true);
+    expect(value(await app.rpc.call('receiver.get', {})).receiver).toEqual({
+      baseUrl: `${receiver.url}/v1`,
+      hasToken: true,
+      // Only its kind ever leaves the service worker.
+      modelCredential: 'api-key',
+    });
+    value(
+      await app.rpc.call('receiver.configure', { baseUrl: receiver.url, modelCredential: null }),
+    );
+    expect(value(await app.rpc.call('receiver.get', {})).receiver?.modelCredential).toBeNull();
+
+    value(await app.rpc.call('receiver.configure', { baseUrl: receiver.url, modelCredential }));
     value(await app.rpc.call('receiver.configure', { baseUrl: 'https://other.acme.io' }));
     expect(value(await app.rpc.call('receiver.get', {})).receiver).toEqual({
       baseUrl: 'https://other.acme.io',
       hasToken: false,
+      modelCredential: null,
     });
   });
 

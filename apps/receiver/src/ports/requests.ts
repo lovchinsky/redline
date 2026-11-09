@@ -9,8 +9,14 @@ export type RequestError =
   | { readonly code: 'not-found'; readonly message: string }
   /** The task's state does not allow it, e.g. answering a question that is not open. */
   | { readonly code: 'conflict'; readonly message: string }
-  /** The request itself is wrong: an unknown project, a credential of a refused kind. */
-  | { readonly code: 'invalid'; readonly message: string };
+  /** The request itself is wrong: an unknown project, a malformed answer. */
+  | { readonly code: 'invalid'; readonly message: string }
+  /** The receiver needs the requester's model credential, or does not take this kind of it. */
+  | {
+      readonly code: 'credential';
+      readonly reason: 'required' | 'refused-kind';
+      readonly message: string;
+    };
 
 export interface ProjectListing {
   readonly projects: readonly { readonly id: ProjectId; readonly name: string }[];

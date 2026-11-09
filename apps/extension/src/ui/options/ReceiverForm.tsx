@@ -1,4 +1,4 @@
-import type { AppError } from '@redline/core';
+import type { AppError, ModelCredentialKind } from '@redline/core';
 import type { ReceiverView } from '@redline/rpc';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { UiServices } from '../services';
@@ -14,12 +14,17 @@ type Feedback =
   | { readonly kind: 'error'; readonly error: AppError }
   | { readonly kind: 'denied' };
 
-/** The receiver's address and token. The token is write-only: the page never reads it back. */
+/**
+ * The receiver's address, its token and the user's own model key. Secrets are write-only: the
+ * page never reads them back, only whether (and of what kind) one is stored.
+ */
 export const ReceiverForm = ({ services }: { services: UiServices }) => {
   const t = useTranslator();
   const [stored, setStored] = useState<ReceiverView | null>(null);
   const [url, setUrl] = useState('');
   const [token, setToken] = useState('');
+  const [keyKind, setKeyKind] = useState<ModelCredentialKind>('api-key');
+  const [key, setKey] = useState('');
   const [feedback, setFeedback] = useState<Feedback>({ kind: 'none' });
 
   const load = useCallback(async () => {
@@ -30,16 +35,18 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
     }
     setStored(receiver.value.receiver);
     setUrl(receiver.value.receiver?.baseUrl ?? '');
+    setKeyKind(receiver.value.receiver?.modelCredential ?? 'api-key');
   }, [services]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // The stored token stays only while the address points to the same server.
-  const keepsToken =
-    stored?.hasToken === true &&
-    URL.parse(url.trim())?.origin === URL.parse(stored.baseUrl)?.origin;
+  // Stored secrets stay only while the address points to the same server.
+  const sameServer =
+    stored !== null && URL.parse(url.trim())?.origin === URL.parse(stored.baseUrl)?.origin;
+  const keepsToken = sameServer && stored.hasToken;
+  const keepsKey = sameServer && stored.modelCredential !== null;
 
   const save = async () => {
     // Asked first, while the click still counts as a user gesture.
@@ -53,17 +60,29 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
       setFeedback({ kind: 'denied' });
       return;
     }
-    const saved = await services.rpc.call(
-      'receiver.configure',
-      token === '' ? { baseUrl: url } : { baseUrl: url, token },
-    );
+    const saved = await services.rpc.call('receiver.configure', {
+      baseUrl: url,
+      ...(token === '' ? {} : { token }),
+      ...(key.trim() === '' ? {} : { modelCredential: { kind: keyKind, secret: key } }),
+    });
     if (!saved.ok) {
       setFeedback({ kind: 'error', error: saved.error });
       return;
     }
     setToken('');
+    setKey('');
     await load();
     await check();
+  };
+
+  const removeKey = async () => {
+    if (stored === null) return;
+    const removed = await services.rpc.call('receiver.configure', {
+      baseUrl: stored.baseUrl,
+      modelCredential: null,
+    });
+    if (!removed.ok) setFeedback({ kind: 'error', error: removed.error });
+    else await load();
   };
 
   const check = async () => {
@@ -125,6 +144,43 @@ export const ReceiverForm = ({ services }: { services: UiServices }) => {
             }}
           />
         </label>
+        <fieldset class="field">
+          <legend class="field-label">{t.text('modelCredentialLabel')}</legend>
+          <span class="field-hint">{t.text('modelCredentialHint')}</span>
+          <select
+            class="select"
+            data-testid="model-key-kind"
+            aria-label={t.text('modelCredentialKind')}
+            value={keyKind}
+            onChange={(event) => {
+              setKeyKind(event.currentTarget.value === 'subscription' ? 'subscription' : 'api-key');
+            }}
+          >
+            <option value="api-key">{t.text('modelCredentialApiKey')}</option>
+            <option value="subscription">{t.text('modelCredentialSubscription')}</option>
+          </select>
+          <input
+            class="input"
+            data-testid="model-key"
+            type="password"
+            autocomplete="off"
+            aria-label={t.text('modelCredentialLabel')}
+            value={key}
+            placeholder={keepsKey ? t.text('modelCredentialKept') : t.text('modelCredentialNone')}
+            onInput={(event) => {
+              setKey(event.currentTarget.value);
+            }}
+          />
+          {keepsKey && (
+            <Button
+              variant="danger"
+              data-testid="model-key-remove"
+              onClick={() => void removeKey()}
+            >
+              {t.text('modelCredentialRemove')}
+            </Button>
+          )}
+        </fieldset>
         {feedback.kind !== 'none' && (
           <p
             role={feedback.kind === 'ok' ? 'status' : 'alert'}

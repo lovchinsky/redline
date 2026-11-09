@@ -1,6 +1,13 @@
 import { startMockReceiver, type MockReceiver } from '@redline/mock-receiver';
-import { BUNDLE_ENTRY, BUNDLE_SCHEMA_VERSION } from '@redline/contract';
-import { ProjectId, type Result } from '@redline/core';
+import {
+  BUNDLE_ENTRY,
+  BUNDLE_SCHEMA_VERSION,
+  ERROR_CODES,
+  MODEL_CREDENTIAL_HEADER,
+  MODEL_CREDENTIAL_KINDS as CONTRACT_KINDS,
+  MODEL_CREDENTIAL_KIND_HEADER,
+} from '@redline/contract';
+import { MODEL_CREDENTIAL_KINDS, ProjectId, type Result } from '@redline/core';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Submission } from '../../ports/delivery';
@@ -57,7 +64,9 @@ let settings: StorageSettingsStore;
 beforeEach(async () => {
   receiver = await startMockReceiver({ token: 'secret' });
   settings = new StorageSettingsStore(memoryStorageArea());
-  value(await settings.setReceiver({ baseUrl: receiver.url, token: 'secret' }));
+  value(
+    await settings.setReceiver({ baseUrl: receiver.url, token: 'secret', modelCredential: null }),
+  );
   client = new HttpReceiverClient(settings, (input, init) => fetch(input, init));
 });
 
@@ -107,13 +116,17 @@ describe('HttpReceiverClient against the mock receiver', () => {
       error: { code: 'receiver-unavailable', details: { status: 503, retryAfterSec: 1 } },
     });
 
-    value(await settings.setReceiver({ baseUrl: receiver.url, token: 'wrong' }));
+    value(
+      await settings.setReceiver({ baseUrl: receiver.url, token: 'wrong', modelCredential: null }),
+    );
     expect(await client.listProjects()).toMatchObject({
       ok: false,
       error: { code: 'permission-denied' },
     });
 
-    value(await settings.setReceiver({ baseUrl: receiver.url, token: 'secret' }));
+    value(
+      await settings.setReceiver({ baseUrl: receiver.url, token: 'secret', modelCredential: null }),
+    );
     const tampered = delivery();
     const wrongProject = { ...tampered, projectId: ProjectId.parse('nope') };
     expect(await client.submit(wrongProject)).toMatchObject({
@@ -145,7 +158,13 @@ describe('HttpReceiverClient against the mock receiver', () => {
       error: { code: 'not-found' },
     });
     // A wrong address answers 404 for everything: that is a receiver to fix, not a lost task.
-    value(await settings.setReceiver({ baseUrl: `${receiver.url}/wrong`, token: 'secret' }));
+    value(
+      await settings.setReceiver({
+        baseUrl: `${receiver.url}/wrong`,
+        token: 'secret',
+        modelCredential: null,
+      }),
+    );
     expect(await client.getTask('remote-1')).toMatchObject({
       ok: false,
       error: { code: 'receiver-unavailable', details: { status: 404 } },
@@ -159,5 +178,78 @@ describe('HttpReceiverClient against the mock receiver', () => {
       error: { code: 'receiver-unavailable' },
     });
     receiver = await startMockReceiver();
+  });
+});
+
+describe('HttpReceiverClient and the model credential', () => {
+  const credential = { kind: 'api-key', secret: 'sk-ant-api-secret' } as const;
+
+  /** A receiver that answers every request with `answer` and remembers the headers it got. */
+  const recording = (answer: () => Response) => {
+    const seen: { path: string; headers: Headers }[] = [];
+    const fetchStub = (input: string, init: RequestInit) => {
+      seen.push({ path: new URL(input).pathname, headers: new Headers(init.headers) });
+      return Promise.resolve(answer());
+    };
+    return { seen, fetchStub };
+  };
+
+  const report = () =>
+    Response.json({ remoteId: 'r1', status: { phase: 'queued' }, pollAfterSec: 30 });
+
+  it('sends the credential with requests about tasks, and only with those', async () => {
+    const { seen, fetchStub } = recording(report);
+    const stored = new StorageSettingsStore(memoryStorageArea());
+    value(
+      await stored.setReceiver({
+        baseUrl: 'https://r.acme.io',
+        token: 't',
+        modelCredential: credential,
+      }),
+    );
+    const withKey = new HttpReceiverClient(stored, fetchStub);
+    await withKey.submit(delivery());
+    await withKey.getTask('r1');
+    await withKey.reply('r1', { questionId: 'q1', text: 'Yes' });
+    await withKey.listProjects();
+    expect(
+      seen.map(({ path, headers }) => [
+        path,
+        headers.get(MODEL_CREDENTIAL_HEADER),
+        headers.get(MODEL_CREDENTIAL_KIND_HEADER),
+      ]),
+    ).toEqual([
+      ['/v1/tasks', 'sk-ant-api-secret', 'api-key'],
+      ['/v1/tasks/r1', 'sk-ant-api-secret', 'api-key'],
+      ['/v1/tasks/r1/replies', 'sk-ant-api-secret', 'api-key'],
+      ['/v1/projects', null, null],
+    ]);
+  });
+
+  it('names a missing or refused credential so the user can act on it', async () => {
+    for (const [code, reason] of [
+      [ERROR_CODES.modelCredentialRequired, 'model-credential-required'],
+      [ERROR_CODES.modelCredentialRefused, 'model-credential-refused'],
+    ] as const) {
+      const { fetchStub } = recording(() =>
+        Response.json({ error: { code, message: 'no' } }, { status: 422 }),
+      );
+      const stored = new StorageSettingsStore(memoryStorageArea());
+      value(
+        await stored.setReceiver({
+          baseUrl: 'https://r.acme.io',
+          token: 't',
+          modelCredential: null,
+        }),
+      );
+      expect(await new HttpReceiverClient(stored, fetchStub).submit(delivery())).toMatchObject({
+        ok: false,
+        error: { code: 'validation', details: { reason } },
+      });
+    }
+  });
+
+  it('uses the contract’s kinds of credential', () => {
+    expect(MODEL_CREDENTIAL_KINDS).toEqual(CONTRACT_KINDS);
   });
 });

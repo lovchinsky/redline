@@ -44,6 +44,8 @@ export const ERROR_REASONS = [
   'answer-empty',
   'not-waiting',
   'token-refused',
+  'model-credential-required',
+  'model-credential-refused',
 ] as const;
 
 export type ErrorReason = (typeof ERROR_REASONS)[number];

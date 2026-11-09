@@ -58,6 +58,8 @@ const BY_REASON: Readonly<
   'answer-empty': { key: 'errorAnswerEmpty' },
   'not-waiting': { key: 'errorNotWaiting' },
   'token-refused': { key: 'errorTokenRefused' },
+  'model-credential-required': { key: 'errorModelCredentialRequired' },
+  'model-credential-refused': { key: 'errorModelCredentialRefused' },
 };
 
 /**

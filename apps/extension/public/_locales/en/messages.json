@@ -571,5 +571,35 @@
   },
   "errorDraftChanged": {
     "message": "The draft changed while you were looking at it. Check it and send again"
+  },
+  "errorModelCredentialRequired": {
+    "message": "This receiver runs tasks with your own model key. Add it in the settings and send again."
+  },
+  "errorModelCredentialRefused": {
+    "message": "This receiver does not take keys of this kind. Use an API key."
+  },
+  "modelCredentialLabel": {
+    "message": "Your model key"
+  },
+  "modelCredentialHint": {
+    "message": "Needed only if the receiver runs tasks with your own key. Kept on this device only and sent to this receiver only."
+  },
+  "modelCredentialKind": {
+    "message": "Kind of key"
+  },
+  "modelCredentialApiKey": {
+    "message": "API key"
+  },
+  "modelCredentialSubscription": {
+    "message": "Subscription (claude setup-token)"
+  },
+  "modelCredentialKept": {
+    "message": "Saved — leave empty to keep it"
+  },
+  "modelCredentialNone": {
+    "message": "Not set"
+  },
+  "modelCredentialRemove": {
+    "message": "Remove the key"
   }
 }

@@ -1,4 +1,4 @@
-import type { AppError, Result } from '@redline/core';
+import { modelCredentialSchema, type AppError, type Result } from '@redline/core';
 import * as z from 'zod/mini';
 import type { ReceiverSettings, SettingsStore } from '../../ports/delivery';
 import { StoredValue, type StorageArea } from './storage-area';
@@ -6,9 +6,14 @@ import { StoredValue, type StorageArea } from './storage-area';
 const receiverSchema = z.object({
   baseUrl: z.url(),
   token: z.nullable(z.string()),
+  // Settings saved before a model credential could be set have none.
+  modelCredential: z._default(z.nullable(modelCredentialSchema), null),
 });
 
-/** Receiver settings in `storage.local`: never synced, the token stays on this device. */
+/**
+ * Receiver settings in `storage.local`: never synced, the token and the model credential stay
+ * on this device.
+ */
 export class StorageSettingsStore implements SettingsStore {
   private readonly value: StoredValue<typeof receiverSchema>;
 

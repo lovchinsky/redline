@@ -8,6 +8,7 @@ import {
   type Binding,
   type Clock,
   type Logger,
+  type ModelCredential,
   type Result,
 } from '@redline/core';
 import type { AppEvents, EventPublisher, ProjectRef, ReceiverView } from '@redline/rpc';
@@ -66,28 +67,40 @@ export class ManageSettings {
       receiver:
         stored.value === null
           ? null
-          : { baseUrl: stored.value.baseUrl, hasToken: stored.value.token !== null },
+          : {
+              baseUrl: stored.value.baseUrl,
+              hasToken: stored.value.token !== null,
+              modelCredential: stored.value.modelCredential?.kind ?? null,
+            },
     });
   }
 
   /**
-   * `token` undefined keeps the stored token, but only for the same server: a token is a
-   * credential for one origin and never follows the address elsewhere. `null` or empty removes it.
+   * `token` and `modelCredential` undefined keep the stored ones, but only for the same server:
+   * they are credentials for one origin and never follow the address elsewhere. `null` (or an
+   * empty token) removes them.
    */
-  configureReceiver(baseUrl: string, token: string | null | undefined): Promise<Done> {
+  configureReceiver(change: {
+    readonly baseUrl: string;
+    readonly token?: string | null | undefined;
+    readonly modelCredential?: ModelCredential | null | undefined;
+  }): Promise<Done> {
     return this.write(async () => {
-      const url = normalizeReceiverUrl(baseUrl);
+      const url = normalizeReceiverUrl(change.baseUrl);
       if (!url.ok) return url;
-      let nextToken = token === undefined ? null : token?.trim() || null;
-      if (token === undefined) {
-        const stored = await this.deps.settings.receiver();
-        if (!stored.ok) return stored;
-        const sameServer =
-          stored.value !== null &&
-          new URL(stored.value.baseUrl).origin === new URL(url.value).origin;
-        nextToken = sameServer ? stored.value.token : null;
-      }
-      return this.deps.settings.setReceiver({ baseUrl: url.value, token: nextToken });
+      const stored = await this.deps.settings.receiver();
+      if (!stored.ok) return stored;
+      const kept =
+        stored.value !== null && new URL(stored.value.baseUrl).origin === new URL(url.value).origin
+          ? stored.value
+          : null;
+      const token =
+        change.token === undefined ? (kept?.token ?? null) : change.token?.trim() || null;
+      const modelCredential =
+        change.modelCredential === undefined
+          ? (kept?.modelCredential ?? null)
+          : change.modelCredential;
+      return this.deps.settings.setReceiver({ baseUrl: url.value, token, modelCredential });
     });
   }
 

@@ -92,6 +92,10 @@ export const replyRequestSchema = z.object({
 export const ERROR_CODES = {
   /** `404` for a task the receiver does not know, or no longer keeps: it stops being followed. */
   unknownTask: 'unknown-task',
+  /** `422`: the receiver runs tasks with the requester's own model credential, and none came. */
+  modelCredentialRequired: 'model-credential-required',
+  /** `422`: the receiver does not take a model credential of this kind (e.g. subscriptions). */
+  modelCredentialRefused: 'model-credential-refused',
 } as const;
 
 export const errorResponseSchema = z.object({

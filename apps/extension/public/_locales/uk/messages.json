@@ -571,5 +571,35 @@
   },
   "errorDraftChanged": {
     "message": "Чернетка змінилася, поки ви її переглядали. Перевірте її та надішліть ще раз"
+  },
+  "errorModelCredentialRequired": {
+    "message": "Цей отримувач запускає задачі з вашим власним ключем моделі. Додайте його в налаштуваннях і надішліть знову."
+  },
+  "errorModelCredentialRefused": {
+    "message": "Цей отримувач не приймає ключі такого виду. Укажіть ключ API."
+  },
+  "modelCredentialLabel": {
+    "message": "Ваш ключ моделі"
+  },
+  "modelCredentialHint": {
+    "message": "Потрібен, лише якщо отримувач запускає задачі з вашим власним ключем. Зберігається тільки на цьому пристрої й надсилається лише цьому отримувачу."
+  },
+  "modelCredentialKind": {
+    "message": "Вид ключа"
+  },
+  "modelCredentialApiKey": {
+    "message": "Ключ API"
+  },
+  "modelCredentialSubscription": {
+    "message": "Підписка (claude setup-token)"
+  },
+  "modelCredentialKept": {
+    "message": "Збережено — залиште порожнім, щоб не змінювати"
+  },
+  "modelCredentialNone": {
+    "message": "Не задано"
+  },
+  "modelCredentialRemove": {
+    "message": "Прибрати ключ"
   }
 }
