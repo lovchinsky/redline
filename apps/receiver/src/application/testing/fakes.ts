@@ -273,6 +273,7 @@ export const bundle: BundleContents = {
       url: 'https://staging.acme.io/pricing',
       comment: 'Rename "Most popular" to "Best value"',
       viewport: { width: 1280, height: 800 },
+      files: [],
     },
   ],
   files: [{ path: 'context.md', digest: 'b'.repeat(64) as BlobDigest, mediaType: 'text/markdown' }],

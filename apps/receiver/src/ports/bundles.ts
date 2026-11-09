@@ -21,6 +21,8 @@ export interface BundleStep {
   readonly url: string;
   readonly comment: string;
   readonly viewport: { readonly width: number; readonly height: number };
+  /** Bundle paths of the step's material: screenshots and details of what was marked. */
+  readonly files: readonly string[];
 }
 
 export interface BundleFile {

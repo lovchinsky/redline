@@ -3,7 +3,6 @@ import {
   DEFAULT_CHANGE_POLICY,
   describeViolation,
   evaluateChange,
-  globMatcher,
   type ChangeDescription,
   type DiffEntry,
 } from './change-policy';
@@ -32,25 +31,6 @@ const change = (
 
 const verdict = (description: ChangeDescription) =>
   evaluateChange(description, DEFAULT_CHANGE_POLICY);
-
-describe('globMatcher', () => {
-  it.each([
-    ['.github/**', '.github/workflows/ci.yml', true],
-    ['.github/**', 'web/.github/x', false],
-    ['CLAUDE.md', 'CLAUDE.md', true],
-    ['CLAUDE.md', 'apps/web/CLAUDE.md', true],
-    ['CLAUDE.md', 'CLAUDE.md.bak', false],
-    ['.claude', '.claude/settings.json', true],
-    ['src/*.ts', 'src/a.ts', true],
-    ['src/*.ts', 'src/deep/a.ts', false],
-    ['src/**/*.ts', 'src/a.ts', true],
-    ['src/**/*.ts', 'src/deep/er/a.ts', true],
-    ['.yarnrc', '.yarnrc.yml', false],
-    ['file?.txt', 'file1.txt', true],
-  ])('%s matches %s: %s', (pattern, path, expected) => {
-    expect(globMatcher(pattern)(path)).toBe(expected);
-  });
-});
 
 describe('evaluateChange', () => {
   it('accepts an ordinary change to source files', () => {

@@ -66,6 +66,24 @@ const probes = [
     expectRule: 'receiver-not-to-extension-packages',
   },
   {
+    name: 'agent-host using an extension package',
+    files: {
+      'apps/agent-host/src/__cruise_probe__/core.ts':
+        "export { ok } from '../../../../packages/core/src/shared/result';\n",
+    },
+    entry: 'apps/agent-host/src/__cruise_probe__',
+    expectRule: 'receiver-not-to-extension-packages',
+  },
+  {
+    name: 'agent-host reaching into the receiver',
+    files: {
+      'apps/agent-host/src/__cruise_probe__/receiver.ts':
+        "export { ok } from '../../../receiver/src/domain/result';\n",
+    },
+    entry: 'apps/agent-host/src/__cruise_probe__',
+    expectRule: 'apps-isolated',
+  },
+  {
     name: 'control: the receiver using the contract',
     files: {
       'apps/receiver/src/__cruise_probe__/contract.ts':

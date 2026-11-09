@@ -140,6 +140,48 @@ const probes = [
     expectRule: null,
   },
   {
+    name: 'the receiver domain must not speak the agent protocol',
+    file: 'apps/receiver/src/domain/__boundary_probe__.ts',
+    code: "import { RUN_LAYOUT } from '../../../../packages/agent-protocol/src/layout';\nexport const probe = RUN_LAYOUT;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'control: the receiver domain may use path globs',
+    file: 'apps/receiver/src/domain/__boundary_probe__.ts',
+    code: "import { pathMatcher } from '@redline/path-patterns';\nexport const probe = pathMatcher;\n",
+    expectRule: null,
+  },
+  {
+    name: 'the agent-host domain must not depend on its adapters',
+    file: 'apps/agent-host/src/domain/__boundary_probe__.ts',
+    code: "import { systemClock } from '../adapters/system/system';\nexport const probe = systemClock;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'agent-host use cases must not call the agent SDK directly',
+    file: 'apps/agent-host/src/application/__boundary_probe__.ts',
+    code: "import { query } from '@anthropic-ai/claude-agent-sdk';\nexport const probe = query;\n",
+    expectRule: 'no-restricted-imports',
+  },
+  {
+    name: 'agent-host use cases must not set timers themselves',
+    file: 'apps/agent-host/src/application/__boundary_probe__.ts',
+    code: 'export const probe = () => setTimeout(() => undefined, 1);\n',
+    expectRule: 'no-restricted-globals',
+  },
+  {
+    name: 'an agent-host adapter must not use another adapter',
+    file: 'apps/agent-host/src/adapters/git/__boundary_probe__.ts',
+    code: "import { systemClock } from '../system/system';\nexport const probe = systemClock;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'control: agent-host use cases may depend on ports and the protocol',
+    file: 'apps/agent-host/src/application/__boundary_probe__.ts',
+    code: "import type { Workspace } from '../ports/run';\nimport { RUN_LAYOUT } from '@redline/agent-protocol';\nexport const probe: [Workspace | null, typeof RUN_LAYOUT] = [null, RUN_LAYOUT];\n",
+    expectRule: null,
+  },
+  {
     name: 'control: receiver use cases may depend on the domain',
     file: 'apps/receiver/src/application/__boundary_probe__.ts',
     code: "import { ok } from '../domain/result';\nexport const probe = ok(1);\n",

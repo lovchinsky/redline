@@ -12,6 +12,7 @@
   "dependencies": {
     "@fastify/multipart": "10.1.8",
     "@redline/contract": "workspace:*",
+    "@redline/path-patterns": "workspace:*",
     "fastify": "5.12.8",
     "kysely": "0.29.8",
     "pg": "8.23.1",

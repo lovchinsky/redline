@@ -22,6 +22,7 @@ export class StoredBundles implements BundleReader {
         url: step.url,
         comment: step.comment,
         viewport: { width: step.viewport.width, height: step.viewport.height },
+        files: [...new Set(step.shapes.flatMap((shape) => shape.files))],
       })),
       files: files.map((file) => ({
         path: file.path,

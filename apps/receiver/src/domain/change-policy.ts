@@ -1,3 +1,4 @@
+import { firstMatch } from '@redline/path-patterns';
 /** One file of a proposed change, as git describes it against the task's base. */
 export interface DiffEntry {
   readonly path: string;
@@ -31,11 +32,7 @@ export interface ChangeDescription {
   readonly scriptChanges: readonly ScriptChange[];
 }
 
-/**
- * A project's rules for agent changes. Path patterns are globs: `*` stays within a directory,
- * `**` spans directories. A pattern without a slash matches a file or directory of that name at
- * any depth (`CLAUDE.md` matches `web/CLAUDE.md`); a pattern with one is anchored at the root.
- */
+/** A project's rules for agent changes. Paths are `@redline/path-patterns` globs. */
 export interface ChangePolicyRules {
   /** Paths the agent must not touch: CI, hooks, agent configuration, registries. */
   readonly deny: readonly string[];
@@ -107,30 +104,6 @@ export type Flag =
 export type PolicyVerdict =
   | { readonly accepted: true; readonly flags: readonly Flag[] }
   | { readonly accepted: false; readonly violations: readonly Violation[] };
-
-const escapeRegex = (text: string) => text.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-
-/** Compiles one glob of `ChangePolicyRules` into a matcher of repository paths. */
-export const globMatcher = (pattern: string): ((path: string) => boolean) => {
-  const anchored = pattern.includes('/');
-  let source = '';
-  for (let i = 0; i < pattern.length; i += 1) {
-    const char = pattern.charAt(i);
-    if (char === '*' && pattern.charAt(i + 1) === '*') {
-      const slash = pattern.charAt(i + 2) === '/';
-      source += slash ? '(?:.*/)?' : '.*';
-      i += slash ? 2 : 1;
-    } else if (char === '*') source += '[^/]*';
-    else if (char === '?') source += '[^/]';
-    else source += escapeRegex(char);
-  }
-  // A name matches itself and everything under it: `.claude` covers `.claude/settings.json`.
-  const regex = new RegExp(`^${anchored ? '' : '(?:.*/)?'}${source}(?:/.*)?$`);
-  return (path) => regex.test(path);
-};
-
-const firstMatch = (patterns: readonly string[], path: string): string | null =>
-  patterns.find((pattern) => globMatcher(pattern)(path)) ?? null;
 
 /** Every path an entry touches: a rename touches where the file was and where it is. */
 const touchedPaths = (entry: DiffEntry): string[] =>

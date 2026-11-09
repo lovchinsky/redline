@@ -33,6 +33,7 @@ const elements = [
   { type: 'ext-ui', pattern: 'apps/extension/src/ui' },
   // The receiver: a separate deployable that shares only the contract with the extension.
   { type: 'agent-protocol', pattern: 'packages/agent-protocol' },
+  { type: 'path-patterns', pattern: 'packages/path-patterns' },
   { type: 'rcv-domain', pattern: 'apps/receiver/src/domain' },
   { type: 'rcv-ports', pattern: 'apps/receiver/src/ports' },
   { type: 'rcv-application', pattern: 'apps/receiver/src/application' },
@@ -43,7 +44,13 @@ const elements = [
   },
   { type: 'rcv-composition', pattern: 'apps/receiver/src/composition' },
   { type: 'rcv-entrypoint', pattern: 'apps/receiver/src/entrypoints' },
-  { type: 'agent-host', pattern: 'apps/agent-host/src' },
+  // agent-host: the program inside a run's sandbox, layered like the receiver.
+  { type: 'ah-domain', pattern: 'apps/agent-host/src/domain' },
+  { type: 'ah-ports', pattern: 'apps/agent-host/src/ports' },
+  { type: 'ah-application', pattern: 'apps/agent-host/src/application' },
+  { type: 'ah-adapter', pattern: 'apps/agent-host/src/adapters/*', capture: ['adapterName'] },
+  { type: 'ah-composition', pattern: 'apps/agent-host/src/composition' },
+  { type: 'ah-entrypoint', pattern: 'apps/agent-host/src/entrypoints' },
 ];
 
 /** @param {string[]} types */
@@ -120,8 +127,10 @@ const dependencyPolicies = [
   { from: { element: { type: 'ext-entrypoint' } }, allow: to(['ext-composition', 'ext-ui']) },
   // The agent's exchange format with the receiver: data schemas only.
   { from: { element: { type: 'agent-protocol' } }, allow: to(['agent-protocol']) },
+  { from: { element: { type: 'path-patterns' } }, allow: to(['path-patterns']) },
   // The domain knows nothing outside itself: no contract, no storage, no agent, no git host.
-  { from: { element: { type: 'rcv-domain' } }, allow: to(['rcv-domain']) },
+  // Path globs are shared with agent-host, so both read a protected path the same way.
+  { from: { element: { type: 'rcv-domain' } }, allow: to(['rcv-domain', 'path-patterns']) },
   { from: { element: { type: 'rcv-ports' } }, allow: to(['rcv-ports', 'rcv-domain']) },
   {
     from: { element: { type: 'rcv-application' } },
@@ -160,7 +169,45 @@ const dependencyPolicies = [
     ]),
   },
   { from: { element: { type: 'rcv-entrypoint' } }, allow: to(['rcv-composition']) },
-  { from: { element: { type: 'agent-host' } }, allow: to(['agent-host', 'agent-protocol']) },
+  // agent-host executes the agent protocol: its brief and outcome are its model, at every layer.
+  {
+    from: { element: { type: 'ah-domain' } },
+    allow: to(['ah-domain', 'agent-protocol', 'path-patterns']),
+  },
+  {
+    from: { element: { type: 'ah-ports' } },
+    allow: to(['ah-ports', 'ah-domain', 'agent-protocol']),
+  },
+  {
+    from: { element: { type: 'ah-application' } },
+    allow: to(['ah-application', 'ah-ports', 'ah-domain', 'agent-protocol']),
+  },
+  {
+    from: { element: { type: 'ah-adapter' } },
+    allow: [
+      to(['ah-ports', 'ah-domain', 'agent-protocol']),
+      {
+        to: {
+          element: {
+            type: 'ah-adapter',
+            captured: { adapterName: '{{from.captured.adapterName}}' },
+          },
+        },
+      },
+    ],
+  },
+  {
+    from: { element: { type: 'ah-composition' } },
+    allow: to([
+      'ah-composition',
+      'ah-adapter',
+      'ah-application',
+      'ah-ports',
+      'ah-domain',
+      'agent-protocol',
+    ]),
+  },
+  { from: { element: { type: 'ah-entrypoint' } }, allow: to(['ah-composition']) },
 ];
 
 export default defineConfig(
@@ -257,9 +304,12 @@ export default defineConfig(
     },
   },
   {
-    // The receiver's core decides; adapters do I/O. Its domain, ports and use cases reach the
-    // platform, storage, network, agent and git host only through ports.
-    files: ['apps/receiver/src/{domain,ports,application}/**/*.ts'],
+    // The receiver's and agent-host's cores decide; adapters do I/O. Their domain, ports and use
+    // cases reach the platform, storage, network, agent and git host only through ports.
+    files: [
+      'apps/receiver/src/{domain,ports,application}/**/*.ts',
+      'apps/agent-host/src/{domain,ports,application}/**/*.ts',
+    ],
     ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': [

@@ -45,11 +45,11 @@ module.exports = {
       name: 'receiver-not-to-extension-packages',
       severity: 'error',
       comment:
-        'The receiver and the agent host share only the contract and the agent protocol with the extension.',
+        'The receiver and the agent host share only the contract, the agent protocol and path globs with the extension.',
       from: { path: '^apps/(receiver|agent-host)/' },
       to: {
         path: '^packages/',
-        pathNot: '^packages/(contract|agent-protocol)/',
+        pathNot: '^packages/(contract|agent-protocol|path-patterns)/',
       },
     },
     {

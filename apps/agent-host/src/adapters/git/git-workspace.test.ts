@@ -1,0 +1,76 @@
+import { CHANGE_REF } from '@redline/agent-protocol';
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { GitWorkspace } from './git-workspace';
+
+const run = promisify(execFile);
+let dir: string;
+let repo: string;
+let base: string;
+
+const git = async (cwd: string, ...args: string[]) =>
+  (
+    await run('git', args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t',
+      },
+    })
+  ).stdout.trim();
+
+beforeEach(async () => {
+  dir = await mkdtemp(path.join(tmpdir(), 'agent-host-git-'));
+  repo = path.join(dir, 'workspace');
+  await mkdir(repo);
+  await git(repo, 'init', '-q', '-b', 'main');
+  await writeFile(path.join(repo, 'Card.css'), '.card { }\n');
+  await writeFile(path.join(repo, '.gitignore'), 'dist/\n');
+  await git(repo, 'add', '.');
+  await git(repo, 'commit', '-qm', 'base');
+  base = await git(repo, 'rev-parse', 'HEAD');
+});
+
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true });
+});
+
+describe('GitWorkspace', () => {
+  it('finds no change in an untouched tree, or one with only ignored files', async () => {
+    await mkdir(path.join(repo, 'dist'));
+    await writeFile(path.join(repo, 'dist/app.js'), 'built');
+    const workspace = new GitWorkspace({ root: repo, bundlePath: path.join(dir, 'change.bundle') });
+    expect(await workspace.exportChange(base)).toBeNull();
+  });
+
+  it('exports every change, staged or not and committed or not, as one commit on the base', async () => {
+    await writeFile(path.join(repo, 'Card.css'), '.card { align-items: stretch; }\n');
+    await writeFile(path.join(repo, 'New.ts'), 'export {};\n');
+    // The agent committed part of it itself; the export does not care.
+    await git(repo, 'add', 'New.ts');
+    await git(repo, 'commit', '-qm', 'agent commit');
+    // A hook it left behind does not run.
+    await writeFile(path.join(repo, '.git/hooks/pre-commit'), '#!/bin/sh\nexit 1\n', {
+      mode: 0o755,
+    });
+
+    const bundlePath = path.join(dir, 'change.bundle');
+    const change = await new GitWorkspace({ root: repo, bundlePath }).exportChange(base);
+    expect(change?.head).toMatch(/^[0-9a-f]{40}$/);
+
+    // The receiver's side: a mirror at the base imports the bundle.
+    const mirror = path.join(dir, 'mirror');
+    await run('git', ['clone', '-q', '--bare', repo, mirror]);
+    await git(mirror, 'bundle', 'verify', bundlePath);
+    await git(mirror, 'fetch', '-q', bundlePath, `${CHANGE_REF}:${CHANGE_REF}`);
+    expect(await git(mirror, 'rev-parse', `${CHANGE_REF}^`)).toBe(base);
+    expect(await git(mirror, 'diff', '--name-only', base, CHANGE_REF)).toBe('Card.css\nNew.ts');
+  });
+});
