@@ -100,6 +100,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Storage, the job queue in one transaction, and the contract the extension relies on.
       - run: pnpm test:integration
+      # The image the deployment builds (apps/receiver/deploy/compose.yaml).
+      - run: docker build -f apps/receiver/Dockerfile -t redline-receiver .
 
   eval:
     name: Anchor quality (tools/eval)

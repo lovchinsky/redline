@@ -1,0 +1,11 @@
+# HTTPS for the receiver, with a certificate Caddy obtains for REDLINE_DOMAIN.
+# No access log here: requests may carry a requester's model credential in a header, and the
+# receiver logs every request itself, without headers.
+{$REDLINE_DOMAIN} {
+	request_body {
+		# Twice the receiver's bundle limit: the receiver answers an oversized bundle itself
+		# (413), past this the edge does.
+		max_size 100MB
+	}
+	reverse_proxy receiver:8787
+}

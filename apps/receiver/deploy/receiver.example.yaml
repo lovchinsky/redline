@@ -1,0 +1,23 @@
+# The receiver's configuration. Copy to receiver.yaml next to compose.yaml and adjust.
+
+# The agent and the git host. `scripted` runs the whole flow without a model or a repository:
+# the agent asks one question and proposes a change, the change request is simulated.
+agent: { kind: scripted, durationSeconds: 5, asks: true }
+git: { kind: scripted, resultBaseUrl: 'https://git.example/acme/web/pull/' }
+
+# Whose model credential tasks run with: managed (the operator's), required (each requester
+# brings their own with every request), optional (theirs when given, the operator's otherwise).
+models: { credentials: managed }
+
+intake: { bundleMegabytes: 50, files: 500, submissionsPerMinute: 30 }
+worker: { runSlots: 2, runsPerProject: 1 }
+
+defaults:
+  policy: { maxQuestions: 3, replyTimeoutHours: 168, onReplyTimeout: proceed }
+
+projects:
+  - id: acme-web
+    name: Acme Web
+    access: everyone
+    repository: { host: github, name: acme/web, baseBranch: main }
+    publishing: { target: fork, draft: true }

@@ -1,0 +1,67 @@
+# The receiver for one team: `docker compose up -d` in this directory, after setting
+# REDLINE_DOMAIN and POSTGRES_PASSWORD in `.env` and writing `receiver.yaml`.
+name: redline
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: redline
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: redline
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, redline]
+      interval: 5s
+      retries: 12
+    networks: [service]
+    restart: unless-stopped
+
+  receiver:
+    build:
+      context: ../../..
+      dockerfile: apps/receiver/Dockerfile
+    command: [serve, all]
+    environment:
+      DATABASE_URL: postgres://redline:${POSTGRES_PASSWORD}@postgres:5432/redline
+      REDLINE_CONFIG: /etc/redline/receiver.yaml
+    volumes:
+      - ./receiver.yaml:/etc/redline/receiver.yaml:ro
+      - blobs:/var/lib/redline/blobs
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:8787/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 10s
+    networks: [public, service]
+    restart: unless-stopped
+
+  # TLS in front of the API: the extension accepts a receiver only over https (or on localhost).
+  edge:
+    image: caddy:2
+    environment:
+      REDLINE_DOMAIN: ${REDLINE_DOMAIN:?set REDLINE_DOMAIN in .env}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [receiver]
+    networks: [public]
+    restart: unless-stopped
+
+networks:
+  # The edge reaches the receiver; only the receiver reaches the database.
+  public:
+  service:
+    internal: true
+
+volumes:
+  postgres:
+  blobs:
+  caddy:

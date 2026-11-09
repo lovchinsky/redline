@@ -69,7 +69,33 @@ receiver needs to implement:
 
 Requests carry `Authorization: Bearer <token>` when a token is set. `POST /v1/tasks` carries an
 `Idempotency-Key`: a repeated key returns the task it already created. Every task response says
-how soon the task may be asked again (`pollAfterSec`).
+how soon the task may be asked again (`pollAfterSec`). A receiver that runs tasks with each
+requester's own model credential says so in `GET /v1/projects` (`modelCredential`); the
+credential then travels in the `Model-Credential` and `Model-Credential-Kind` headers.
+
+`tools/contract-conformance` checks what the extension relies on; it runs against the mock
+receiver and against the receiver in this repository.
+
+## Running the receiver
+
+`apps/receiver` is a receiver for one team: an HTTP API, a worker that runs the agent and
+publishes changes, Postgres for state and its job queue. Its agent and git host are scripted for
+now: the whole flow runs (a question, an answer, a change request) without a model or a
+repository.
+
+```bash
+cd apps/receiver/deploy
+cp receiver.example.yaml receiver.yaml   # projects, limits, whose model credentials
+echo "REDLINE_DOMAIN=redline.example.com" >> .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+docker compose up -d
+docker compose exec receiver node dist/receiver.mjs users add ann --name "Ann Lee"
+docker compose exec receiver node dist/receiver.mjs users token ann
+```
+
+The token is shown once; with `https://redline.example.com` it goes on the extension's options
+page. `receiver --help` lists the operator's commands: users and tokens, `config check`,
+`tasks show` and `tasks cancel`.
 
 A bundle is `manifest.json` plus `context.md` (the summary an agent reads first, within a token
 budget per step), `more-context.md` (what did not fit), screenshots under `assets/` and detail
@@ -105,7 +131,9 @@ secret URL parameters. There is no telemetry. See
 | `apps/extension/src/composition` | Composition roots that assemble the system from adapters                                |
 | `apps/extension/src/ui`          | Preact UI: overlay, side panel, options                                                 |
 | `apps/extension/src/entrypoints` | WXT entry points; they only start a composition root                                    |
+| `apps/receiver`                  | The receiver: domain, use cases, ports and adapters, like the extension                 |
 | `tools/mock-receiver`            | In-memory receiver implementing `receiver-api.v1`, for e2e tests and trying things out  |
+| `tools/contract-conformance`     | What the extension relies on in `receiver-api.v1`, run against any receiver             |
 | `tools/eval`                     | Anchor quality on a corpus of real-world apps; gates CI                                 |
 
 ESLint (`eslint-plugin-boundaries`) and dependency-cruiser enforce the boundaries between
@@ -114,12 +142,17 @@ layers and packages; their self-tests prove the rules fire on violations.
 ## Development
 
 ```bash
-pnpm check      # format, lint, boundaries, dependency rules, types, unit tests
-pnpm test:e2e   # build + Playwright with the extension loaded
+pnpm check             # format, lint, boundaries, dependency rules, types, unit tests
+pnpm test:integration  # the receiver on a real Postgres
+pnpm test:e2e          # build + Playwright with the extension loaded
 pnpm eval       # anchor quality across the corpus
 pnpm budgets    # size budgets of the scripts injected into pages
 pnpm package    # Chrome Web Store zip, verified
 ```
+
+`pnpm test:integration` and `pnpm test:e2e` need a Postgres server where they may create
+databases: `REDLINE_TEST_DATABASE_URL=postgres://user@localhost:5432/postgres`. The e2e tests
+start the real receiver against it, as well as the mock.
 
 CI runs all of these. The store package is the exact build the e2e tests ran on.
 
