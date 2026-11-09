@@ -66,15 +66,20 @@ export class GitWorkspace implements Workspace {
     });
   }
 
-  /** One commit on `baseSha` with every file the repository does not ignore, or null. */
+  /**
+   * One commit on `baseSha` with the tree the workspace holds now, or null when it is the base's:
+   * the base's files as they are on disk, and every other file the repository does not ignore.
+   */
   private export(
     baseSha: string,
     ref: string,
     message: string,
     bundle: string,
   ): Promise<WorkspaceChange> {
-    // A fresh index: every file the repository does not ignore, whatever the agent staged.
+    // An index of the base, whatever the agent staged: files the base tracks stay in the tree
+    // even where the repository ignores them, and are changed or removed only on disk.
     return this.withGit('scratch', async (git) => {
+      await git(['read-tree', baseSha]);
       await git(['add', '--all', '--', '.']);
       const tree = await git(['write-tree']);
       const baseTree = await git(['rev-parse', `${baseSha}^{tree}`]);

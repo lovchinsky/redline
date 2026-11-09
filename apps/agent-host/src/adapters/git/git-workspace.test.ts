@@ -58,6 +58,22 @@ describe('GitWorkspace', () => {
     expect(await workspaceAt(repo).exportWork(base)).toBeNull();
   });
 
+  it('keeps the files the base tracks where the repository ignores them', async () => {
+    await mkdir(path.join(repo, 'dist'));
+    await writeFile(path.join(repo, 'dist/vendor.js'), 'vendored');
+    await git(repo, 'add', '--force', 'dist/vendor.js');
+    await git(repo, 'commit', '-qm', 'vendored');
+    const vendored = await git(repo, 'rev-parse', 'HEAD');
+    expect(await workspaceAt(repo).exportChange(vendored)).toBeNull();
+
+    await writeFile(path.join(repo, 'dist/vendor.js'), 'patched');
+    await rm(path.join(repo, 'Card.css'));
+    const change = await workspaceAt(repo).exportChange(vendored);
+    expect(await git(repo, 'diff', '--name-status', vendored, change?.head ?? '')).toBe(
+      'D\tCard.css\nM\tdist/vendor.js',
+    );
+  });
+
   it('exports every change, staged or not and committed or not, as one commit on the base', async () => {
     await writeFile(path.join(repo, 'Card.css'), '.card { align-items: stretch; }\n');
     await writeFile(path.join(repo, 'New.ts'), 'export {};\n');
