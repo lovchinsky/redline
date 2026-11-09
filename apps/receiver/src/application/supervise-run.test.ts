@@ -12,7 +12,7 @@ const report = {
 };
 const change: RunOutcome = {
   kind: 'change',
-  change: { blob: 'c'.repeat(64) as BlobDigest },
+  change: { blob: 'c'.repeat(64) as BlobDigest, head: 'b'.repeat(40) },
   report,
 };
 const pausedAt = {
@@ -120,6 +120,30 @@ describe('SuperviseRun', () => {
     ]);
     expect(app.store.state.runs.get(replayed?.runId ?? RunId(''))?.kind).toBe('replay');
     expect(app.store.task(task.id).state.kind).toBe('publishing');
+  });
+
+  it('requeues on the subscription’s limit only when the gateway refused the run so', async () => {
+    const claimed: RunOutcome = { kind: 'quota-exhausted', resetAt: 10, snapshot: null };
+    const app = system();
+    const task = await app.submit();
+    app.runner.outcomes.push(claimed);
+    await app.supervise.handle(task.id, never);
+    // The agent wrote the outcome itself: nothing in the gateway bears it out.
+    expect(app.store.task(task.id).state).toMatchObject({
+      kind: 'failed',
+      failure: { code: 'agent-failed' },
+    });
+
+    const confirmed = system();
+    const queued = await confirmed.submit();
+    confirmed.runner.outcomes.push(claimed);
+    confirmed.runner.onStart = (spec) => {
+      confirmed.store.state.refusals.set(spec.runId, { kind: 'quota-exhausted', resetAt: 5_000 });
+    };
+    await confirmed.supervise.handle(queued.id, never);
+    expect(confirmed.store.task(queued.id).state.kind).toBe('queued');
+    // At the gateway's reset time, not the one the run gave.
+    expect(confirmed.store.jobsOf('run').at(-1)?.startAfter).toBe(5_000);
   });
 
   it('does not start a task whose requester’s credential is not in the vault', async () => {

@@ -3,11 +3,11 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { connect, createServer as createTcpServer, type AddressInfo, type Socket } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EgressGate, ModelGateway } from '../../application/gateway';
-import { FixedClock, silentLogger } from '../../application/testing/fakes';
+import { FixedClock, MemoryGrantBook, silentLogger } from '../../application/testing/fakes';
 import type { Budget, GrantTerms } from '../../domain/grant';
 import { RunId, TaskId } from '../../domain/ids';
 import { ModelCredential } from '../../ports/access';
-import type { GrantBook, UsageEntry, UsageLedger } from '../../ports/gateway';
+import type { UsageEntry, UsageLedger } from '../../ports/gateway';
 import { createEgressProxy } from './egress-proxy';
 import { createModelProxy } from './model-proxy';
 
@@ -48,7 +48,7 @@ const terms = new Map<string, GrantTerms>([
   [SETUP, { phase: 'setup', runId, taskId, hosts: ['registry.npmjs.org'] }],
 ]);
 
-const grants: GrantBook = { terms: (token) => Promise.resolve(terms.get(token) ?? null) };
+const grants = new MemoryGrantBook(terms);
 
 class Ledger implements UsageLedger {
   readonly entries: UsageEntry[] = [];

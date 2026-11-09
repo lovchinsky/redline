@@ -24,8 +24,9 @@ const findingOf = (value: unknown): SecretFinding | null => {
 
 /**
  * Secrets in what a change adds, found by gitleaks in the change's commit on the mirror. The
- * mirror is bare: a `.gitleaks.toml` or `.gitleaksignore` the change brings is not on disk to
- * be read, so gitleaks judges it by its own rules alone. Secrets are redacted in its report.
+ * change is the sandbox's, so nothing in it decides what gitleaks reports: the mirror is bare (a
+ * `.gitleaks.toml` the change brings is not on disk), the ignore file is looked for in an empty
+ * directory, and `gitleaks:allow` comments are not honoured. Secrets are redacted in its report.
  */
 export class GitleaksScanner implements SecretScanner {
   constructor(
@@ -50,11 +51,14 @@ export class GitleaksScanner implements SecretScanner {
           `--log-opts=${baseSha}..${imported.value}`,
           '--report-format=json',
           `--report-path=${report}`,
+          `--gitleaks-ignore-path=${scratch}`,
+          '--ignore-gitleaks-allow',
           '--redact',
           '--no-banner',
           '--exit-code=0',
         ],
         {
+          cwd: scratch,
           env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin', HOME: scratch },
           maxBuffer: 16 * 1024 * 1024,
         },

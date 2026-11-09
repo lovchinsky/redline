@@ -1,14 +1,15 @@
 import { sql, type Kysely } from 'kysely';
-import type { Budget, GrantTerms } from '../../domain/grant';
-import type { TaskId } from '../../domain/ids';
+import type { Budget, GatewayRefusal, GrantTerms } from '../../domain/grant';
+import type { RunId, TaskId } from '../../domain/ids';
 import type { GrantBook, UsageEntry, UsageLedger } from '../../ports/gateway';
-import { grantTermsFromRecord } from './records';
+import { grantTermsFromRecord, refusalToRecord } from './records';
 import type { Database } from './schema';
-import { sha256 } from './store';
+import { refusalOf, sha256 } from './store';
 
 /**
- * What the gateway reads and writes in Postgres: the grants in force (read only) and the usage
- * it meters (append only). Nothing else of the receiver's state is the gateway's.
+ * What the gateway reads and writes in Postgres: the grants in force (read only), its refusals
+ * of runs, and the usage it meters (append only). Nothing else of the receiver's state is the
+ * gateway's.
  */
 export class PostgresGateway implements GrantBook, UsageLedger {
   constructor(private readonly db: Kysely<Database>) {}
@@ -20,6 +21,24 @@ export class PostgresGateway implements GrantBook, UsageLedger {
       .where('token_hash', '=', sha256(token))
       .executeTakeFirst();
     return row === undefined ? null : grantTermsFromRecord(row.terms, row.run_id);
+  }
+
+  refusalOf(runId: RunId): Promise<GatewayRefusal | null> {
+    return refusalOf(this.db, runId);
+  }
+
+  async setRefusal(runId: RunId, refusal: GatewayRefusal | null): Promise<void> {
+    if (refusal === null) {
+      await this.db.deleteFrom('run_refusals').where('run_id', '=', runId).execute();
+      return;
+    }
+    const record = JSON.stringify(refusalToRecord(refusal));
+    const at = new Date();
+    await this.db
+      .insertInto('run_refusals')
+      .values({ run_id: runId, refusal: record, at })
+      .onConflict((conflict) => conflict.column('run_id').doUpdateSet({ refusal: record, at }))
+      .execute();
   }
 
   async record(entry: UsageEntry): Promise<void> {

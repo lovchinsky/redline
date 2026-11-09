@@ -3,7 +3,8 @@ import path from 'node:path';
 
 /**
  * gitleaks as the scanner calls it, standing in for the binary: it reports every added line
- * with `AKIA` in the commit range it is given, and keeps its arguments.
+ * with `AKIA` in the commit range it is given (leaving out those marked `gitleaks:allow`, as
+ * gitleaks does unless told not to), and keeps its arguments.
  */
 const STAND_IN = `#!/bin/sh
 printf '%s\\n' "$@" > "$(dirname "$0")/arguments"
@@ -11,10 +12,15 @@ for arg in "$@"; do
   case "$arg" in
     --log-opts=*) range="\${arg#--log-opts=}" ;;
     --report-path=*) report="\${arg#--report-path=}" ;;
+    --ignore-gitleaks-allow) strict=1 ;;
   esac
 done
 repo="$2"
-found=$(git -C "$repo" log -p "$range" | grep -c '^+.*AKIA')
+if [ -n "$strict" ]; then
+  found=$(git -C "$repo" log -p "$range" | grep -c '^+.*AKIA')
+else
+  found=$(git -C "$repo" log -p "$range" | grep '^+.*AKIA' | grep -vc 'gitleaks:allow')
+fi
 if [ "$found" -gt 0 ]; then
   echo '[{"File":"config.js","StartLine":1,"RuleID":"aws-access-token","Secret":"REDACTED"}]' > "$report"
 else

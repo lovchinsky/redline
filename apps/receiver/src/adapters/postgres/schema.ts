@@ -46,6 +46,13 @@ export interface RunGrantsTable {
   issued_at: Timestamp;
 }
 
+/** Why the gateway last refused each run (`GatewayRefusal`), for the run and its worker. */
+export interface RunRefusalsTable {
+  run_id: string;
+  refusal: Json;
+  at: Timestamp;
+}
+
 /** What each model response of a run cost, as the gateway metered it. */
 export interface RunUsageTable {
   seq: Generated<string>;
@@ -82,6 +89,7 @@ export interface Database {
   runs: RunsTable;
   run_grants: RunGrantsTable;
   run_usage: RunUsageTable;
+  run_refusals: RunRefusalsTable;
   users: UsersTable;
   tokens: TokensTable;
 }
@@ -203,6 +211,16 @@ export const migrations: Record<string, Migration> = {
         .execute();
       // Kept after the run and its task are gone: what was spent stays spent.
       await db.schema.createIndex('run_usage_task').on('run_usage').column('task_id').execute();
+    },
+  },
+  '0003-run-refusals': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('run_refusals')
+        .addColumn('run_id', 'text', (column) => column.primaryKey())
+        .addColumn('refusal', 'jsonb', (column) => column.notNull())
+        .addColumn('at', 'timestamptz', (column) => column.notNull())
+        .execute();
     },
   },
 };

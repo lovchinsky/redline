@@ -78,7 +78,11 @@ const asked = (id = 'q1', snap: Snapshot | null = snapshot('b', QuestionId(id)))
 
 const report = { summary: 'Renamed', changes: [], verification: 'tests', assumptions: [] };
 const publishing = () =>
-  outcome(running(), { kind: 'change', change: { blob: digest('c') }, report }).task;
+  outcome(running(), {
+    kind: 'change',
+    change: { blob: digest('c'), head: 'b'.repeat(40) },
+    report,
+  }).task;
 
 describe('submitting and starting', () => {
   it('queues a submitted task and schedules its first run', () => {
@@ -163,12 +167,12 @@ describe('run outcomes', () => {
   it('sends a change to publishing', () => {
     const transition = outcome(running(), {
       kind: 'change',
-      change: { blob: digest('c') },
+      change: { blob: digest('c'), head: 'b'.repeat(40) },
       report,
     });
     expect(transition.task.state).toEqual({
       kind: 'publishing',
-      change: { blob: digest('c') },
+      change: { blob: digest('c'), head: 'b'.repeat(40) },
       report,
     });
     expect(transition.effects).toEqual([{ kind: 'schedule-publish', at: null }]);

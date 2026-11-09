@@ -57,12 +57,15 @@ export const unpackSnapshot = async (bytes: Uint8Array): Promise<PausedSession> 
 };
 
 /**
- * The files of a session directory, from Docker's archive of it (whose entries sit under
- * `SESSION_DIRECTORY`). Only regular files are kept: the agent could have put anything there.
+ * Claude Code's transcripts of the session, from Docker's archive of the session directory
+ * (whose entries sit under `SESSION_DIRECTORY`): `projects/**.jsonl`, all a resume needs. The
+ * agent could have put anything there; its settings, hooks or any other file stay behind.
  */
 export const sessionFilesOf = async (archive: Readable): Promise<TarFile[]> => {
   const prefix = `${SESSION_DIRECTORY}/`;
-  const files = await filesOf(archive, (name) => name.startsWith(prefix), {
+  const transcript = (name: string) =>
+    name.startsWith(`${prefix}projects/`) && name.endsWith('.jsonl');
+  const files = await filesOf(archive, transcript, {
     file: SNAPSHOT_LIMIT,
     total: SNAPSHOT_LIMIT,
   });

@@ -16,6 +16,17 @@ const BUNDLE_REF = 'refs/redline/change';
 /** How deep a sandbox's working copy is: enough history for blame and log, not all of it. */
 const WORKSPACE_DEPTH = 50;
 
+/** The pack of a git bundle (v2 or v3): what follows its header, which ends at a blank line. */
+const packOf = (bundle: Uint8Array): Uint8Array => {
+  const bytes = Buffer.from(bundle.buffer, bundle.byteOffset, bundle.byteLength);
+  const signature = bytes.subarray(0, 16).toString('latin1');
+  const end = bytes.indexOf('\n\n');
+  if (!/^# v[23] git bundle$/.test(signature.split('\n')[0] ?? '') || end === -1) {
+    throw new Error('Not a git bundle');
+  }
+  return bytes.subarray(end + 2);
+};
+
 const ok = <T>(value: T): Publishing<T> => ({ ok: true, value });
 const fail = (detail: string, transient: boolean): Publishing<never> => ({
   ok: false,
@@ -290,11 +301,15 @@ export class GitMirrors implements SourceRepository {
       const ref = `refs/redline/changes/${change.blob}`;
       try {
         await git(mirror, ['bundle', 'verify', '--quiet', file]);
+        await this.inspectObjects(mirror, scratch, bytes);
         await git(mirror, ['fetch', '--quiet', '--no-tags', file, `+${BUNDLE_REF}:${ref}`]);
       } catch (error) {
         return fail(`The change is not a git bundle of this repository: ${String(error)}`, false);
       }
       const head = await git(mirror, ['rev-parse', ref]);
+      if (head !== change.head) {
+        return fail(`The change bundle carries ${head}, not the commit the run named`, false);
+      }
       const parents = (await git(mirror, ['rev-list', '--parents', '-n', '1', head]))
         .split(' ')
         .slice(1);
@@ -305,6 +320,21 @@ export class GitMirrors implements SourceRepository {
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * Checks every object of a bundle as strictly as git checks what it receives, in a quarantine
+   * that sees the mirror's objects and adds none to it: the bundle is the sandbox's, and its
+   * objects go on to be committed and pushed. Fetching a bundle checks nothing of the sort.
+   */
+  private async inspectObjects(mirror: string, scratch: string, bundle: Uint8Array) {
+    const quarantine = path.join(scratch, 'quarantine.git');
+    await git(scratch, ['init', '--quiet', '--bare', quarantine]);
+    await writeFile(
+      path.join(quarantine, 'objects', 'info', 'alternates'),
+      `${path.resolve(mirror, 'objects')}\n`,
+    );
+    await git(quarantine, ['index-pack', '--strict', '--stdin', '--fix-thin'], {}, packOf(bundle));
   }
 
   private numstatOf(numstat: string) {

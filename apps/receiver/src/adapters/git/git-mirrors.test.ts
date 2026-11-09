@@ -45,7 +45,7 @@ const agentChange = async (base: string, edit: (work: string) => Promise<void>) 
     new Uint8Array(await import('node:fs/promises').then((fs) => fs.readFile(bundle))),
   );
   const { digest } = await writer.commit();
-  return { blob: digest };
+  return { blob: digest, head };
 };
 
 beforeEach(async () => {
@@ -177,6 +177,35 @@ describe('GitMirrors', () => {
     });
   });
 
+  it('refuses a bundle whose objects git would not accept, before any of them is stored', async () => {
+    const prepared = await mirrors.prepare(repository, taskId);
+    if (!prepared.ok) throw new Error(prepared.error.detail);
+    const base = prepared.value.baseSha;
+    // A tree with a `.git` entry: what a checkout would turn into the repository's own config.
+    const work = path.join(dir, 'hostile');
+    await run('git', ['clone', '-q', origin, work]);
+    await writeFile(path.join(work, 'config'), '[core]\n');
+    const blob = await git(work, 'hash-object', '-w', 'config');
+    const { stdout } = await run(
+      'sh',
+      ['-c', `printf '100644 blob ${blob}\\t.git\\n' | git mktree`],
+      { cwd: work },
+    );
+    const hostileTree = stdout.trim();
+    const head = await git(work, 'commit-tree', hostileTree, '-p', base, '-m', 'change');
+    await git(work, 'update-ref', 'refs/redline/change', head);
+    const bundle = path.join(work, 'change.bundle');
+    await git(work, 'bundle', 'create', bundle, 'refs/redline/change', `^${base}`);
+    const writer = blobs.writer();
+    await writer.write(new Uint8Array(await readFile(bundle)));
+    const change = { blob: (await writer.commit()).digest, head };
+    expect(await mirrors.describe(repository, base, change)).toMatchObject({
+      ok: false,
+      error: { transient: false },
+    });
+    await expect(git(mirrors.mirrorOf(repository), 'cat-file', '-e', head)).rejects.toThrow();
+  });
+
   it('takes only one commit on the task’s base as a change', async () => {
     const prepared = await mirrors.prepare(repository, taskId);
     if (!prepared.ok) throw new Error(prepared.error.detail);
@@ -187,10 +216,13 @@ describe('GitMirrors', () => {
     const writer = blobs.writer();
     await writer.write(new TextEncoder().encode('not a bundle'));
     const { digest } = await writer.commit();
-    expect(await mirrors.describe(repository, base, { blob: digest })).toMatchObject({
-      ok: false,
-      error: { transient: false },
-    });
+    expect(
+      await mirrors.describe(repository, base, { blob: digest, head: change.head }),
+    ).toMatchObject({ ok: false, error: { transient: false } });
+    // A bundle is taken only with the commit the run named.
+    expect(
+      await mirrors.describe(repository, base, { ...change, head: 'e'.repeat(40) }),
+    ).toMatchObject({ ok: false, error: { transient: false } });
   });
 
   it('reaches a host over HTTPS with a header made for each call, and keeps no credentials', async () => {

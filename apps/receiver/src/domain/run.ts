@@ -1,4 +1,5 @@
 import type { Question } from './exchange';
+import type { GatewayRefusal } from './grant';
 import type { Instant, RunId, TaskId } from './ids';
 import type { AgentReport, ChangeRef, Snapshot } from './work';
 
@@ -78,3 +79,30 @@ export const interruptRun = (run: Run, at: Instant): Run => ({
   ...run,
   state: { kind: 'interrupted', at },
 });
+
+/**
+ * A run's outcome as far as the receiver can stand by it. The outcome is the sandbox's own
+ * account, and the agent had a shell there: the outcomes that put a task back in the queue
+ * without spending an attempt stand only where the gateway's refusal of the run bears them out,
+ * and then at the gateway's word (its reset time). Any other account the run gives only ends the
+ * task or spends its attempts, which an agent can do by failing anyway.
+ */
+export const corroborate = (outcome: RunOutcome, refusal: GatewayRefusal | null): RunOutcome => {
+  const unconfirmed = (claim: string): RunOutcome => ({
+    kind: 'failed',
+    reason: 'agent-failed',
+    detail: `The run said ${claim}, but the gateway did not refuse it so`,
+    snapshot: null,
+  });
+  if (outcome.kind === 'quota-exhausted') {
+    return refusal?.kind === 'quota-exhausted'
+      ? { ...outcome, resetAt: refusal.resetAt }
+      : unconfirmed('the subscription’s limit ran out');
+  }
+  if (outcome.kind === 'failed' && outcome.reason === 'credential-missing') {
+    return refusal?.kind === 'credential-missing'
+      ? outcome
+      : unconfirmed('the requester’s credential was missing');
+  }
+  return outcome;
+};

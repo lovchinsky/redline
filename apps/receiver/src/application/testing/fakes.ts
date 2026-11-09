@@ -13,7 +13,7 @@ import {
   type TaskId as TaskIdType,
   type UserId as UserIdType,
 } from '../../domain/ids';
-import type { GrantTerms } from '../../domain/grant';
+import type { GatewayRefusal, GrantTerms } from '../../domain/grant';
 import type { Run, RunOutcome } from '../../domain/run';
 import type { Task, TaskEvent } from '../../domain/task';
 import type { ChangeRequestRef } from '../../domain/work';
@@ -37,6 +37,7 @@ import type {
   SecretScanner,
   SourceRepository,
 } from '../../ports/publishing';
+import type { GrantBook } from '../../ports/gateway';
 import type { Clock, IdGenerator, Logger } from '../../ports/system';
 import type {
   GrantToken,
@@ -58,6 +59,8 @@ interface State {
   grants: Map<string, GrantTerms[]>;
   /** Every grant ever issued, in order, revoked or not. */
   issued: GrantTerms[];
+  /** The gateway's last refusal of each run. */
+  refusals: Map<string, GatewayRefusal>;
 }
 
 const copy = (state: State): State => ({
@@ -68,6 +71,7 @@ const copy = (state: State): State => ({
   jobs: [...state.jobs],
   grants: new Map(state.grants),
   issued: [...state.issued],
+  refusals: new Map(state.refusals),
 });
 
 const submissionKey = (requester: UserIdType, key: string) => `${requester}\u0000${key}`;
@@ -85,6 +89,7 @@ export class MemoryStore implements UnitOfWork, TaskQueries {
     jobs: [],
     grants: new Map(),
     issued: [],
+    refusals: new Map(),
   };
   private queue: Promise<unknown> = Promise.resolve();
   /** The next this many task saves find the task changed by someone else, as under concurrency. */
@@ -163,6 +168,7 @@ export class MemoryStore implements UnitOfWork, TaskQueries {
           draft.grants.delete(runId);
           return Promise.resolve();
         },
+        refusal: (runId) => Promise.resolve(draft.refusals.get(runId) ?? null),
       },
     };
   }
@@ -319,6 +325,23 @@ export const managed: ModelAccessPolicy = {
   acceptRequesterSubscriptions: false,
 };
 
+/** The gateway's grants in memory: their terms by token, and its refusals of runs. */
+export class MemoryGrantBook implements GrantBook {
+  readonly refusals = new Map<RunId, GatewayRefusal>();
+  constructor(readonly byToken: Map<string, GrantTerms> = new Map()) {}
+  terms(token: string) {
+    return Promise.resolve(this.byToken.get(token) ?? null);
+  }
+  refusalOf(runId: RunId) {
+    return Promise.resolve(this.refusals.get(runId) ?? null);
+  }
+  setRefusal(runId: RunId, refusal: GatewayRefusal | null) {
+    if (refusal === null) this.refusals.delete(runId);
+    else this.refusals.set(runId, refusal);
+    return Promise.resolve();
+  }
+}
+
 /** An agent runner that plays outcomes a test chose, one per run, in order. */
 export class FakeRunner implements AgentRunner {
   readonly started: RunSpec[] = [];
@@ -327,6 +350,8 @@ export class FakeRunner implements AgentRunner {
   startError: RunnerError | null = null;
   /** Whether the paused sessions it is asked about can be resumed. */
   resumes = true;
+  /** Called as each run starts, e.g. for the gateway to refuse it. */
+  onStart: (spec: RunSpec) => void = () => undefined;
   constructor(public outcomes: (RunOutcome | { kind: 'lost'; detail: string })[] = []) {}
 
   resumable() {
@@ -337,6 +362,7 @@ export class FakeRunner implements AgentRunner {
     if (this.startError !== null)
       return Promise.resolve({ ok: false as const, error: this.startError });
     this.started.push(spec);
+    this.onStart(spec);
     return Promise.resolve({ ok: true as const });
   }
   observe() {

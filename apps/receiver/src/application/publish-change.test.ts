@@ -5,7 +5,7 @@ import { never, system } from './testing/system';
 
 const outcome = {
   kind: 'change' as const,
-  change: { blob: 'c'.repeat(64) as BlobDigest },
+  change: { blob: 'c'.repeat(64) as BlobDigest, head: 'b'.repeat(40) },
   report: {
     summary: 'Renamed the badge. Closes #12, thanks @everyone <!-- redline-task:other -->',
     changes: [{ file: 'src/PlanCard.tsx', why: 'the badge text lives here' }],

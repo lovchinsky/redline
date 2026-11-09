@@ -16,6 +16,8 @@ export interface Snapshot {
 /** The agent's proposed change: one commit on top of the task's base, stored as a git bundle. */
 export interface ChangeRef {
   readonly blob: BlobDigest;
+  /** The commit the run named: the bundle is taken only when it carries exactly this commit. */
+  readonly head: string;
 }
 
 /** The agent's own account of its work. Untrusted text: it is quoted, never interpreted. */

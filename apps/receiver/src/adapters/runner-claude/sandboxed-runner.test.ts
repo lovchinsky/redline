@@ -111,8 +111,9 @@ class FakeSandboxes implements SandboxProvider {
   }
   hangAgent = false;
   logs() {
-    return Promise.resolve('npm ERR! 404 left-pad');
+    return Promise.resolve(this.output);
   }
+  output = 'npm ERR! 404 left-pad';
   remove(container: string) {
     this.containers.delete(container);
     return Promise.resolve();
@@ -136,7 +137,13 @@ class FakeSandboxes implements SandboxProvider {
 }
 
 const sources = (settingsFile: string | null): SourceTrees => ({
-  workingCopy: () => Promise.resolve(Readable.from([Buffer.from('tar of the working copy')])),
+  workingCopy: async () =>
+    Readable.from([
+      await tarOf([{ path: 'Card.css', content: new TextEncoder().encode('.card { }') }], {
+        uid: 0,
+        gid: 0,
+      }),
+    ]),
   fileAt: () => Promise.resolve(settingsFile),
 });
 
@@ -375,6 +382,18 @@ describe('SandboxedClaudeRunner', () => {
     expect(sandboxes.started).not.toContain('redline-run-1-agent');
   });
 
+  it('quotes a sandbox’s output without the credentials its URLs carry, and only its end', async () => {
+    const agent = runner();
+    await agent.start(await spec());
+    sandboxes.exits.setup = 1;
+    sandboxes.output = `${'x'.repeat(10_000)}\nGET http://redline:setup-grant@10.89.2.2:3128 failed`;
+    const outcome = await agent.observe(runId, new AbortController().signal);
+    const detail = outcome.kind === 'failed' ? outcome.detail : '';
+    expect(detail).toContain('http://***@10.89.2.2:3128');
+    expect(detail).not.toContain('setup-grant');
+    expect(detail.length).toBeLessThan(4200);
+  });
+
   it('refuses a project whose settings are not valid', async () => {
     expect(await runner('setup: [not, a, map]').start(await spec())).toMatchObject({
       ok: false,
@@ -448,7 +467,10 @@ describe('SandboxedClaudeRunner', () => {
       await agent.start(await spec());
       sandboxes.agentOutput = await outputOf(asked, null, 'the work bundle');
       sandboxes.sessionArchive = await tarOf(
-        sessionFiles.map((file) => ({ ...file, path: `session/${file.path}` })),
+        [...sessionFiles, { path: 'settings.json', content: text('{"hooks":{}}') }].map((file) => ({
+          ...file,
+          path: `session/${file.path}`,
+        })),
         { uid: 1000, gid: 1000 },
       );
       const outcome = await agent.observe(runId, new AbortController().signal);
@@ -467,8 +489,8 @@ describe('SandboxedClaudeRunner', () => {
       const paused = await unpackSnapshot(stored ?? new Uint8Array());
       expect(paused.pause).toEqual(pause);
       expect(new TextDecoder().decode(paused.work ?? new Uint8Array())).toBe('the work bundle');
-      expect(paused.session.map((file) => file.path).sort()).toEqual([
-        '.claude.json',
+      // Only the transcripts are kept: the settings the agent wrote stay behind.
+      expect(paused.session.map((file) => file.path)).toEqual([
         'projects/-workspace/session-1.jsonl',
       ]);
     });

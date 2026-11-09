@@ -174,6 +174,19 @@ describe('PostgresStore', () => {
     expect(await gateway.terms(setup)).toBeNull();
   });
 
+  it('keeps the gateway’s last refusal of a run, for the worker to read', async () => {
+    const gateway = new PostgresGateway(db);
+    const runId = RunId('run-refused');
+    const read = () => store.run((scope) => scope.grants.refusal(runId));
+    expect(await read()).toBeNull();
+    await gateway.setRefusal(runId, { kind: 'credential-missing' });
+    await gateway.setRefusal(runId, { kind: 'quota-exhausted', resetAt: 9_000 });
+    expect(await read()).toEqual({ kind: 'quota-exhausted', resetAt: 9_000 });
+    expect(await gateway.refusalOf(runId)).toEqual({ kind: 'quota-exhausted', resetAt: 9_000 });
+    await gateway.setRefusal(runId, null);
+    expect(await read()).toBeNull();
+  });
+
   it('adds up what a task spent over all its runs', async () => {
     const gateway = new PostgresGateway(db);
     const taskId = TaskId('task-spending');

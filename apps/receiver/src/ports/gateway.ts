@@ -3,10 +3,14 @@ import type { Instant, RunId, TaskId } from '../domain/ids';
 import type { ModelPrice, TokenUsage } from '../domain/usage';
 import type { ModelCredential } from './access';
 
-/** The gateway's read of the grants the worker issues. */
+/** The grants the worker issues, as the gateway reads them, and its refusals of their runs. */
 export interface GrantBook {
   /** The terms of the grant presented, or null when no such grant is in force. */
   terms(token: string): Promise<GrantTerms | null>;
+  /** Why the gateway last refused the run; null when it did not, or let a request through since. */
+  refusalOf(runId: RunId): Promise<GatewayRefusal | null>;
+  /** Records the gateway's last refusal of the run, or (null) that a request went through. */
+  setRefusal(runId: RunId, refusal: GatewayRefusal | null): Promise<void>;
 }
 
 export interface UsageEntry {
@@ -62,7 +66,7 @@ export interface ModelAccess {
   /** Judges a request of the sandbox holding `token`, before anything is forwarded. */
   admit(token: string | null, body: unknown, endpoint: ModelEndpoint): Promise<Admitted>;
   /** Judges the provider's answer before it reaches the sandbox; null lets it through. */
-  inspect(admission: Admission, answer: ProviderAnswer): GatewayRefusal | null;
+  inspect(admission: Admission, answer: ProviderAnswer): Promise<GatewayRefusal | null>;
   /** Records what an answer used. */
   meter(admission: Admission, usage: TokenUsage): Promise<void>;
   /** Why the gateway last refused the run whose grant `token` is. */

@@ -48,7 +48,7 @@ const changeWith = async (base: string, content: string) => {
   await git(work, 'bundle', 'create', bundle, 'refs/redline/change', `^${base}`);
   const writer = blobs.writer();
   await writer.write(new Uint8Array(await readFile(bundle)));
-  return { blob: (await writer.commit()).digest };
+  return { blob: (await writer.commit()).digest, head };
 };
 
 beforeEach(async () => {
@@ -91,6 +91,15 @@ describe('GitleaksScanner', () => {
     expect(await scanner.scan(repository, base, leaked)).toEqual({
       ok: true,
       value: [{ path: 'config.js', line: 1, rule: 'aws-access-token' }],
+    });
+    // A comment in the change does not make its secret allowed.
+    const allowed = await changeWith(
+      base,
+      'export const key = "AKIAIOSFODNN7EXAMPLE"; // gitleaks:allow\n',
+    );
+    expect(await scanner.scan(repository, base, allowed)).toMatchObject({
+      ok: true,
+      value: [{ rule: 'aws-access-token' }],
     });
     const args = (await readFile(path.join(dir, 'arguments'), 'utf8')).trim().split('\n');
     expect(args[0]).toBe('git');

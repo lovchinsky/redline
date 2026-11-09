@@ -134,8 +134,12 @@ describe('Claude Code with ask_requester', () => {
     expect(sessionId).not.toBe('');
 
     // The next run's sandbox has the session's files, and nothing else of the first one.
+    // Only the transcripts travel: the receiver keeps nothing else of the session directory.
     const second = path.join(dir, 'session-second');
-    await cp(first, second, { recursive: true });
+    await cp(path.join(first, 'projects'), path.join(second, 'projects'), {
+      recursive: true,
+      filter: (source) => path.extname(source) === '' || source.endsWith('.jsonl'),
+    });
     await rm(first, { recursive: true, force: true });
     const resumed = sessionIn(second);
     expect(await resumed.stored(sessionId)).toBe(true);

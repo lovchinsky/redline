@@ -1,6 +1,6 @@
 import * as z from 'zod/mini';
 import { BlobDigest, ProjectId, QuestionId, RunId, TaskId, UserId } from '../../domain/ids';
-import type { GrantTerms } from '../../domain/grant';
+import type { GatewayRefusal, GrantTerms } from '../../domain/grant';
 import type { Run } from '../../domain/run';
 import type { Task, TaskEvent } from '../../domain/task';
 
@@ -13,6 +13,7 @@ export const RECORD_FORMAT = 1;
 
 const text = z.string().check(z.minLength(1));
 const instant = z.number();
+const sha = z.string().check(z.regex(/^[0-9a-f]{40}$/));
 /** A non-empty string read as the id it names. */
 const id = <T>(name: (value: string) => T) => z.pipe(text, z.transform(name));
 const digest = z.pipe(z.string().check(z.regex(/^[a-f0-9]{64}$/)), z.transform(BlobDigest));
@@ -64,7 +65,11 @@ const state = z.discriminatedUnion('kind', [
     questionId: id(QuestionId),
     snapshot: z.nullable(snapshot),
   }),
-  z.object({ kind: z.literal('publishing'), change: z.object({ blob: digest }), report }),
+  z.object({
+    kind: z.literal('publishing'),
+    change: z.object({ blob: digest, head: sha }),
+    report,
+  }),
   z.object({ kind: z.literal('published'), changeRequest: z.object({ id: text, url: text }) }),
   z.object({
     kind: z.literal('failed'),
@@ -101,7 +106,7 @@ const runFailureReason = z.enum([
 
 const outcome = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('question'), question, snapshot: z.nullable(snapshot) }),
-  z.object({ kind: z.literal('change'), change: z.object({ blob: digest }), report }),
+  z.object({ kind: z.literal('change'), change: z.object({ blob: digest, head: sha }), report }),
   z.object({ kind: z.literal('no-change'), explanation: z.string() }),
   z.object({
     kind: z.literal('quota-exhausted'),
@@ -240,12 +245,14 @@ export const eventFromRecord = (record: unknown, taskId: string): TaskEvent => {
 
 const grantTermsRecord = z.discriminatedUnion('phase', [
   z.object({
+    format: z.literal(RECORD_FORMAT),
     phase: z.literal('setup'),
     runId: id(RunId),
     taskId: id(TaskId),
     hosts: z.array(text),
   }),
   z.object({
+    format: z.literal(RECORD_FORMAT),
     phase: z.literal('agent'),
     runId: id(RunId),
     taskId: id(TaskId),
@@ -274,4 +281,27 @@ export const grantTermsFromRecord = (record: unknown, runId: string): GrantTerms
         credentials: stored.credentials,
         budget: { usd: stored.budget.usd, tokens: stored.budget.tokens },
       };
+};
+
+const refusalRecord = z.object({
+  format: z.literal(RECORD_FORMAT),
+  refusal: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('grant-revoked') }),
+    z.object({ kind: z.literal('budget-exhausted') }),
+    z.object({ kind: z.literal('credential-missing') }),
+    z.object({ kind: z.literal('credential-refused') }),
+    z.object({ kind: z.literal('quota-exhausted'), resetAt: instant }),
+    z.object({ kind: z.literal('request-refused'), detail: z.string() }),
+  ]),
+});
+
+export const refusalToRecord = (refusal: GatewayRefusal): unknown => ({
+  format: RECORD_FORMAT,
+  refusal,
+});
+
+export const refusalFromRecord = (record: unknown, runId: string): GatewayRefusal => {
+  const parsed = refusalRecord.safeParse(record);
+  if (!parsed.success) throw new CorruptRecord('refusal', runId, parsed.error);
+  return parsed.data.refusal;
 };

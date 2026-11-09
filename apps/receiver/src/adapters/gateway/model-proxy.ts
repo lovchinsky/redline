@@ -195,7 +195,7 @@ export const createModelProxy = (options: ModelProxyOptions): Server => {
       });
       return;
     }
-    const refusal = options.access.inspect(admission, {
+    const refusal = await options.access.inspect(admission, {
       status: answer.status,
       quotaResetAt: quotaResetOf(answer.headers),
     });

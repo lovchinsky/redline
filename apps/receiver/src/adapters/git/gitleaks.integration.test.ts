@@ -58,7 +58,7 @@ const change = async (files: Record<string, string>) => {
   );
   const writer = blobs.writer();
   await writer.write(new Uint8Array(await readFile(path.join(work, 'c.bundle'))));
-  return { blob: (await writer.commit()).digest };
+  return { blob: (await writer.commit()).digest, head };
 };
 
 beforeAll(async () => {
@@ -109,10 +109,13 @@ describe('GitleaksScanner with gitleaks', () => {
       '.gitleaks.toml': "[allowlist]\npaths = ['''.*''']\n",
       '.gitleaksignore': '*\n',
       'deploy.js': `const token = "${token}";\n`,
+      'release.js': `const token = "${token}"; // gitleaks:allow\n`,
     });
-    expect(await scanner.scan(repository, base, leaked)).toMatchObject({
-      ok: true,
-      value: [{ path: 'deploy.js', line: 1 }],
-    });
+    const scanned = await scanner.scan(repository, base, leaked);
+    expect(scanned).toMatchObject({ ok: true });
+    expect(scanned.ok ? scanned.value.map((finding) => finding.path).sort() : []).toEqual([
+      'deploy.js',
+      'release.js',
+    ]);
   });
 });

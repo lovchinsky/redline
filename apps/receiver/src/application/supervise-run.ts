@@ -1,5 +1,12 @@
 import type { Instant, RunId, TaskId } from '../domain/ids';
-import { finishRun, interruptRun, startRun, type Run, type RunOutcome } from '../domain/run';
+import {
+  corroborate,
+  finishRun,
+  interruptRun,
+  startRun,
+  type Run,
+  type RunOutcome,
+} from '../domain/run';
 import {
   applyOutcome,
   beginRun,
@@ -231,14 +238,17 @@ export class SuperviseRun {
         (lost, _applied, at) => interruptRun(lost, at),
       );
     } else {
+      // The sandbox's account, as far as the gateway's refusal of the run bears it out.
+      const refusal = await this.deps.uow.run((scope) => scope.grants.refusal(runId));
+      const outcome = corroborate(observed, refusal);
       await this.settle(
         taskId,
         runId,
         (current, project, now) =>
           project === null
             ? cancelTask(current, PROJECT_GONE, now)
-            : applyOutcome(current, runId, observed, project.policy, now),
-        (finished, applied, at) => finishRun(finished, observed, applied, at),
+            : applyOutcome(current, runId, outcome, project.policy, now),
+        (finished, applied, at) => finishRun(finished, outcome, applied, at),
       );
     }
     await this.deps.runner.release(runId);

@@ -174,7 +174,7 @@ const agentChange = async (content: string) => {
   );
   const writer = blobs.writer();
   await writer.write(new Uint8Array(await readFile(path.join(work, 'change.bundle'))));
-  return { blob: BlobDigest((await writer.commit()).digest) };
+  return { blob: BlobDigest((await writer.commit()).digest), head };
 };
 
 const deployment = async (publishing: PublishingProfile) => {

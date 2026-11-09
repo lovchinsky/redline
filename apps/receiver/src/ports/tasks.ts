@@ -1,4 +1,4 @@
-import type { GrantTerms } from '../domain/grant';
+import type { GatewayRefusal, GrantTerms } from '../domain/grant';
 import type { Instant, ProjectId, QuestionId, RunId, TaskId, UserId } from '../domain/ids';
 import type { Run } from '../domain/run';
 import type { Task, TaskEvent } from '../domain/task';
@@ -58,12 +58,16 @@ export interface JobScheduler {
   schedule(job: Job, startAfter: Instant | null): Promise<void>;
 }
 
-/** Grants of model access for runs; the gateway serves a run only while its grant exists. */
-/** Grants of a run's sandboxes, issued with the run and revoked when it ends. */
+/**
+ * Grants of a run's sandboxes, issued with the run and revoked when it ends; the gateway serves
+ * a sandbox only while its grant exists.
+ */
 export interface RunGrants {
   issue(terms: GrantTerms): Promise<GrantToken>;
   /** Revokes every grant of the run. */
   revoke(runId: RunId): Promise<void>;
+  /** Why the gateway last refused the run, as the gateway recorded it; null when it did not. */
+  refusal(runId: RunId): Promise<GatewayRefusal | null>;
 }
 
 /** The secret a run's sandbox presents to the gateway in place of any real credential. */

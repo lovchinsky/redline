@@ -46,18 +46,24 @@ export class GitError extends Error {
   }
 }
 
-/** Runs git in `cwd` and returns its output, trimmed of the final newline. */
+/**
+ * Runs git in `cwd` and returns its output, trimmed of the final newline; `input`, when given,
+ * is its standard input.
+ */
 export const git = async (
   cwd: string,
   args: readonly string[],
   extra: Readonly<Record<string, string>> = {},
+  input?: Uint8Array,
 ): Promise<string> => {
   try {
-    const { stdout } = await run('git', [...SAFE, ...args], {
+    const running = run('git', [...SAFE, ...args], {
       cwd,
       env: environment(extra),
       maxBuffer: 64 * 1024 * 1024,
     });
+    if (input !== undefined) running.child.stdin?.end(input);
+    const { stdout } = await running;
     return stdout.replace(/\n$/, '');
   } catch (error) {
     const stderr =

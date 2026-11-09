@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { Budget, GrantTerms } from '../domain/grant';
 import { RunId, TaskId } from '../domain/ids';
 import { ModelCredential } from '../ports/access';
-import type { GrantBook, UsageEntry, UsageLedger } from '../ports/gateway';
+import type { UsageEntry, UsageLedger } from '../ports/gateway';
 import { EgressGate, ModelGateway } from './gateway';
-import { FixedClock, silentLogger } from './testing/fakes';
+import { FixedClock, MemoryGrantBook, silentLogger } from './testing/fakes';
 
 const runId = RunId('run-1');
 const taskId = TaskId('task-1');
@@ -16,13 +16,6 @@ const agentTerms = (credentials: 'operator' | 'requester' = 'operator'): GrantTe
   credentials,
   budget: { usd: 1, tokens: 100_000 },
 });
-
-class Grants implements GrantBook {
-  constructor(readonly byToken: Map<string, GrantTerms>) {}
-  terms(token: string) {
-    return Promise.resolve(this.byToken.get(token) ?? null);
-  }
-}
 
 class Ledger implements UsageLedger {
   readonly entries: UsageEntry[] = [];
@@ -45,7 +38,7 @@ const requesterToken = new ModelCredential('subscription', 'sk-ant-oat-requester
 const gateway = (terms: GrantTerms, held: ModelCredential | null = null) => {
   const ledger = new Ledger();
   const app = new ModelGateway({
-    grants: new Grants(new Map([['grant', terms]])),
+    grants: new MemoryGrantBook(new Map([['grant', terms]])),
     ledger,
     prices: {
       priceOf: (model) =>
@@ -143,13 +136,13 @@ describe('ModelGateway', () => {
     const { app } = gateway(agentTerms('requester'), requesterToken);
     const admitted = await app.admit('grant', body, 'messages');
     if (!admitted.ok) throw new Error('refused');
-    expect(app.inspect(admitted.admission, { status: 200, quotaResetAt: null })).toBeNull();
-    expect(app.inspect(admitted.admission, { status: 429, quotaResetAt: null })).toBeNull();
-    expect(app.inspect(admitted.admission, { status: 429, quotaResetAt: 9_000 })).toEqual({
+    expect(await app.inspect(admitted.admission, { status: 200, quotaResetAt: null })).toBeNull();
+    expect(await app.inspect(admitted.admission, { status: 429, quotaResetAt: null })).toBeNull();
+    expect(await app.inspect(admitted.admission, { status: 429, quotaResetAt: 9_000 })).toEqual({
       kind: 'quota-exhausted',
       resetAt: 9_000,
     });
-    expect(app.inspect(admitted.admission, { status: 401, quotaResetAt: null })).toEqual({
+    expect(await app.inspect(admitted.admission, { status: 401, quotaResetAt: null })).toEqual({
       kind: 'credential-refused',
     });
     expect(await app.status('grant')).toEqual({
@@ -161,7 +154,10 @@ describe('ModelGateway', () => {
 
 describe('EgressGate', () => {
   const gate = (terms: GrantTerms) =>
-    new EgressGate({ grants: new Grants(new Map([['grant', terms]])), logger: silentLogger });
+    new EgressGate({
+      grants: new MemoryGrantBook(new Map([['grant', terms]])),
+      logger: silentLogger,
+    });
   const setup: GrantTerms = { phase: 'setup', runId, taskId, hosts: ['registry.npmjs.org'] };
 
   it('opens a tunnel to a listed host on the TLS port with a setup grant', async () => {

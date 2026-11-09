@@ -12,7 +12,7 @@ import { briefOf, runOutcomeOf, type StoredOutputs } from './exchange';
 import { REPOSITORY_SETTINGS, parseRepositorySettings } from './repository-settings';
 import type { ContainerSpec, Mount, SandboxProvider } from './sandbox';
 import { packSnapshot, sessionFilesOf, unpackSnapshot, type PausedSession } from './snapshot';
-import { filesOf, tarOf, type TarFile } from './tar';
+import { OversizedArchive, filesOf, ownedBy, tarOf, type TarFile } from './tar';
 
 /** What the runner needs of the receiver's mirrors: a task's working copy and files at its base. */
 export interface SourceTrees {
@@ -45,10 +45,23 @@ const MODEL_LABEL = 'redline.model';
 /** How much longer a container may run, by its start and the time limit it was created with. */
 const remaining = (container: { labels: Readonly<Record<string, string>>; startedAt: number }) =>
   Math.max(container.startedAt + Number(container.labels[TIMEOUT_LABEL] ?? 0) - Date.now(), 0);
+/** The most a run's outputs may take, all together. */
 const OUTPUT_LIMIT = 256 * 1024 * 1024;
 /** Where the setup phase finds the project's registry secrets; the agent has no such directory. */
 export const SETUP_SECRETS = '/redline/secrets';
 const OUT_DIRECTORY = RUN_LAYOUT.out.split('/').at(-1) ?? 'out';
+/** The most of a sandbox's output a failure quotes. */
+const EXCERPT_LIMIT = 4000;
+
+/**
+ * The end of a sandbox's output, to quote in a failure: cut to a length, and without the
+ * credentials URLs may carry (a setup's proxy holds its grant). It is still the sandbox's text.
+ */
+const excerptOf = (output: string): string => {
+  const quoted = output.trim().replace(/(\w+:\/\/)[^/\s@]+@/g, '$1***@');
+  return quoted.length <= EXCERPT_LIMIT ? quoted : `…${quoted.slice(-EXCERPT_LIMIT)}`;
+};
+
 /** A path of the run's input, as it stands in the input volume. */
 const inInput = (path: string) => path.slice(RUN_LAYOUT.input.length + 1);
 
@@ -199,7 +212,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
         return {
           kind: 'failed',
           reason: 'setup-failed',
-          detail: `The project’s setup exited with ${String(setup.exitCode)}:\n${output.trim()}`,
+          detail: `The project’s setup exited with ${String(setup.exitCode)}:\n${excerptOf(output)}`,
           snapshot: null,
         };
       }
@@ -324,7 +337,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
       await sandboxes.upload(
         loader,
         RUN_LAYOUT.workspace,
-        await this.deps.sources.workingCopy(spec.repository, spec.taskId),
+        ownedBy(await this.deps.sources.workingCopy(spec.repository, spec.taskId), settings.user),
       );
     } finally {
       await sandboxes.remove(loader);
@@ -411,17 +424,28 @@ export class SandboxedClaudeRunner implements AgentRunner {
     const agent = containers(runId).agent;
     const archive = await sandboxes.download(agent, RUN_LAYOUT.out);
     const path = (file: string) => `${OUT_DIRECTORY}/${file}`;
-    const files =
-      archive === null
-        ? new Map<string, Buffer>()
-        : await filesOf(
-            archive,
-            (name) =>
-              [RUN_OUTPUTS.outcome, RUN_OUTPUTS.change, RUN_OUTPUTS.work, RUN_OUTPUTS.events]
-                .map(path)
-                .includes(name),
-            { file: OUTPUT_LIMIT },
-          );
+    let files = new Map<string, Buffer>();
+    try {
+      if (archive !== null) {
+        files = await filesOf(
+          archive,
+          (name) =>
+            [RUN_OUTPUTS.outcome, RUN_OUTPUTS.change, RUN_OUTPUTS.work, RUN_OUTPUTS.events]
+              .map(path)
+              .includes(name),
+          { file: OUTPUT_LIMIT, total: OUTPUT_LIMIT },
+        );
+      }
+    } catch (error) {
+      // Any other failure is the download's: whoever looks next reads the outputs again.
+      if (!(error instanceof OversizedArchive)) throw error;
+      return {
+        kind: 'failed',
+        reason: 'agent-failed',
+        detail: `The run left more than the receiver takes: ${error.message}`,
+        snapshot: null,
+      };
+    }
     const events = files.get(path(RUN_OUTPUTS.events));
     if (events !== undefined) {
       const stored = await this.store(events);
@@ -431,7 +455,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
     if (raw === undefined) {
       const output = await sandboxes.logs(agent, 40);
       return infra(
-        `agent-host exited with ${String(exitCode)} and left no outcome:\n${output.trim()}`,
+        `agent-host exited with ${String(exitCode)} and left no outcome:\n${excerptOf(output)}`,
       );
     }
     let document: unknown;

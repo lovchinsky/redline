@@ -12,6 +12,7 @@ export interface ScriptedAgentOptions {
 /** The change a scripted agent proposes: no real code, the same for every task. */
 export const SCRIPTED_CHANGE =
   'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' as BlobDigest;
+export const SCRIPTED_HEAD = '5c41ed0000000000000000000000000000000000';
 
 /**
  * An agent that follows a script instead of a model: it asks one question (if configured) and
@@ -89,7 +90,7 @@ export class ScriptedRunner implements AgentRunner {
     const answer = brief.exchanges.at(-1)?.answer;
     return {
       kind: 'change',
-      change: { blob: SCRIPTED_CHANGE },
+      change: { blob: SCRIPTED_CHANGE, head: SCRIPTED_HEAD },
       report: {
         summary: `Scripted change for: ${brief.title}`,
         changes: brief.bundle.steps.map((step) => ({

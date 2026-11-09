@@ -1,4 +1,5 @@
-import type { Readable } from 'node:stream';
+import { PassThrough, type Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { extract, pack } from 'tar-stream';
 
 export interface TarFile {
@@ -49,10 +50,14 @@ export const tarOf = async (
   return Buffer.concat(chunks);
 };
 
+/** An archive holding more than its reader takes: the fault of whoever wrote it. */
+export class OversizedArchive extends Error {}
+
 /**
  * The regular files of a tar archive whose names `take` accepts, at most `limits.file` bytes
  * each and `limits.total` together; a larger file or archive is an error, not a truncated one.
- * Anything but regular files (links, devices) is left out.
+ * Anything but regular files (links, devices) is left out, and so is any name that is absolute
+ * or climbs out of the archive (`..`). The archive is read to its end or its first error.
  */
 export const filesOf = async (
   archive: Readable,
@@ -62,20 +67,19 @@ export const filesOf = async (
   const files = new Map<string, Buffer>();
   let taken = 0;
   const reader = extract();
-  const done = new Promise<void>((resolve, reject) => {
-    reader.on('finish', resolve);
-    reader.on('error', reject);
-  });
   reader.on('entry', (header, stream, next) => {
+    // An entry fails with its archive, whose failure the pipeline reports.
+    stream.on('error', () => undefined);
     const name = header.name.replace(/^\.\//, '').replace(/\/$/, '');
     const size = header.size;
-    const wanted = header.type === 'file' && take(name);
+    const contained = !name.startsWith('/') && !name.split('/').includes('..');
+    const wanted = header.type === 'file' && contained && take(name);
     if (wanted && size > limits.file) {
-      reader.destroy(new Error(`${name} is larger than ${String(limits.file)} bytes`));
+      next(new OversizedArchive(`${name} is larger than ${String(limits.file)} bytes`));
       return;
     }
     if (wanted && (taken += size) > (limits.total ?? Number.POSITIVE_INFINITY)) {
-      reader.destroy(new Error(`The archive holds more than ${String(limits.total)} bytes`));
+      next(new OversizedArchive(`The archive holds more than ${String(limits.total)} bytes`));
       return;
     }
     const chunks: Buffer[] = [];
@@ -88,7 +92,27 @@ export const filesOf = async (
     });
     stream.resume();
   });
-  archive.pipe(reader);
-  await done;
+  await pipeline(archive, reader);
   return files;
+};
+
+/**
+ * `archive` as it is, with every entry owned by `owner`: a sandbox owns the files it is given,
+ * whoever made the archive.
+ */
+export const ownedBy = (archive: Readable, owner: { uid: number; gid: number }): Readable => {
+  const reader = extract();
+  const writer = pack();
+  const owned = new PassThrough();
+  reader.on('entry', (header, stream, next) => {
+    stream.pipe(writer.entry({ ...header, ...owner, uname: '', gname: '' }, next));
+  });
+  reader.on('finish', () => {
+    writer.finalize();
+  });
+  pipeline(archive, reader).catch((error: unknown) => {
+    owned.destroy(error instanceof Error ? error : new Error(String(error)));
+  });
+  pipeline(writer, owned).catch(() => undefined);
+  return owned;
 };

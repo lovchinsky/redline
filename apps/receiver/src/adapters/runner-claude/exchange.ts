@@ -93,7 +93,7 @@ export const runOutcomeOf = (runId: RunId, outcome: Outcome, stored: StoredOutpu
           }
         : {
             kind: 'change',
-            change: { blob: change },
+            change: { blob: change, head: result.head },
             report: {
               summary: result.report.summary,
               changes: result.report.changes.map((entry) => ({ file: entry.file, why: entry.why })),

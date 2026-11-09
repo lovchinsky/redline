@@ -176,6 +176,8 @@ describe('the sandboxed runner on Docker', () => {
     });
     expect(seen['writeRoot']).toBe('EROFS');
     expect(seen['writeInput']).toBe('EROFS');
+    // The working copy is the agent's, whoever the receiver runs as.
+    expect(seen['writeWorkspace']).toBe('allowed');
     // The setup read the registry's secret; the agent does not have it.
     expect(seen['secrets']).toBe('ENOENT');
     expect(seen['internet']).not.toBe('reached');

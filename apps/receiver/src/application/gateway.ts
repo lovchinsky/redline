@@ -1,5 +1,4 @@
 import type { GatewayRefusal } from '../domain/grant';
-import type { RunId } from '../domain/ids';
 import { EGRESS_PORT, egressAllows } from '../domain/egress';
 import { judgeModelRequest } from '../domain/model-request';
 import { costOf, withinBudget, type TokenUsage } from '../domain/usage';
@@ -24,12 +23,10 @@ import type { Clock, Logger } from '../ports/system';
  * The sandbox's one way to the model. A request is let through only with a grant in force for
  * the agent phase, only as the grant's terms and the request rules allow, only while the task
  * has budget left, and with the credential the task runs with put in place of the grant. Each
- * answer's usage is metered against the task. Why the gateway last refused a run is kept, for
- * the run to ask.
+ * answer's usage is metered against the task. Why the gateway last refused a run is kept with
+ * the run's grants, for the run and its worker to read.
  */
 export class ModelGateway implements ModelAccess {
-  private readonly refusals = new Map<RunId, GatewayRefusal>();
-
   constructor(
     private readonly deps: {
       readonly grants: GrantBook;
@@ -47,8 +44,8 @@ export class ModelGateway implements ModelAccess {
   async admit(token: string | null, body: unknown, endpoint: ModelEndpoint): Promise<Admitted> {
     const terms = token === null ? null : await this.deps.grants.terms(token);
     if (terms?.phase !== 'agent') return { ok: false, refusal: { kind: 'grant-revoked' } };
-    const refuse = (refusal: GatewayRefusal): Admitted => {
-      this.remember(terms, refusal);
+    const refuse = async (refusal: GatewayRefusal): Promise<Admitted> => {
+      await this.remember(terms, refusal);
       return { ok: false, refusal };
     };
 
@@ -71,7 +68,7 @@ export class ModelGateway implements ModelAccess {
         return refuse({ kind: 'budget-exhausted' });
       }
     }
-    this.refusals.delete(terms.runId);
+    await this.deps.grants.setRefusal(terms.runId, null);
     return {
       ok: true,
       admission: { terms, credential, model: verdict.model, stream: verdict.stream },
@@ -82,7 +79,7 @@ export class ModelGateway implements ModelAccess {
    * Judges the provider's answer before it reaches the sandbox: a refused credential and a
    * spent subscription limit end the run in a way it can name; any other answer passes.
    */
-  inspect(admission: Admission, answer: ProviderAnswer): GatewayRefusal | null {
+  async inspect(admission: Admission, answer: ProviderAnswer): Promise<GatewayRefusal | null> {
     const refusal: GatewayRefusal | null =
       answer.status === 401 || answer.status === 403
         ? { kind: 'credential-refused' }
@@ -91,7 +88,7 @@ export class ModelGateway implements ModelAccess {
             answer.quotaResetAt !== null
           ? { kind: 'quota-exhausted', resetAt: answer.quotaResetAt }
           : null;
-    if (refusal !== null) this.remember(admission.terms, refusal);
+    if (refusal !== null) await this.remember(admission.terms, refusal);
     return refusal;
   }
 
@@ -112,12 +109,12 @@ export class ModelGateway implements ModelAccess {
   async status(token: string | null): Promise<GrantStatusView> {
     const terms = token === null ? null : await this.deps.grants.terms(token);
     if (terms?.phase !== 'agent') return { state: 'refused', refusal: { kind: 'grant-revoked' } };
-    const refusal = this.refusals.get(terms.runId);
-    return refusal === undefined ? { state: 'active' } : { state: 'refused', refusal };
+    const refusal = await this.deps.grants.refusalOf(terms.runId);
+    return refusal === null ? { state: 'active' } : { state: 'refused', refusal };
   }
 
-  private remember(terms: AgentTerms, refusal: GatewayRefusal): void {
-    this.refusals.set(terms.runId, refusal);
+  private async remember(terms: AgentTerms, refusal: GatewayRefusal): Promise<void> {
+    await this.deps.grants.setRefusal(terms.runId, refusal);
     this.deps.logger.warn('Refused a model request', {
       runId: terms.runId,
       taskId: terms.taskId,
