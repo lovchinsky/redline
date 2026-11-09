@@ -28,3 +28,4 @@ export const RunId = (value: string) => value as RunId;
 export const UserId = (value: string) => value as UserId;
 export const ProjectId = (value: string) => value as ProjectId;
 export const QuestionId = (value: string) => value as QuestionId;
+export const BlobDigest = (value: string) => value as BlobDigest;

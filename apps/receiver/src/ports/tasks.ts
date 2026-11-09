@@ -1,4 +1,4 @@
-import type { QuestionId, RunId, TaskId, UserId, Instant } from '../domain/ids';
+import type { Instant, ProjectId, QuestionId, RunId, TaskId, UserId } from '../domain/ids';
 import type { Run } from '../domain/run';
 import type { Task, TaskEvent } from '../domain/task';
 
@@ -39,8 +39,9 @@ export interface TaskHistory {
 
 /** Work the receiver does later, in another process or after a restart. */
 export type Job =
-  | { readonly queue: 'run'; readonly taskId: TaskId }
-  | { readonly queue: 'publish'; readonly taskId: TaskId }
+  /** `projectId`: runs and publications are limited per project. */
+  | { readonly queue: 'run'; readonly taskId: TaskId; readonly projectId: ProjectId }
+  | { readonly queue: 'publish'; readonly taskId: TaskId; readonly projectId: ProjectId }
   | { readonly queue: 'reply-timeout'; readonly taskId: TaskId; readonly questionId: QuestionId }
   | { readonly queue: 'abort-run'; readonly taskId: TaskId; readonly runId: RunId }
   | { readonly queue: 'withdraw-change'; readonly taskId: TaskId };

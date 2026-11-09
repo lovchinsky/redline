@@ -56,7 +56,7 @@ export class CredentialRelay {
     const held = await this.deps.vault.holds(task.id);
     await this.deps.vault.deposit(task.id, credential);
     if (!held && task.state.kind === 'queued') {
-      await this.deps.writer.schedule({ queue: 'run', taskId: task.id });
+      await this.deps.writer.schedule({ queue: 'run', taskId: task.id, projectId: task.projectId });
     }
   }
 }

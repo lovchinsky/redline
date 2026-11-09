@@ -16,6 +16,7 @@
     "depcruise:selftest": "node scripts/verify-depcruise.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "pnpm --filter @redline/receiver test:integration",
     "test:e2e": "pnpm --filter @redline/extension test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

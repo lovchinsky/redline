@@ -36,7 +36,7 @@ describe('submitting', () => {
     });
     expect(await app.store.history(task.id)).toEqual([{ type: 'submitted', at: 1_000 }]);
     expect(app.store.jobsOf('run')).toEqual([
-      { job: { queue: 'run', taskId: task.id }, startAfter: null },
+      { job: { queue: 'run', taskId: task.id, projectId: 'acme' }, startAfter: null },
     ]);
   });
 

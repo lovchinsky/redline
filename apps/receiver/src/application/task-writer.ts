@@ -8,12 +8,13 @@ import { conflictError, notFound, type RequestError } from './errors';
 /** Optimistic writes that keep losing to concurrent ones: something is wrong, not just busy. */
 const MAX_ATTEMPTS = 5;
 
-const jobOf = (taskId: TaskId, effect: TaskEffect): Job => {
+const jobOf = (task: Task, effect: TaskEffect): Job => {
+  const taskId = task.id;
   switch (effect.kind) {
     case 'schedule-run':
-      return { queue: 'run', taskId };
+      return { queue: 'run', taskId, projectId: task.projectId };
     case 'schedule-publish':
-      return { queue: 'publish', taskId };
+      return { queue: 'publish', taskId, projectId: task.projectId };
     case 'schedule-reply-timeout':
       return { queue: 'reply-timeout', taskId, questionId: effect.questionId };
     case 'abort-run':
@@ -34,15 +35,11 @@ const startAfter = (effect: TaskEffect): Instant | null =>
  * Records what a transition did: its event, and its effects as jobs. An aborted run also loses
  * its grant here, at once, so it cannot spend while its sandbox is being stopped.
  */
-const carryOut = async (
-  scope: WorkScope,
-  taskId: TaskId,
-  transition: Transition,
-): Promise<void> => {
-  if (transition.event !== null) await scope.history.append(taskId, transition.event);
+const carryOut = async (scope: WorkScope, task: Task, transition: Transition): Promise<void> => {
+  if (transition.event !== null) await scope.history.append(task.id, transition.event);
   for (const effect of transition.effects) {
     if (effect.kind === 'abort-run') await scope.grants.revoke(effect.runId);
-    await scope.jobs.schedule(jobOf(taskId, effect), startAfter(effect));
+    await scope.jobs.schedule(jobOf(task, effect), startAfter(effect));
   }
 };
 
@@ -58,7 +55,7 @@ export const commitTransition = async (
   if (transition.event === null) return transition.task;
   const saved = await scope.tasks.save(transition.task);
   if (saved === null) return null;
-  await carryOut(scope, saved.id, transition);
+  await carryOut(scope, saved, transition);
   return saved;
 };
 
@@ -79,7 +76,7 @@ export class TaskWriter {
   async create(transition: Transition, idempotencyKey: string): Promise<InsertResult> {
     return this.deps.uow.run(async (scope) => {
       const inserted = await scope.tasks.insert(transition.task, idempotencyKey);
-      if (inserted.inserted) await carryOut(scope, inserted.task.id, transition);
+      if (inserted.inserted) await carryOut(scope, inserted.task, transition);
       return inserted;
     });
   }
