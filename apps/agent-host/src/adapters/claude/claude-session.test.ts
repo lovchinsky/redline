@@ -72,7 +72,7 @@ const request = (
   questionsLeft: fields.questionsLeft ?? 0,
   maxTurns: 40,
   budgetUsd: null,
-  judge: (tool) => (tool === 'Write' ? { allow: false, reason: 'protected' } : { allow: true }),
+  judge: (use) => (use.kind === 'write' ? { allow: false, reason: 'protected' } : { allow: true }),
   onActivity: (activity) => activities.push(activity),
   onLife: () => undefined,
 });
@@ -232,7 +232,7 @@ describe('ClaudeSession', () => {
     });
 
     it('ends with the question when the session paused on it', async () => {
-      const input = { question: 'Desktop only?', options: ['Yes'] };
+      const input = { question: ' Desktop only? ', options: ['Yes'] };
       const { fake } = scripted([
         result({
           stop_reason: 'tool_deferred',
@@ -243,7 +243,11 @@ describe('ClaudeSession', () => {
         request([], { questionsLeft: 1 }),
         new AbortController().signal,
       );
-      expect(outcome.end).toEqual({ kind: 'asked', call: 'toolu_1', input });
+      expect(outcome.end).toEqual({
+        kind: 'asked',
+        call: 'toolu_1',
+        question: { text: 'Desktop only?', options: ['Yes'] },
+      });
       expect(outcome.sessionId).toBe('session-1');
     });
 
@@ -280,14 +284,11 @@ describe('ClaudeSession', () => {
     });
   });
 
-  it('ends a session stopped before its result with the reason it was stopped for', async () => {
+  it('ends a session stopped before its result as stopped', async () => {
     const { fake } = scripted([]);
     const stop = new AbortController();
-    stop.abort('stalled');
-    expect((await session(fake).run(request(), stop.signal)).end).toEqual({
-      kind: 'stopped',
-      why: 'stalled',
-    });
+    stop.abort();
+    expect((await session(fake).run(request(), stop.signal)).end).toEqual({ kind: 'stopped' });
   });
 
   it('finds the files of a stored session, wherever its project is', async () => {

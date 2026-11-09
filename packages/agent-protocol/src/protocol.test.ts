@@ -118,16 +118,21 @@ describe('agent-protocol', () => {
       pause,
       usage: { turns: 1, durationMs: 10, costUsd: 0 },
     });
-    expect(briefSchema.parse({ ...brief(), resume: outcome.pause }).resume).toEqual(pause);
+    const resume = {
+      sessionId: outcome.pause?.sessionId,
+      workHead: outcome.pause?.workHead,
+      deferred: { call: outcome.pause?.deferredCall, answer: { text: 'Desktop only' } },
+    };
+    expect(briefSchema.parse({ ...brief(), resume }).resume).toEqual(resume);
     expect(
-      briefSchema.safeParse({ ...brief(), resume: { ...pause, workHead: 'main' } }).success,
+      briefSchema.safeParse({ ...brief(), resume: { ...resume, workHead: 'main' } }).success,
     ).toBe(false);
-    expect(
-      briefSchema.safeParse({
-        ...brief(),
-        resume: { sessionId: 's', deferredCall: null, workHead: null },
-      }).success,
-    ).toBe(true);
+    // Nobody answered in time, or the session waits on no call.
+    for (const deferred of [{ call: 'toolu_1', answer: null }, null]) {
+      expect(briefSchema.safeParse({ ...brief(), resume: { ...resume, deferred } }).success).toBe(
+        true,
+      );
+    }
   });
 
   it('reads the gateway’s account of a refused grant and the run’s events', () => {

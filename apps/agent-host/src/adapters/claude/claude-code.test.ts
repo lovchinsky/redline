@@ -3,7 +3,7 @@ import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ASK_TOOL } from '../../domain/asking';
+import { ASK_TOOL } from './ask-tool';
 import type { SessionRequest, SessionStart } from '../../ports/agent';
 import { ClaudeSession } from './claude-session';
 import { scriptedMessagesApi, type ModelRequest } from './testing/messages-api';
@@ -129,7 +129,7 @@ describe('Claude Code with ask_requester', () => {
     expect(asked.end).toEqual({
       kind: 'asked',
       call: 'toolu_ask',
-      input: { question: 'Desktop only?', options: ['Yes', 'No'] },
+      question: { text: 'Desktop only?', options: ['Yes', 'No'] },
     });
     const sessionId = asked.sessionId ?? '';
     expect(sessionId).not.toBe('');

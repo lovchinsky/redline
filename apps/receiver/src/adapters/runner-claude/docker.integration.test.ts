@@ -240,10 +240,13 @@ describe('the sandboxed runner on Docker', () => {
     });
     const seen = report(await runner().observe(second, new AbortController().signal, quiet));
     expect(seen['resumed']).toEqual({
-      pause: { sessionId: 'session-1', deferredCall: 'toolu_1', workHead: 'd'.repeat(40) },
+      resume: {
+        sessionId: 'session-1',
+        workHead: 'd'.repeat(40),
+        deferred: { call: 'toolu_1', answer: { text: 'Desktop only' } },
+      },
       transcript: '{"asked":"Desktop only?"}\n',
       work: 'stand-in work',
-      answer: 'Desktop only',
       appendSession: 'allowed',
     });
     // The setup worked on the base again before the agent went on.

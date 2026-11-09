@@ -10,7 +10,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { bundle, project, silentLogger } from '../../application/testing/fakes';
-import { BlobDigest, ProjectId, RunId, TaskId } from '../../domain/ids';
+import { BlobDigest, ProjectId, QuestionId, RunId, TaskId } from '../../domain/ids';
 import type { RunSpec } from '../../ports/agent';
 import type { GrantToken } from '../../ports/tasks';
 import { FsBlobStore } from '../blobs/fs-blob-store';
@@ -535,8 +535,15 @@ describe('SandboxedClaudeRunner', () => {
       await writer.write(await packSnapshot({ pause, work: text('work'), session: sessionFiles }));
       const { digest } = await writer.commit();
       const base = await spec();
+      const asked = {
+        question: { id: QuestionId('q-run-0'), text: 'Desktop only?', options: [] },
+        askedAt: 1,
+        answer: { source: 'requester' as const, text: 'Desktop only', at: 2 },
+        closed: true,
+      };
       await runner(null).start({
         ...base,
+        brief: { ...base.brief, exchanges: [asked] },
         resumeFrom: {
           blob: BlobDigest(digest),
           image: IMAGE_ID,
@@ -550,8 +557,13 @@ describe('SandboxedClaudeRunner', () => {
         });
       };
       const input = await into('/redline/input');
+      // The session waits on the question it asked: the answer to it goes with the session.
       expect(JSON.parse(input.get('brief.json')?.toString() ?? '{}')).toMatchObject({
-        resume: pause,
+        resume: {
+          sessionId: pause.sessionId,
+          workHead: pause.workHead,
+          deferred: { call: pause.deferredCall, answer: { text: 'Desktop only' } },
+        },
       });
       expect(input.get('work.bundle')?.toString()).toBe('work');
       expect([...(await into('/redline/session')).keys()].sort()).toEqual([

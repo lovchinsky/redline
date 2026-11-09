@@ -10,17 +10,34 @@ import { agentReportSchema } from '@redline/agent-protocol';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import * as z from 'zod/mini';
-import { ASK_TOOL, GO_ON, askTurn } from '../../domain/asking';
+import { GO_ON, askTurn, type Asking } from '../../domain/asking';
+import type { ToolUse } from '../../domain/guard';
 import type { PromptPart } from '../../domain/prompt';
 import type { SessionEnd, SessionResult } from '../../domain/session';
-import { isStopReason, type AgentSession, type SessionRequest } from '../../ports/agent';
-import { ASKING_VARIABLE, type Asking } from './ask-tool';
+import type { AgentSession, SessionRequest } from '../../ports/agent';
+import { ASKING_VARIABLE, ASK_TOOL, questionOf } from './ask-tool';
 
 /**
  * Claude Code's own tools the agent has: none for the web, and none that waits for a person
  * (the requester is asked through `ask_requester`, which pauses the run instead).
  */
 const TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash', 'TodoWrite'];
+
+/** The tools of `TOOLS` that write a file, and the input naming it. */
+const WRITES: Readonly<Record<string, string>> = {
+  Write: 'file_path',
+  Edit: 'file_path',
+};
+
+/** A call of Claude Code's tool `tool`, as the guard tells calls apart. */
+const toolUseOf = (tool: string, input: unknown): ToolUse => {
+  const field = WRITES[tool];
+  const target =
+    field !== undefined && typeof input === 'object' && input !== null
+      ? (input as Record<string, unknown>)[field]
+      : null;
+  return typeof target === 'string' ? { kind: 'write', path: target } : { kind: 'other' };
+};
 
 /** The report's schema in the JSON Schema draft Claude Code validates structured output with. */
 const REPORT_SCHEMA = z.toJSONSchema(agentReportSchema, { target: 'draft-7' });
@@ -49,7 +66,7 @@ const endOf = (result: SDKResultMessage): SessionEnd => {
       const deferred = result.deferred_tool_use;
       if (deferred !== undefined && !result.is_error) {
         return deferred.name === ASK_TOOL.qualified
-          ? { kind: 'asked', call: deferred.id, input: deferred.input }
+          ? { kind: 'asked', call: deferred.id, question: questionOf(deferred.input) }
           : { kind: 'error', detail: `The session paused on ${deferred.name}, which never pauses` };
       }
       if (result.is_error) {
@@ -160,10 +177,9 @@ export class ClaudeSession implements AgentSession {
       session.close();
     }
     if (result === null) {
-      const reason: unknown = signal.reason;
       return {
-        end: isStopReason(reason)
-          ? { kind: 'stopped', why: reason }
+        end: signal.aborted
+          ? { kind: 'stopped' }
           : { kind: 'error', detail: 'The session ended without a result' },
         sessionId,
         usage: { turns: 0, durationMs: Date.now() - started, costUsd: 0 },
@@ -207,7 +223,7 @@ export class ClaudeSession implements AgentSession {
       hooks: [
         (input) => {
           if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
-          const decision = request.judge(input.tool_name, input.tool_input);
+          const decision = request.judge(toolUseOf(input.tool_name, input.tool_input));
           if (decision.allow) return Promise.resolve({});
           request.onActivity({ kind: 'denied', tool: input.tool_name, reason: decision.reason });
           return Promise.resolve({
@@ -226,7 +242,7 @@ export class ClaudeSession implements AgentSession {
       hooks: [
         (input) => {
           if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
-          const turn = askTurn(input.tool_use_id, input.tool_input, asking);
+          const turn = askTurn(input.tool_use_id, questionOf(input.tool_input), asking);
           return Promise.resolve({
             hookSpecificOutput:
               turn.kind === 'refuse'

@@ -1,11 +1,14 @@
-import type { AgentReport, RunUsage } from '@redline/agent-protocol';
+import type { AgentReport, AskedQuestion, RunUsage } from '@redline/agent-protocol';
 
 /** How the agent's session ended, before anything is concluded from it. */
 export type SessionEnd =
   /** The agent finished its turn; `report` is null when its structured report was unusable. */
   | { readonly kind: 'completed'; readonly report: AgentReport | null }
-  /** The agent asked the requester: the session waits on the deferred call `call`. */
-  | { readonly kind: 'asked'; readonly call: string; readonly input: unknown }
+  /**
+   * The agent asked the requester: the session waits on the deferred call `call`. `question` is
+   * null when what it asked cannot be shown to the requester.
+   */
+  | { readonly kind: 'asked'; readonly call: string; readonly question: AskedQuestion | null }
   | { readonly kind: 'max-turns' }
   /** The SDK's own estimate of the cost reached the run's budget. */
   | { readonly kind: 'budget' }
@@ -13,8 +16,11 @@ export type SessionEnd =
   | { readonly kind: 'api-error'; readonly status: number | null; readonly detail: string }
   /** The session failed in itself: the agent's process, a tool, the SDK. */
   | { readonly kind: 'error'; readonly detail: string }
-  /** agent-host stopped the session: it ran out of time or showed no sign of life. */
-  | { readonly kind: 'stopped'; readonly why: 'timeout' | 'stalled' };
+  /** agent-host stopped the session, for a `StopReason` of its own. */
+  | { readonly kind: 'stopped' };
+
+/** Why agent-host stops a session: it ran out of time, or showed no sign of life. */
+export type StopReason = 'timeout' | 'stalled';
 
 export interface SessionResult {
   readonly end: SessionEnd;

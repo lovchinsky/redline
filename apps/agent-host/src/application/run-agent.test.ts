@@ -1,4 +1,9 @@
-import { GATEWAY_REFUSALS, type AgentReport, type Brief } from '@redline/agent-protocol';
+import {
+  GATEWAY_REFUSALS,
+  type AgentReport,
+  type AskedQuestion,
+  type Brief,
+} from '@redline/agent-protocol';
 import { describe, expect, it } from 'vitest';
 import type { SessionResult } from '../domain/session';
 import { sampleBrief } from './testing/brief';
@@ -10,7 +15,7 @@ import {
   ScriptedSession,
   fixedClock,
 } from './testing/fakes';
-import { isStopReason, type SessionRequest } from '../ports/agent';
+import type { SessionRequest } from '../ports/agent';
 import { RunAgent } from './run-agent';
 
 const usage = { turns: 4, durationMs: 5000, costUsd: 0.8 };
@@ -52,13 +57,7 @@ const started = () => new Promise<void>((resolve) => setImmediate(resolve));
 const hanging = (_request: SessionRequest, signal: AbortSignal) =>
   new Promise<SessionResult>((resolve) => {
     signal.addEventListener('abort', () => {
-      // As a session stopped from outside ends: with the reason it was stopped for.
-      const why: unknown = signal.reason;
-      resolve({
-        end: isStopReason(why) ? { kind: 'stopped', why } : { kind: 'error', detail: 'aborted' },
-        sessionId: 'session-1',
-        usage,
-      });
+      resolve({ end: { kind: 'stopped' }, sessionId: 'session-1', usage });
     });
   });
 
@@ -70,7 +69,7 @@ describe('RunAgent', () => {
     });
     await agent.execute();
     expect(session.request).toMatchObject({ model: 'claude-opus-5-5', maxTurns: 40, budgetUsd: 5 });
-    expect(session.request?.judge('Edit', { file_path: 'CLAUDE.md' }).allow).toBe(false);
+    expect(session.request?.judge({ kind: 'write', path: 'CLAUDE.md' }).allow).toBe(false);
     expect(workspace.exported).toBe(1);
     expect(files.outcome).toEqual({
       protocol: 1,
@@ -167,15 +166,15 @@ describe('RunAgent', () => {
   });
 
   describe('questions', () => {
-    const asked = (input: unknown) => () =>
+    const asked = (question: AskedQuestion | null) => () =>
       Promise.resolve<SessionResult>({
-        end: { kind: 'asked', call: 'toolu_1', input },
+        end: { kind: 'asked', call: 'toolu_1', question },
         sessionId: 'session-1',
         usage,
       });
 
     it('tells the agent how many questions it may ask', async () => {
-      const { agent, session } = setup(asked({ question: 'Desktop only?' }), {
+      const { agent, session } = setup(asked({ text: 'Desktop only?', options: [] }), {
         brief: sampleBrief({ questionsLeft: 2 }),
       });
       await agent.execute();
@@ -186,7 +185,7 @@ describe('RunAgent', () => {
     it('ends the run with the question, and keeps the work and session to go on with', async () => {
       const work = { head: 'c'.repeat(40) };
       const { agent, files, workspace } = setup(
-        asked({ question: '  Desktop only?  ', options: ['Yes', 'No'] }),
+        asked({ text: 'Desktop only?', options: ['Yes', 'No'] }),
         { work, brief: sampleBrief({ questionsLeft: 1 }) },
       );
       await agent.execute();
@@ -203,7 +202,7 @@ describe('RunAgent', () => {
     });
 
     it('fails a run whose question the requester could not be shown', async () => {
-      const { agent, files } = setup(asked({ question: '' }), {
+      const { agent, files } = setup(asked(null), {
         brief: sampleBrief({ questionsLeft: 1 }),
       });
       await agent.execute();
@@ -212,7 +211,7 @@ describe('RunAgent', () => {
     });
 
     it('asks anyway when the work cannot be kept: a later run starts over', async () => {
-      const { agent, files } = setup(asked({ question: 'Desktop only?' }), {
+      const { agent, files } = setup(asked({ text: 'Desktop only?', options: [] }), {
         work: new Error('disk full'),
         brief: sampleBrief({ questionsLeft: 1 }),
       });
@@ -229,7 +228,11 @@ describe('RunAgent', () => {
       sampleBrief({
         exchanges: [{ question, answer }],
         questionsLeft: 1,
-        resume: { sessionId: 'session-1', deferredCall: 'toolu_1', workHead: 'c'.repeat(40) },
+        resume: {
+          sessionId: 'session-1',
+          workHead: 'c'.repeat(40),
+          deferred: { call: 'toolu_1', answer },
+        },
       });
     const completes = () =>
       Promise.resolve<SessionResult>({
@@ -270,7 +273,7 @@ describe('RunAgent', () => {
     it('goes on without an answer with a session that paused for another reason', async () => {
       const { agent, session } = setup(completes, {
         brief: sampleBrief({
-          resume: { sessionId: 'session-1', deferredCall: null, workHead: null },
+          resume: { sessionId: 'session-1', workHead: null, deferred: null },
         }),
         sessions: ['session-1'],
       });

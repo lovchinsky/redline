@@ -1,11 +1,10 @@
-import { QUESTION_LIMITS } from '@redline/agent-protocol';
 import { describe, expect, it } from 'vitest';
 import { sampleBrief } from '../application/testing/brief';
-import { answerText, askReply, askTurn, questionOf } from './asking';
+import { answerText, askReply, askTurn } from './asking';
 import { workingRules } from './prompt';
 
 const pending = { call: 'toolu_1', text: 'Desktop only' };
-const asked = { question: 'Desktop only?' };
+const asked = { text: 'Desktop only?', options: [] };
 
 describe('asking the requester', () => {
   it('pauses on a question, answers the one the session waited on, and stops at the limit', () => {
@@ -26,14 +25,12 @@ describe('asking the requester', () => {
   });
 
   it('refuses a question the requester could not be shown, before it pauses anything', () => {
-    expect(
-      askTurn('toolu_2', { question: ' ' }, { pending: null, questionsLeft: 1 }),
-    ).toMatchObject({
+    expect(askTurn('toolu_2', null, { pending: null, questionsLeft: 1 })).toMatchObject({
       kind: 'refuse',
       reason: expect.stringContaining('plain words') as string,
     });
     // The call the session waits on is answered whatever it asked.
-    expect(askTurn('toolu_1', { question: ' ' }, { pending, questionsLeft: 1 })).toMatchObject({
+    expect(askTurn('toolu_1', null, { pending, questionsLeft: 1 })).toMatchObject({
       kind: 'reply',
     });
   });
@@ -49,24 +46,8 @@ describe('asking the requester', () => {
   });
 
   it('gives the answer, or says nobody gave one', () => {
-    const question = { id: 'q1', text: 'Desktop only?', options: [] };
-    expect(answerText({ question, answer: { text: 'Yes' } })).toBe('Yes');
-    expect(answerText({ question, answer: null })).toContain('Nobody answered in time');
-  });
-
-  it('takes a question the requester can be shown, and nothing else', () => {
-    expect(questionOf({ question: ' Desktop only? ', options: ['Yes', 'No'] })).toEqual({
-      text: 'Desktop only?',
-      options: ['Yes', 'No'],
-    });
-    expect(questionOf({ question: 'Desktop only?' })).toEqual({
-      text: 'Desktop only?',
-      options: [],
-    });
-    expect(questionOf({ question: '   ' })).toBeNull();
-    expect(questionOf({ question: 'x'.repeat(QUESTION_LIMITS.text + 1) })).toBeNull();
-    expect(questionOf({ question: 'Which?', options: [7] })).toBeNull();
-    expect(questionOf('Which?')).toBeNull();
+    expect(answerText({ text: 'Yes' })).toBe('Yes');
+    expect(answerText(null)).toContain('Nobody answered in time');
   });
 
   it('tells the agent whether it may ask, and how many times', () => {

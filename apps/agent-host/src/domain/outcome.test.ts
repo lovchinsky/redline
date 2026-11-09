@@ -13,17 +13,25 @@ const report = (outcome: AgentReport['outcome']): AgentReport => ({
 
 const head = { head: 'b'.repeat(40) };
 
+type Input = Parameters<typeof decideOutcome>[0];
+
+/** How a run concludes from its end, with no change, gateway account or stop unless given. */
+const conclude = (input: Partial<Input> & Pick<Input, 'end'>) =>
+  decideOutcome({ change: null, gateway: null, stopped: null, ...input });
+
+const decide = (input: Partial<Input> & Pick<Input, 'end'>) => conclude(input).result;
+
 describe('decideOutcome', () => {
   it('takes a reported change only when the tree changed', () => {
     expect(
-      decideOutcome({
+      decide({
         end: { kind: 'completed', report: report('change') },
         change: head,
         gateway: null,
       }),
     ).toEqual({ kind: 'change', head: head.head, report: report('change') });
     expect(
-      decideOutcome({
+      decide({
         end: { kind: 'completed', report: report('change') },
         change: null,
         gateway: null,
@@ -33,14 +41,14 @@ describe('decideOutcome', () => {
 
   it('takes the agent’s word for no change, and refuses a run without a report', () => {
     expect(
-      decideOutcome({
+      decide({
         end: { kind: 'completed', report: report('no-change') },
         change: null,
         gateway: null,
       }),
     ).toEqual({ kind: 'no-change', explanation: 'They are equal already' });
     expect(
-      decideOutcome({ end: { kind: 'completed', report: null }, change: null, gateway: null }),
+      decide({ end: { kind: 'completed', report: null }, change: null, gateway: null }),
     ).toMatchObject({ kind: 'failed', reason: 'agent-failed' });
   });
 
@@ -50,7 +58,7 @@ describe('decideOutcome', () => {
       refusal: (typeof GATEWAY_REFUSALS)[keyof typeof GATEWAY_REFUSALS],
       resetAt: string | null = null,
     ) =>
-      decideOutcome({
+      decide({
         end: apiError,
         change: null,
         gateway: { state: 'refused', refusal, resetAt },
@@ -67,14 +75,14 @@ describe('decideOutcome', () => {
       resetAt: '2026-11-09T15:00:00.000Z',
     });
     expect(
-      decideOutcome({
+      decide({
         end: { ...apiError, status: 529 },
         change: null,
         gateway: { state: 'active' },
       }),
     ).toMatchObject({ kind: 'failed', reason: 'infra' });
     expect(
-      decideOutcome({
+      decide({
         end: { ...apiError, status: 400 },
         change: null,
         gateway: { state: 'active' },
@@ -82,16 +90,40 @@ describe('decideOutcome', () => {
     ).toMatchObject({ kind: 'failed', reason: 'agent-failed' });
     // A gateway that could not be asked may have refused the run in a way it waits out.
     expect(
-      decideOutcome({ end: { ...apiError, status: 403 }, change: null, gateway: null }),
+      decide({ end: { ...apiError, status: 403 }, change: null, gateway: null }),
     ).toMatchObject({ kind: 'failed', reason: 'infra' });
   });
 
   it('names the limits a run ran into', () => {
-    expect(decideOutcome({ end: { kind: 'budget' }, change: null, gateway: null })).toMatchObject({
+    expect(decide({ end: { kind: 'budget' }, change: null, gateway: null })).toMatchObject({
       reason: 'budget-exhausted',
     });
+    expect(decide({ end: { kind: 'stopped' }, change: head, stopped: 'stalled' })).toEqual({
+      kind: 'failed',
+      reason: 'agent-failed',
+      detail: 'The agent stopped responding',
+    });
+    expect(decide({ end: { kind: 'stopped' }, stopped: 'timeout' })).toMatchObject({
+      detail: 'The run took longer than allowed',
+    });
+  });
+
+  it('keeps the session of a run that waits, and of no other', () => {
+    const asked = {
+      kind: 'asked' as const,
+      call: 'toolu_1',
+      question: { text: 'Which?', options: [] },
+    };
+    const pauses = (input: Partial<Input> & Pick<Input, 'end'>) => conclude(input).pauses;
+    expect(pauses({ end: asked })).toBe(true);
     expect(
-      decideOutcome({ end: { kind: 'stopped', why: 'stalled' }, change: head, gateway: null }),
-    ).toEqual({ kind: 'failed', reason: 'agent-failed', detail: 'The agent stopped responding' });
+      pauses({
+        end: { kind: 'api-error', status: 403, detail: '' },
+        gateway: { state: 'refused', refusal: GATEWAY_REFUSALS.credentialMissing, resetAt: null },
+      }),
+    ).toBe(true);
+    // A question the requester could not be shown ends the run: nothing waits on it.
+    expect(pauses({ end: { ...asked, question: null } })).toBe(false);
+    expect(pauses({ end: { kind: 'max-turns' } })).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { RUN_LAYOUT, type Brief, type BriefExchange } from '@redline/agent-protocol';
-import { ASK_TOOL } from './asking';
+import { ASK_TOOL_NAME } from './asking';
 
 /** Images the model takes inline; other material it reads with its tools. */
 const INLINE_IMAGES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
@@ -29,7 +29,7 @@ const questionRules = (left: number): readonly string[] =>
         'what the requester most likely meant and record the choice as an assumption.',
       ]
     : [
-        `Questions: you may ask the requester ${String(left)} more question(s) with ${ASK_TOOL.name}.`,
+        `Questions: you may ask the requester ${String(left)} more question(s) with ${ASK_TOOL_NAME}.`,
         'Ask only when the answer changes what you would do, and ask alone, in a turn of its own:',
         'the run pauses until the requester answers. Otherwise choose what the requester most',
         'likely meant and record the choice as an assumption.',

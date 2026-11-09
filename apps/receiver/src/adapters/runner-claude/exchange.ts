@@ -4,24 +4,40 @@ import {
   type Outcome,
   type Pause,
 } from '@redline/agent-protocol';
+import { lastExchange, type Exchange } from '../../domain/exchange';
 import type { BlobDigest } from '../../domain/ids';
 import type { RunOutcome } from '../../domain/run';
 import type { Snapshot } from '../../domain/work';
 import type { RunSpec } from '../../ports/agent';
 import type { RepositorySettings } from './repository-settings';
 
+const answerOf = (exchange: Exchange | null): { readonly text: string } | null =>
+  exchange?.answer?.source === 'requester' ? { text: exchange.answer.text } : null;
+
 /**
  * The run in the agent protocol's terms: what the receiver knows about it, as agent-host reads
- * it, and the paused session it goes on with. The budget the agent sees is the dollars of an
- * API key; with a subscription the gateway counts tokens, and the agent has no estimate to stop
- * at.
+ * it, and the paused session it goes on with. A session paused on a question waits on the
+ * answer to it: the task's last exchange, since a run asks at most one question, the one it ends
+ * with. The budget the agent sees is the dollars of an API key; with a subscription the gateway
+ * counts tokens, and the agent has no estimate to stop at.
  */
 export const briefOf = (
   spec: RunSpec,
   settings: RepositorySettings,
-  resume: Pause | null,
+  pause: Pause | null,
 ): Brief => {
   const { brief, execution } = spec;
+  const resume =
+    pause === null
+      ? null
+      : {
+          sessionId: pause.sessionId,
+          workHead: pause.workHead,
+          deferred:
+            pause.deferredCall === null
+              ? null
+              : { call: pause.deferredCall, answer: answerOf(lastExchange(brief.exchanges)) },
+        };
   return {
     protocol: AGENT_PROTOCOL_VERSION,
     runId: spec.runId,
@@ -54,7 +70,7 @@ export const briefOf = (
         text: exchange.question.text,
         options: [...exchange.question.options],
       },
-      answer: exchange.answer?.source === 'requester' ? { text: exchange.answer.text } : null,
+      answer: answerOf(exchange),
     })),
     questionsLeft: brief.questionsLeft,
     resume,

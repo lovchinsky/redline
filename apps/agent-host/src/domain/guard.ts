@@ -4,11 +4,9 @@ import { firstMatch } from '@redline/path-patterns';
 export type ToolDecision =
   { readonly allow: true } | { readonly allow: false; readonly reason: string };
 
-/** The agent's tools that write a file (`TOOLS` of its session), and the input naming it. */
-const WRITES: Readonly<Record<string, string>> = {
-  Write: 'file_path',
-  Edit: 'file_path',
-};
+/** A tool call, as far as the guard tells calls apart: one that writes the file at `path`, or any other. */
+export type ToolUse =
+  { readonly kind: 'write'; readonly path: string } | { readonly kind: 'other' };
 
 const allow: ToolDecision = { allow: true };
 
@@ -32,17 +30,9 @@ export const workspacePath = (path: string): string | null => {
  * the agent at once, instead of after its budget is spent; the receiver's policy check of the
  * finished change is the one that holds, since the shell writes files too.
  */
-export const judgeToolUse = (
-  tool: string,
-  input: unknown,
-  protectedPaths: readonly string[],
-): ToolDecision => {
-  const field = WRITES[tool];
-  if (field === undefined) return allow;
-  const target =
-    typeof input === 'object' && input !== null ? (input as Record<string, unknown>)[field] : null;
-  if (typeof target !== 'string') return allow;
-  const path = workspacePath(target);
+export const judgeToolUse = (use: ToolUse, protectedPaths: readonly string[]): ToolDecision => {
+  if (use.kind !== 'write') return allow;
+  const path = workspacePath(use.path);
   if (path === null) {
     return { allow: false, reason: `Write only inside ${RUN_LAYOUT.workspace}.` };
   }

@@ -1,27 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { judgeToolUse, workspacePath } from './guard';
+import { judgeToolUse, workspacePath, type ToolUse } from './guard';
 
 const protectedPaths = ['.github', 'CLAUDE.md', 'src/generated/**'];
 
 describe('judgeToolUse', () => {
+  const write = (path: string): ToolUse => ({ kind: 'write', path });
   it.each([
-    ['Edit', { file_path: '/workspace/src/Card.css' }, true],
-    ['Write', { file_path: 'src/Card.css' }, true],
-    ['Edit', { file_path: '/workspace/web/CLAUDE.md' }, false],
-    ['Write', { file_path: '/workspace/.github/workflows/ci.yml' }, false],
-    ['Write', { file_path: '/workspace/src/generated/api.ts' }, false],
-    ['Write', { file_path: '/workspace/src/../.github/x.yml' }, false],
-    ['Write', { file_path: '/etc/passwd' }, false],
-    ['Write', { file_path: '/workspace/../etc/passwd' }, false],
-    ['Edit', { file_path: '/workspace/.git/config' }, false],
-    ['Read', { file_path: '/workspace/CLAUDE.md' }, true],
-    ['Bash', { command: 'cat CLAUDE.md' }, true],
-  ])('%s %j allowed: %s', (tool, input, allowed) => {
-    expect(judgeToolUse(tool, input, protectedPaths).allow).toBe(allowed);
+    [write('/workspace/src/Card.css'), true],
+    [write('src/Card.css'), true],
+    [write('/workspace/web/CLAUDE.md'), false],
+    [write('/workspace/.github/workflows/ci.yml'), false],
+    [write('/workspace/src/generated/api.ts'), false],
+    [write('/workspace/src/../.github/x.yml'), false],
+    [write('/etc/passwd'), false],
+    [write('/workspace/../etc/passwd'), false],
+    [write('/workspace/.git/config'), false],
+    [{ kind: 'other' } as const, true],
+  ])('%j allowed: %s', (use, allowed) => {
+    expect(judgeToolUse(use, protectedPaths).allow).toBe(allowed);
   });
 
   it('tells the agent why', () => {
-    expect(judgeToolUse('Edit', { file_path: 'CLAUDE.md' }, protectedPaths)).toEqual({
+    expect(judgeToolUse({ kind: 'write', path: 'CLAUDE.md' }, protectedPaths)).toEqual({
       allow: false,
       reason: 'CLAUDE.md is protected by the project (CLAUDE.md); a change to it is rejected.',
     });

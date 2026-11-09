@@ -1,5 +1,4 @@
 import * as z from 'zod/mini';
-import { pauseSchema } from './pause';
 import { AGENT_PROTOCOL_VERSION, nonEmpty, shaSchema } from './values';
 
 const text = z.string();
@@ -17,11 +16,23 @@ export const briefStepSchema = z.object({
   files: z.array(nonEmpty),
 });
 
+/** null: nobody answered in time, and the agent goes on with its own judgement. */
+const answerSchema = z.nullable(z.object({ text }));
+
 export const briefExchangeSchema = z.object({
   question: z.object({ id: nonEmpty, text, options: z.array(text) }),
-  /** null: nobody answered in time, and the agent goes on with its own judgement. */
-  answer: z.nullable(z.object({ text })),
+  answer: answerSchema,
 });
+
+/** How a run goes on with a paused session: the run's `pause`, its deferred call answered. */
+export const resumeSchema = z.object({
+  sessionId: nonEmpty,
+  workHead: z.nullable(shaSchema),
+  /** The deferred call the session waits on and its answer; null when it waits on none. */
+  deferred: z.nullable(z.object({ call: nonEmpty, answer: answerSchema })),
+});
+
+export type Resume = z.infer<typeof resumeSchema>;
 
 /**
  * Everything agent-host is told about its run. The steps are the task, written by the person
@@ -58,7 +69,7 @@ export const briefSchema = z.object({
    * The paused session this run goes on with, as the run that paused left it; null starts a new
    * session, told the exchanges so far.
    */
-  resume: z.nullable(pauseSchema),
+  resume: z.nullable(resumeSchema),
   /** The project's own commands that check a change (`.redline/receiver.yaml`), run as written. */
   checks: z.array(nonEmpty),
   /** The rules the change is judged by, so the agent does not break them by accident. */

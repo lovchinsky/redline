@@ -74,10 +74,9 @@ if (brief.task.title.includes('question') && brief.resume === null) {
   if (brief.resume !== null) {
     const file = transcript(brief.resume.sessionId);
     seen.resumed = {
-      pause: brief.resume,
+      resume: brief.resume,
       transcript: readFileSync(file, 'utf8'),
       work: readFileSync('/redline/input/work.bundle', 'utf8'),
-      answer: brief.exchanges.at(-1)?.answer?.text ?? null,
       // Claude Code goes on writing to the session.
       appendSession: attempt(() => appendFileSync(file, '{"answered":true}\n')),
     };

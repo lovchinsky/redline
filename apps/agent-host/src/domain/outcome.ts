@@ -4,8 +4,7 @@ import {
   type OutcomeResult,
   type RunFailure,
 } from '@redline/agent-protocol';
-import { questionOf } from './asking';
-import type { SessionEnd } from './session';
+import type { SessionEnd, StopReason } from './session';
 
 /** What the workspace holds once the session is over. */
 export type WorkspaceChange = { readonly head: string } | null;
@@ -36,18 +35,45 @@ const refused = (status: Extract<GrantStatus, { state: 'refused' }>): OutcomeRes
   }
 };
 
+/** What a run concludes: its result, and whether its session is kept for a later run. */
+export interface Conclusion {
+  readonly result: OutcomeResult;
+  /**
+   * The run paused: it waits for an answer, for the subscription's limit to reset, or for the
+   * requester's credential, and a later run goes on with its session.
+   */
+  readonly pauses: boolean;
+}
+
 /**
- * Concludes a run from how its session ended, what is left in the workspace and, after a
- * failed model request, the gateway's account of why. A change exists only when the agent
- * reported one and the tree differs from the base; the agent's word alone is not a change,
- * and edits it left behind while reporting none are not one either.
+ * Concludes a run from how its session ended, what is left in the workspace, why agent-host
+ * stopped the session (if it did) and, after a failed model request, the gateway's account of
+ * why. A change exists only when the agent reported one and the tree differs from the base; the
+ * agent's word alone is not a change, and edits it left behind while reporting none are not one
+ * either.
  */
 export const decideOutcome = (input: {
   readonly end: SessionEnd;
   readonly change: WorkspaceChange;
   readonly gateway: GrantStatus | null;
-}): OutcomeResult => {
-  const { end, change, gateway } = input;
+  readonly stopped: StopReason | null;
+}): Conclusion => {
+  const result = resultOf(input);
+  return {
+    result,
+    pauses:
+      result.kind === 'question' ||
+      result.kind === 'quota-exhausted' ||
+      result.kind === 'credential-missing',
+  };
+};
+
+const resultOf = ({
+  end,
+  change,
+  gateway,
+  stopped,
+}: Parameters<typeof decideOutcome>[0]): OutcomeResult => {
   switch (end.kind) {
     case 'completed': {
       const { report } = end;
@@ -62,12 +88,10 @@ export const decideOutcome = (input: {
           }
         : { kind: 'change', head: change.head, report };
     }
-    case 'asked': {
-      const question = questionOf(end.input);
-      return question === null
+    case 'asked':
+      return end.question === null
         ? failed('agent-failed', 'The agent asked a question that cannot be shown to the requester')
-        : { kind: 'question', question };
-    }
+        : { kind: 'question', question: end.question };
     case 'api-error':
       if (gateway === null) {
         // Why is not known: the gateway may have refused the run in a way it waits out (the
@@ -90,18 +114,9 @@ export const decideOutcome = (input: {
     case 'stopped':
       return failed(
         'agent-failed',
-        end.why === 'timeout' ? 'The run took longer than allowed' : 'The agent stopped responding',
+        stopped === 'stalled' ? 'The agent stopped responding' : 'The run took longer than allowed',
       );
     case 'error':
       return failed('infra', end.detail);
   }
 };
-
-/**
- * Whether a run that ended so keeps its session for a later run to go on with: it waits for an
- * answer, for the subscription's limit to reset, or for the requester's credential.
- */
-export const pauses = (result: OutcomeResult): boolean =>
-  result.kind === 'question' ||
-  result.kind === 'quota-exhausted' ||
-  result.kind === 'credential-missing';

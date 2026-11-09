@@ -9,10 +9,10 @@ import {
 } from '@redline/agent-protocol';
 import { answerText } from '../domain/asking';
 import { judgeToolUse } from '../domain/guard';
-import { decideOutcome, pauses } from '../domain/outcome';
+import { decideOutcome } from '../domain/outcome';
 import { composePrompt, workingRules } from '../domain/prompt';
-import type { SessionEnd, SessionResult } from '../domain/session';
-import type { AgentSession, SessionActivity, SessionStart, StopReason } from '../ports/agent';
+import type { SessionEnd, SessionResult, StopReason } from '../domain/session';
+import type { AgentSession, SessionActivity, SessionStart } from '../ports/agent';
 import type { Gateway, RunFiles, Workspace } from '../ports/run';
 import type { Clock, Timers } from '../ports/system';
 
@@ -75,15 +75,15 @@ export class RunAgent {
   }
 
   private async attempt(brief: Brief): Promise<Concluded> {
-    const { end, usage, sessionId } = await this.supervised(brief, await this.startOf(brief));
+    const { session, stopped } = await this.supervised(brief, await this.startOf(brief));
+    const { end, usage, sessionId } = session;
     const change =
       end.kind === 'completed' && end.report?.outcome === 'change'
         ? await this.deps.workspace.exportChange(brief.baseSha)
         : null;
     const gateway = end.kind === 'api-error' ? await this.deps.gateway.grantStatus() : null;
-    const result = decideOutcome({ end, change, gateway });
-    const pause =
-      pauses(result) && sessionId !== null ? await this.pauseOf(brief, end, sessionId) : null;
+    const { result, pauses } = decideOutcome({ end, change, gateway, stopped });
+    const pause = pauses && sessionId !== null ? await this.pauseOf(brief, end, sessionId) : null;
     return { result, pause, usage };
   }
 
@@ -99,21 +99,14 @@ export class RunAgent {
       this.warn('The paused session’s files are not here: the run starts over');
       return anew;
     }
-    const asked = brief.exchanges.at(-1);
-    if (resume.deferredCall !== null && asked === undefined) {
-      this.warn('The paused session waits on a question the brief does not hold: it starts over');
-      return anew;
-    }
     if (resume.workHead !== null) {
       await this.deps.workspace.restoreWork(brief.baseSha, resume.workHead);
     }
+    const { deferred } = resume;
     return {
       kind: 'resume',
       sessionId: resume.sessionId,
-      answer:
-        resume.deferredCall === null || asked === undefined
-          ? null
-          : { call: resume.deferredCall, text: answerText(asked) },
+      answer: deferred === null ? null : { call: deferred.call, text: answerText(deferred.answer) },
     };
   }
 
@@ -135,12 +128,21 @@ export class RunAgent {
     }
   }
 
-  /** Runs the session, stopping it when the run takes too long or the agent goes quiet. */
-  private async supervised(brief: Brief, start: SessionStart): Promise<SessionResult> {
+  /**
+   * Runs the session, stopping it when the run takes too long or the agent goes quiet; `stopped`
+   * says why, if it was stopped.
+   */
+  private async supervised(
+    brief: Brief,
+    start: SessionStart,
+  ): Promise<{ readonly session: SessionResult; readonly stopped: StopReason | null }> {
     const controller = new AbortController();
-    // The first reason given is the one the session ends with.
+    // The first reason is the one the session was stopped for.
+    let stopped: StopReason | null = null;
     const stop = (why: StopReason) => () => {
-      if (!controller.signal.aborted) controller.abort(why);
+      if (stopped !== null) return;
+      stopped = why;
+      controller.abort();
     };
     const cancelTimeout = this.deps.timers.after(brief.limits.timeoutMs, stop('timeout'));
     let cancelStall = this.deps.timers.after(brief.limits.stallTimeoutMs, stop('stalled'));
@@ -152,7 +154,7 @@ export class RunAgent {
       this.record(this.eventOf(activity));
     };
     try {
-      return await this.deps.session.run(
+      const session = await this.deps.session.run(
         {
           model: brief.model,
           rules: workingRules(brief),
@@ -160,12 +162,13 @@ export class RunAgent {
           questionsLeft: brief.questionsLeft,
           maxTurns: brief.limits.maxTurns,
           budgetUsd: brief.limits.budgetUsd,
-          judge: (tool, input) => judgeToolUse(tool, input, brief.policy.protectedPaths),
+          judge: (use) => judgeToolUse(use, brief.policy.protectedPaths),
           onActivity,
           onLife,
         },
         controller.signal,
       );
+      return { session, stopped };
     } finally {
       cancelTimeout();
       cancelStall();
