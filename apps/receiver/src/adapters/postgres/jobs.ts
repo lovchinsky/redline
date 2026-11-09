@@ -6,18 +6,11 @@ import {
   type SendOptions,
   type UpdateQueueOptions,
 } from 'pg-boss';
-import { ProjectId, QuestionId, RunId, TaskId } from '../../domain/ids';
+import { dueOf, type TaskEffect } from '../../domain/task';
 import type { Logger } from '../../ports/system';
-import type { Job, JobQueue, JobScheduler } from '../../ports/tasks';
+import type { Job, JobHandler, JobScheduler } from '../../ports/tasks';
+import { jobFromRecord, jobToRecord } from './records';
 import type { Database } from './schema';
-
-/** A handler for each queue, given the queue's jobs. A handler that throws has its job retried. */
-export type JobHandlers = {
-  readonly [Queue in JobQueue]: (
-    job: Extract<Job, { queue: Queue }>,
-    signal: AbortSignal,
-  ) => Promise<void>;
-};
 
 export interface WorkerLimits {
   /** Runs at once on this worker. */
@@ -28,35 +21,75 @@ export interface WorkerLimits {
   readonly runTimeoutSeconds: number;
 }
 
+/** How each effect's jobs are queued. */
+interface Queue {
+  /** The queue's name in pg-boss: the receiver's stored name for the effect's work. */
+  readonly name: string;
+  readonly options: (limits: WorkerLimits) => QueueOptions & { readonly policy: string };
+  /** The one thing at most one job of the queue is queued (and one active) for. */
+  readonly singleton: (job: Job) => string;
+  /** Whether its jobs count against their project's limit (`groupConcurrency`). */
+  readonly perProject: boolean;
+}
+
+type EffectOf<Kind extends TaskEffect['kind']> = Extract<TaskEffect, { kind: Kind }>;
+const effectOf = <Kind extends TaskEffect['kind']>(job: Job, kind: Kind): EffectOf<Kind> => {
+  if (job.effect.kind !== kind) throw new Error(`A ${job.effect.kind} job in the ${kind} queue`);
+  return job.effect as EffectOf<Kind>;
+};
+
+const RETRIED = { retryLimit: 20, retryDelay: 30, retryBackoff: true, retryDelayMax: 900 };
+
 /**
- * Queues and their policies. `stately` with the task as singleton key keeps at most one queued
- * and one active job per task: a job scheduled while another runs waits for it instead of
- * running beside it, and repeats of a queued one collapse.
+ * Queues and their policies, by the effect they carry out. `stately` with a singleton key keeps
+ * at most one queued and one active job per key: a job scheduled while another runs waits for
+ * it instead of running beside it, and repeats of a queued one collapse.
  */
-const queueOptions = (
-  limits: WorkerLimits,
-): Record<JobQueue, QueueOptions & { policy: string }> => ({
-  run: {
-    policy: 'stately',
-    expireInSeconds: limits.runTimeoutSeconds + 300,
-    heartbeatSeconds: 60,
-    retryLimit: 20,
-    retryDelay: 30,
-    retryBackoff: true,
-    retryDelayMax: 900,
+const QUEUES: { readonly [Kind in TaskEffect['kind']]: Queue } = {
+  'schedule-run': {
+    name: 'run',
+    options: (limits) => ({
+      policy: 'stately',
+      expireInSeconds: limits.runTimeoutSeconds + 300,
+      heartbeatSeconds: 60,
+      ...RETRIED,
+    }),
+    singleton: (job) => job.taskId,
+    perProject: true,
   },
-  publish: {
-    policy: 'stately',
-    retryLimit: 20,
-    retryDelay: 30,
-    retryBackoff: true,
-    retryDelayMax: 900,
+  'schedule-publish': {
+    name: 'publish',
+    options: () => ({ policy: 'stately', ...RETRIED }),
+    singleton: (job) => job.taskId,
+    perProject: true,
   },
-  'reply-timeout': { policy: 'stately', retryLimit: 20, retryDelay: 60 },
-  'abort-run': { policy: 'stately', retryLimit: 20, retryDelay: 30 },
-  'withdraw-change': { policy: 'stately', retryLimit: 20, retryDelay: 60, retryBackoff: true },
-  'forget-credential': { policy: 'stately', retryLimit: 20, retryDelay: 30 },
-});
+  'schedule-reply-timeout': {
+    name: 'reply-timeout',
+    options: () => ({ policy: 'stately', retryLimit: 20, retryDelay: 60 }),
+    singleton: (job) => `${job.taskId}/${effectOf(job, 'schedule-reply-timeout').questionId}`,
+    perProject: false,
+  },
+  'end-run': {
+    name: 'release-run',
+    options: () => ({ policy: 'stately', retryLimit: 20, retryDelay: 30 }),
+    singleton: (job) => effectOf(job, 'end-run').runId,
+    perProject: false,
+  },
+  'withdraw-change': {
+    name: 'withdraw-change',
+    options: () => ({ policy: 'stately', retryLimit: 20, retryDelay: 60, retryBackoff: true }),
+    singleton: (job) => job.taskId,
+    perProject: false,
+  },
+  'forget-credential': {
+    name: 'forget-credential',
+    options: () => ({ policy: 'stately', retryLimit: 20, retryDelay: 30 }),
+    singleton: (job) => job.taskId,
+    perProject: false,
+  },
+};
+
+const KINDS = Object.keys(QUEUES) as TaskEffect['kind'][];
 
 /** pg-boss fixes a queue's policy, heartbeat and longest retry delay when it creates the queue. */
 const updatable = (options: QueueOptions): UpdateQueueOptions => {
@@ -68,30 +101,6 @@ const updatable = (options: QueueOptions): UpdateQueueOptions => {
   return update;
 };
 
-const QUEUES = [
-  'run',
-  'publish',
-  'reply-timeout',
-  'abort-run',
-  'withdraw-change',
-  'forget-credential',
-] as const satisfies readonly JobQueue[];
-
-/** The singleton key of a job: the one thing at most one job is queued (and one active) for. */
-const singletonOf = (job: Job): string => {
-  switch (job.queue) {
-    case 'run':
-    case 'publish':
-    case 'withdraw-change':
-    case 'forget-credential':
-      return job.taskId;
-    case 'reply-timeout':
-      return `${job.taskId}/${job.questionId}`;
-    case 'abort-run':
-      return job.runId;
-  }
-};
-
 /** pg-boss on a Kysely transaction: its statements run inside the caller's transaction. */
 const inTransaction = (trx: Transaction<Database>): Db => ({
   executeSql: async (text: string, values?: unknown[]) => {
@@ -99,46 +108,6 @@ const inTransaction = (trx: Transaction<Database>): Db => ({
     return { rows: [...result.rows] };
   },
 });
-
-type Payload = Record<string, string>;
-
-const payloadOf = (job: Job): Payload => {
-  switch (job.queue) {
-    case 'run':
-    case 'publish':
-      return { taskId: job.taskId, projectId: job.projectId };
-    case 'reply-timeout':
-      return { taskId: job.taskId, questionId: job.questionId };
-    case 'abort-run':
-      return { taskId: job.taskId, runId: job.runId };
-    case 'withdraw-change':
-    case 'forget-credential':
-      return { taskId: job.taskId };
-  }
-};
-
-const field = (data: Payload, name: string): string => {
-  const value = data[name];
-  if (typeof value !== 'string' || value === '') throw new Error(`Job without ${name}`);
-  return value;
-};
-
-const jobFrom = (queue: JobQueue, data: Payload): Job => {
-  const taskId = TaskId(field(data, 'taskId'));
-  switch (queue) {
-    case 'run':
-      return { queue, taskId, projectId: ProjectId(field(data, 'projectId')) };
-    case 'publish':
-      return { queue, taskId, projectId: ProjectId(field(data, 'projectId')) };
-    case 'reply-timeout':
-      return { queue, taskId, questionId: QuestionId(field(data, 'questionId')) };
-    case 'abort-run':
-      return { queue, taskId, runId: RunId(field(data, 'runId')) };
-    case 'withdraw-change':
-    case 'forget-credential':
-      return { queue, taskId };
-  }
-};
 
 /**
  * Jobs as pg-boss queues in the receiver's Postgres. Only a process that `maintains` the queues
@@ -175,11 +144,11 @@ export class PgBossJobs {
 
   /** Makes every queue exist with the policies `limits` call for. */
   async prepare(limits: WorkerLimits): Promise<void> {
-    const options = queueOptions(limits);
     const existing = new Set((await this.boss.getQueues()).map((queue) => queue.name));
-    for (const queue of QUEUES) {
-      if (existing.has(queue)) await this.boss.updateQueue(queue, updatable(options[queue]));
-      else await this.boss.createQueue(queue, options[queue]);
+    for (const { name, options } of Object.values(QUEUES)) {
+      const wanted = options(limits);
+      if (existing.has(name)) await this.boss.updateQueue(name, updatable(wanted));
+      else await this.boss.createQueue(name, wanted);
     }
   }
 
@@ -191,38 +160,43 @@ export class PgBossJobs {
   scheduler(trx: Transaction<Database>): JobScheduler {
     const db = inTransaction(trx);
     return {
-      schedule: async (job, startAfter) => {
-        const options: SendOptions = { db, singletonKey: singletonOf(job) };
-        if (startAfter !== null) options.startAfter = new Date(startAfter);
-        if (job.queue === 'run' || job.queue === 'publish') options.group = { id: job.projectId };
-        await this.boss.send(job.queue, payloadOf(job), options);
+      schedule: async (job) => {
+        const queue = QUEUES[job.effect.kind];
+        const options: SendOptions = { db, singletonKey: queue.singleton(job) };
+        const due = dueOf(job.effect);
+        if (due !== null) options.startAfter = new Date(due);
+        if (queue.perProject) options.group = { id: job.projectId };
+        await this.boss.send(queue.name, jobToRecord(job), options);
       },
     };
   }
 
   /**
-   * Works the queues with `handlers`. A handler cut short by shutdown fails its job, so it is
+   * Works the queues with `handler`. A handler cut short by shutdown fails its job, so it is
    * delivered again and continues where it was, instead of being recorded as done.
    */
-  async work(handlers: JobHandlers, limits: WorkerLimits): Promise<void> {
-    for (const queue of QUEUES) {
-      const runs = queue === 'run';
-      await this.boss.work<Payload>(
-        queue,
+  async work(handler: JobHandler, limits: WorkerLimits): Promise<void> {
+    for (const kind of KINDS) {
+      const queue = QUEUES[kind];
+      const runs = kind === 'schedule-run';
+      await this.boss.work<object>(
+        queue.name,
         {
           localConcurrency: runs ? limits.runSlots : 2,
-          ...(runs || queue === 'publish'
-            ? { groupConcurrency: runs ? limits.runsPerProject : 1 }
-            : {}),
+          ...(queue.perProject ? { groupConcurrency: runs ? limits.runsPerProject : 1 } : {}),
         },
         async ([delivered]) => {
           if (delivered === undefined) return;
-          const job = jobFrom(queue, delivered.data);
-          const log = this.logger.child({ queue, taskId: job.taskId, jobId: delivered.id });
-          await (handlers[queue] as (job: Job, signal: AbortSignal) => Promise<void>)(
-            job,
-            delivered.signal,
-          );
+          const job = jobFromRecord(delivered.data, delivered.id);
+          if (job.effect.kind !== kind) {
+            throw new Error(`A ${job.effect.kind} job in the ${queue.name} queue`);
+          }
+          const log = this.logger.child({
+            queue: queue.name,
+            taskId: job.taskId,
+            jobId: delivered.id,
+          });
+          await handler.handle(job, delivered.signal);
           if (delivered.signal.aborted) throw new Error('Interrupted before it finished');
           log.debug('Job done');
         },

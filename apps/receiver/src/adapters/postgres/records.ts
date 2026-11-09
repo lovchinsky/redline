@@ -3,9 +3,10 @@ import { BlobDigest, ProjectId, QuestionId, RunId, TaskId, UserId } from '../../
 import type { GatewayRefusal, GrantTerms } from '../../domain/grant';
 import type { Run } from '../../domain/run';
 import type { Task, TaskEvent } from '../../domain/task';
+import type { Job } from '../../ports/tasks';
 
 /**
- * How tasks and runs are stored: one JSON record each, validated whenever it is read. The record
+ * How tasks, runs and jobs are stored: one JSON record each, validated whenever it is read. The record
  * carries its format; a reader of a newer format converts older records (append-only, like the
  * migrations) instead of reading them as the current one.
  */
@@ -314,4 +315,38 @@ export const refusalFromRecord = (record: unknown, runId: string): GatewayRefusa
   const parsed = refusalRecord.safeParse(record);
   if (!parsed.success) throw new CorruptRecord('refusal', runId, parsed.error);
   return parsed.data.refusal;
+};
+
+const effect = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('schedule-run'), at: z.nullable(instant) }),
+  z.object({ kind: z.literal('schedule-publish'), at: z.nullable(instant) }),
+  z.object({
+    kind: z.literal('schedule-reply-timeout'),
+    questionId: id(QuestionId),
+    at: instant,
+  }),
+  z.object({ kind: z.literal('end-run'), runId: id(RunId) }),
+  z.object({ kind: z.literal('withdraw-change') }),
+  z.object({ kind: z.literal('forget-credential') }),
+]);
+
+const jobRecord = z.object({
+  format: z.literal(RECORD_FORMAT),
+  taskId: id(TaskId),
+  projectId: id(ProjectId),
+  effect,
+});
+
+export const jobToRecord = (job: Job) => ({
+  format: RECORD_FORMAT,
+  taskId: job.taskId,
+  projectId: job.projectId,
+  effect: job.effect,
+});
+
+export const jobFromRecord = (record: unknown, id: string): Job => {
+  const parsed = jobRecord.safeParse(record);
+  if (!parsed.success) throw new CorruptRecord('job', id, parsed.error);
+  const { taskId, projectId, effect: stored } = parsed.data;
+  return { taskId, projectId, effect: stored };
 };

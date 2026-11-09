@@ -39,8 +39,8 @@ describe('submitting', () => {
       version: 1,
     });
     expect(await app.store.history(task.id)).toEqual([{ type: 'submitted', at: 1_000 }]);
-    expect(app.store.jobsOf('run')).toEqual([
-      { job: { queue: 'run', taskId: task.id, projectId: 'acme' }, startAfter: null },
+    expect(app.store.jobsOf('schedule-run')).toEqual([
+      { taskId: task.id, projectId: 'acme', effect: { kind: 'schedule-run', at: null } },
     ]);
   });
 
@@ -50,7 +50,7 @@ describe('submitting', () => {
     const again = await app.submit({ key: 'delivery-7' });
     expect(again.id).toBe(first.id);
     expect(app.store.state.tasks.size).toBe(1);
-    expect(app.store.jobsOf('run')).toHaveLength(1);
+    expect(app.store.jobsOf('schedule-run')).toHaveLength(1);
     expect(await app.requests.findSubmitted(ann, 'delivery-7', null)).toEqual(first);
     // Keys belong to their requester.
     expect((await app.submit({ key: 'delivery-7', user: bob })).id).not.toBe(first.id);
@@ -135,14 +135,14 @@ describe('following a task', () => {
     app.runner.refuseNext({ kind: 'credential-missing' });
     await app.supervise.handle(task.id, never);
     expect(app.store.task(task.id).state).toMatchObject({ kind: 'queued', awaiting: 'credential' });
-    const scheduled = app.store.jobsOf('run').length;
+    const scheduled = app.store.jobsOf('schedule-run').length;
     await app.requests.state(ann, task.id, apiKey);
     expect(app.vault.credentials.get(task.id)).toBe(apiKey);
     expect(app.store.task(task.id).state).toMatchObject({ kind: 'queued', awaiting: null });
-    expect(app.store.jobsOf('run')).toHaveLength(scheduled + 1);
+    expect(app.store.jobsOf('schedule-run')).toHaveLength(scheduled + 1);
     // A task that waits for nothing gets no run from the credential.
     await app.requests.state(ann, task.id, apiKey);
-    expect(app.store.jobsOf('run')).toHaveLength(scheduled + 1);
+    expect(app.store.jobsOf('schedule-run')).toHaveLength(scheduled + 1);
   });
 });
 
@@ -166,7 +166,7 @@ describe('answering', () => {
       null,
     );
     expect(answered.ok && answered.value.state.kind).toBe('queued');
-    expect(app.store.jobsOf('run')).toHaveLength(2);
+    expect(app.store.jobsOf('schedule-run')).toHaveLength(2);
 
     const wrong = await app.requests.reply(
       ann,

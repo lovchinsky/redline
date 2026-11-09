@@ -89,11 +89,19 @@ export type TaskEffect =
       readonly at: Instant;
     }
   /** The run is over for the task: its record closes and its grants go now, its sandbox later. */
-  | { readonly kind: 'abort-run'; readonly runId: RunId }
+  | { readonly kind: 'end-run'; readonly runId: RunId }
   /** Close the change request a cancelled publication may already have opened. */
   | { readonly kind: 'withdraw-change' }
   /** The task is over: the requester's credential is no longer needed anywhere. */
   | { readonly kind: 'forget-credential' };
+
+/** When an effect is due: the time a scheduled one waits for, or null for at once. */
+export const dueOf = (effect: TaskEffect): Instant | null =>
+  effect.kind === 'schedule-run' ||
+  effect.kind === 'schedule-publish' ||
+  effect.kind === 'schedule-reply-timeout'
+    ? effect.at
+    : null;
 
 /** What happened to a task, for its history. */
 export type TaskEvent = { readonly at: Instant } & (
@@ -560,7 +568,7 @@ export const cancelTask = (task: Task, reason: string, now: Instant): Transition
     case 'awaiting-reply':
       return move(task, cancelled, event);
     case 'running':
-      return move(task, cancelled, event, [{ kind: 'abort-run', runId: task.state.runId }]);
+      return move(task, cancelled, event, [{ kind: 'end-run', runId: task.state.runId }]);
     case 'publishing':
       return move(task, cancelled, event, [{ kind: 'withdraw-change' }]);
     case 'cancelled':

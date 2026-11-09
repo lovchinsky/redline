@@ -31,13 +31,8 @@ import { TaskOperations } from '../application/operations';
 import { PublishChange } from '../application/publish-change';
 import { TaskRequests } from '../application/requests';
 import { SuperviseRun } from '../application/supervise-run';
-import {
-  AbortRun,
-  ExpireQuestion,
-  ForgetCredential,
-  ReleaseStrays,
-  WithdrawChange,
-} from '../application/task-jobs';
+import { ReleaseStrays } from '../application/runs';
+import { TaskJobs } from '../application/task-jobs';
 import { TaskWriter } from '../application/task-writer';
 import { ModelCredential, type CredentialVault } from '../ports/access';
 import type { AgentRunner } from '../ports/agent';
@@ -324,10 +319,7 @@ const workerOf = async (
     forge: git.forge,
     logger: logger.child({ component: 'publishing' }),
   });
-  const expire = new ExpireQuestion({ writer, projects });
-  const abort = new AbortRun({ runner });
-  const forget = new ForgetCredential({ vault });
-  const withdraw = new WithdrawChange({ queries: store, projects, forge: git.forge, logger });
+  const handler = new TaskJobs({ supervise, publish, writer, projects, runner, vault });
   const strays = new ReleaseStrays({
     uow: store,
     runner,
@@ -344,17 +336,7 @@ const workerOf = async (
   };
   tidy();
   const housekeeping = setInterval(tidy, HOUSEKEEPING_MS);
-  await jobs.work(
-    {
-      run: (job, signal) => supervise.handle(job.taskId, signal),
-      publish: (job) => publish.handle(job.taskId),
-      'reply-timeout': (job) => expire.handle(job.taskId, job.questionId),
-      'abort-run': (job) => abort.handle(job.runId),
-      'withdraw-change': (job) => withdraw.handle(job.taskId),
-      'forget-credential': (job) => forget.handle(job.taskId),
-    },
-    workerLimitsOf(config),
-  );
+  await jobs.work(handler, workerLimitsOf(config));
   return async () => {
     clearInterval(housekeeping);
     await tidying;

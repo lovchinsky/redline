@@ -63,7 +63,7 @@ describe('SuperviseRun', () => {
       applied: true,
     });
     expect(app.store.state.grants.size).toBe(0);
-    expect(app.store.jobsOf('publish')).toHaveLength(1);
+    expect(app.store.jobsOf('schedule-publish')).toHaveLength(1);
     expect(app.runner.released).toEqual([runId]);
     expect((await app.store.history(task.id)).map((event) => event.type)).toEqual([
       'submitted',
@@ -92,7 +92,7 @@ describe('SuperviseRun', () => {
     app.runner.outcomes.push(question, change);
     await app.supervise.handle(task.id, never);
     expect(app.store.task(task.id).state.kind).toBe('awaiting-reply');
-    expect(app.store.jobsOf('reply-timeout')).toHaveLength(1);
+    expect(app.store.jobsOf('schedule-reply-timeout')).toHaveLength(1);
 
     await app.requests.reply(
       { id: task.requester, name: 'Ann', email: null },
@@ -156,7 +156,10 @@ describe('SuperviseRun', () => {
     await confirmed.supervise.handle(queued.id, never);
     expect(confirmed.store.task(queued.id).state.kind).toBe('queued');
     // At the gateway's reset time, not the one the run gave.
-    expect(confirmed.store.jobsOf('run').at(-1)?.startAfter).toBe(5_000);
+    expect(confirmed.store.jobsOf('schedule-run').at(-1)?.effect).toEqual({
+      kind: 'schedule-run',
+      at: 5_000,
+    });
   });
 
   it('makes a task whose requester’s credential is not in the vault wait for it', async () => {
@@ -198,7 +201,10 @@ describe('SuperviseRun', () => {
     expect(stored.runAttempts).toBe(1);
     const runId = app.runner.started[0]?.runId ?? RunId('');
     expect(app.store.state.runs.get(runId)?.state.kind).toBe('interrupted');
-    expect(app.store.jobsOf('run').at(-1)?.startAfter).toBe(1_000 + 1_000);
+    expect(app.store.jobsOf('schedule-run').at(-1)?.effect).toEqual({
+      kind: 'schedule-run',
+      at: 1_000 + 1_000,
+    });
   });
 
   it('turns a refused start into a run outcome', async () => {
@@ -242,8 +248,8 @@ describe('SuperviseRun', () => {
     // The cancellation closed the run's record with the task: its late outcome changes nothing.
     const runId = app.runner.started[0]?.runId ?? RunId('');
     expect(app.store.state.runs.get(runId)?.state).toMatchObject({ kind: 'aborted' });
-    expect(app.store.jobsOf('abort-run')).toEqual([
-      { job: { queue: 'abort-run', taskId: task.id, runId }, startAfter: null },
+    expect(app.store.jobsOf('end-run')).toEqual([
+      { taskId: task.id, projectId: task.projectId, effect: { kind: 'end-run', runId } },
     ]);
     expect(app.store.state.grants.size).toBe(0);
   });
@@ -258,7 +264,7 @@ describe('SuperviseRun', () => {
     app.runner.outcomes.push({ kind: 'no-change', explanation: 'Already done' });
     await app.supervise.handle(task.id, never);
     expect(app.store.jobsOf('forget-credential')).toHaveLength(1);
-    await app.forget.handle(task.id);
+    await app.work();
     expect(app.vault.credentials.size).toBe(0);
   });
 
@@ -269,11 +275,10 @@ describe('SuperviseRun', () => {
     void app.supervise.handle(task.id, never);
     await app.runner.watched;
     await app.operations.cancel(task.id, 'not needed');
-    const [job] = app.store.jobsOf('abort-run');
     const runId = app.runner.started[0]?.runId ?? RunId('');
     // The run's record closed with the task, whatever becomes of its supervisor.
     expect(app.store.state.runs.get(runId)?.state).toMatchObject({ kind: 'aborted' });
-    await app.abort.handle(job?.job.queue === 'abort-run' ? job.job.runId : RunId(''));
+    await app.work();
     expect(app.runner.released).toEqual([runId]);
   });
 

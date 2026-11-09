@@ -76,6 +76,27 @@ export class PublishChange {
     );
   }
 
+  /** Closes the change request a task cancelled while publishing may have opened. */
+  async withdraw(taskId: TaskId): Promise<void> {
+    const task = await this.deps.queries.get(taskId);
+    if (task?.state.kind !== 'cancelled') return;
+    const project = this.deps.projects.get(task.projectId);
+    if (project === null) return;
+    const open = await this.deps.forge.findOpen(
+      project.repository,
+      project.publishing,
+      branchOf(task),
+    );
+    if (!open.ok) throw new Error(`Cannot look up the change request: ${open.error.detail}`);
+    if (open.value === null) return;
+    const closed = await this.deps.forge.close(project.repository, open.value);
+    if (!closed.ok) throw new Error(`Cannot close the change request: ${closed.error.detail}`);
+    this.deps.logger.info('Withdrew the change request of a cancelled task', {
+      taskId,
+      url: open.value.url,
+    });
+  }
+
   private async publish(
     task: Task,
     publication: Publication,

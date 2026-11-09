@@ -18,7 +18,7 @@ import type { Budget, GatewayRefusal, GrantTerms } from '../../domain/grant';
 import type { TokenUsage } from '../../domain/usage';
 import { err, ok, type Fault } from '../../domain/result';
 import type { Run, RunOutcome } from '../../domain/run';
-import type { Task, TaskEvent } from '../../domain/task';
+import { dueOf, type Task, type TaskEffect, type TaskEvent } from '../../domain/task';
 import type { ChangeRequestRef } from '../../domain/work';
 import {
   ModelCredential,
@@ -45,6 +45,7 @@ import type {
   GrantToken,
   InsertResult,
   Job,
+  JobHandler,
   TaskQueries,
   UnitOfWork,
   WorkScope,
@@ -56,7 +57,8 @@ interface State {
   keys: Map<string, TaskIdType>;
   runs: Map<string, Run>;
   history: { taskId: TaskIdType; event: TaskEvent }[];
-  jobs: { job: Job; startAfter: Instant | null }[];
+  /** Every job scheduled, in order. */
+  jobs: Job[];
   /** Grants in force, by run. */
   grants: Map<string, GrantTerms[]>;
   /** Every grant ever issued, in order, revoked or not. */
@@ -180,8 +182,8 @@ export class MemoryStore implements UnitOfWork, TaskQueries, GrantBook {
         },
       },
       jobs: {
-        schedule: (job, startAfter) => {
-          draft.jobs.push({ job, startAfter });
+        schedule: (job) => {
+          draft.jobs.push(job);
           return Promise.resolve();
         },
       },
@@ -232,8 +234,32 @@ export class MemoryStore implements UnitOfWork, TaskQueries, GrantBook {
     return state.questionId;
   }
 
-  jobsOf(queue: Job['queue']) {
-    return this.state.jobs.filter((entry) => entry.job.queue === queue);
+  /** The jobs scheduled for effects of this kind, in order. */
+  jobsOf(kind: TaskEffect['kind']): Job[] {
+    return this.state.jobs.filter((job) => job.effect.kind === kind);
+  }
+
+  /** The jobs, by their place in `jobs`, that `work` has handed out. */
+  private readonly worked = new Set<number>();
+
+  /**
+   * Works the jobs due at `now`, in the order they were scheduled, as a worker would, including
+   * those that handling them schedules; at most `limit` of them, so a test that keeps scheduling
+   * fails instead of hanging. Returns how many it handled.
+   */
+  async work(handler: JobHandler, now: Instant, limit = 50): Promise<number> {
+    let handled = 0;
+    for (;;) {
+      const next = this.state.jobs.findIndex(
+        (job, index) => !this.worked.has(index) && (dueOf(job.effect) ?? now) <= now,
+      );
+      if (next === -1) return handled;
+      if (handled === limit) throw new Error(`More than ${String(limit)} jobs were due`);
+      this.worked.add(next);
+      handled += 1;
+      const job = this.state.jobs[next];
+      if (job !== undefined) await handler.handle(job, new AbortController().signal);
+    }
   }
 }
 

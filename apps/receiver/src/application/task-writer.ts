@@ -1,9 +1,9 @@
 import type { Instant, TaskId } from '../domain/ids';
 import { err, ok, type Result } from '../domain/result';
 import { abortRun } from '../domain/run';
-import type { Task, TaskConflict, TaskEffect, Transition, TransitionResult } from '../domain/task';
+import type { Task, TaskConflict, Transition, TransitionResult } from '../domain/task';
 import type { Clock } from '../ports/system';
-import type { InsertResult, Job, UnitOfWork, WorkScope } from '../ports/tasks';
+import type { InsertResult, UnitOfWork, WorkScope } from '../ports/tasks';
 import { closeRun } from './runs';
 
 /** Optimistic writes that keep losing to concurrent ones: something is wrong, not just busy. */
@@ -14,44 +14,19 @@ export type WriteRefusal = TaskConflict | { readonly code: 'not-found'; readonly
 
 const TASK_GONE: WriteRefusal = { code: 'not-found', message: 'Unknown task' };
 
-const jobOf = (task: Task, effect: TaskEffect): Job => {
-  const taskId = task.id;
-  switch (effect.kind) {
-    case 'schedule-run':
-      return { queue: 'run', taskId, projectId: task.projectId };
-    case 'schedule-publish':
-      return { queue: 'publish', taskId, projectId: task.projectId };
-    case 'schedule-reply-timeout':
-      return { queue: 'reply-timeout', taskId, questionId: effect.questionId };
-    case 'abort-run':
-      return { queue: 'abort-run', taskId, runId: effect.runId };
-    case 'withdraw-change':
-      return { queue: 'withdraw-change', taskId };
-    case 'forget-credential':
-      return { queue: 'forget-credential', taskId };
-  }
-};
-
-const startAfter = (effect: TaskEffect): Instant | null =>
-  effect.kind === 'schedule-run' ||
-  effect.kind === 'schedule-publish' ||
-  effect.kind === 'schedule-reply-timeout'
-    ? effect.at
-    : null;
-
 /**
- * Records what a transition did: its event, and its effects as jobs. An aborted run is closed
- * here, at once, with the task: its record says it is over, and its grants go, so it cannot
- * spend while its sandbox is being stopped.
+ * Records what a transition did: its event, and its effects as jobs. A run the task is done
+ * with is closed here, at once, with the task: its record says it is over, and its grants go,
+ * so it cannot spend while its sandbox is being stopped.
  */
 const carryOut = async (scope: WorkScope, task: Task, transition: Transition): Promise<void> => {
   const { event } = transition;
   if (event !== null) await scope.history.append(task.id, event);
   for (const effect of transition.effects) {
-    if (effect.kind === 'abort-run') {
+    if (effect.kind === 'end-run') {
       await closeRun(scope, effect.runId, (run) => abortRun(run, task.updatedAt));
     }
-    await scope.jobs.schedule(jobOf(task, effect), startAfter(effect));
+    await scope.jobs.schedule({ taskId: task.id, projectId: task.projectId, effect });
   }
 };
 

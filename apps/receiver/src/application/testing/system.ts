@@ -5,7 +5,7 @@ import { TaskOperations } from '../operations';
 import { PublishChange } from '../publish-change';
 import { TaskRequests } from '../requests';
 import { SuperviseRun } from '../supervise-run';
-import { AbortRun, ExpireQuestion, ForgetCredential, WithdrawChange } from '../task-jobs';
+import { TaskJobs } from '../task-jobs';
 import { TaskWriter } from '../task-writer';
 import {
   FakeBundles,
@@ -79,15 +79,9 @@ export const system = (access: ModelAccessPolicy = managed, parts: SystemParts =
     forge: parts.forge ?? git,
     logger: silentLogger,
   });
-  const expire = new ExpireQuestion({ writer, projects: catalog });
-  const abort = new AbortRun({ runner });
-  const forget = new ForgetCredential({ vault });
-  const withdraw = new WithdrawChange({
-    queries: store,
-    projects: catalog,
-    forge: parts.forge ?? git,
-    logger: silentLogger,
-  });
+  const jobs = new TaskJobs({ supervise, publish, writer, projects: catalog, runner, vault });
+  /** Works the jobs due now, as a worker would (`MemoryStore.work`). */
+  const work = (limit?: number) => store.work(jobs, clock.now(), limit);
   const operations = new TaskOperations({ queries: store, writer });
 
   const submit = async (
@@ -121,10 +115,8 @@ export const system = (access: ModelAccessPolicy = managed, parts: SystemParts =
     requests,
     supervise,
     publish,
-    expire,
-    abort,
-    forget,
-    withdraw,
+    jobs,
+    work,
     operations,
     submit,
   };

@@ -1,7 +1,7 @@
 import type { GatewayRefusal, GrantTerms } from '../domain/grant';
-import type { Instant, ProjectId, QuestionId, RunId, TaskId, UserId } from '../domain/ids';
+import type { ProjectId, RunId, TaskId, UserId } from '../domain/ids';
 import type { Run } from '../domain/run';
-import type { Task, TaskEvent } from '../domain/task';
+import type { Task, TaskEffect, TaskEvent } from '../domain/task';
 
 export type InsertResult =
   | { readonly inserted: true; readonly task: Task }
@@ -38,25 +38,30 @@ export interface TaskHistory {
   append(taskId: TaskId, event: TaskEvent): Promise<void>;
 }
 
-/** Work the receiver does later, in another process or after a restart. */
-export type Job =
-  /** `projectId`: runs and publications are limited per project. */
-  | { readonly queue: 'run'; readonly taskId: TaskId; readonly projectId: ProjectId }
-  | { readonly queue: 'publish'; readonly taskId: TaskId; readonly projectId: ProjectId }
-  | { readonly queue: 'reply-timeout'; readonly taskId: TaskId; readonly questionId: QuestionId }
-  | { readonly queue: 'abort-run'; readonly taskId: TaskId; readonly runId: RunId }
-  | { readonly queue: 'withdraw-change'; readonly taskId: TaskId }
-  | { readonly queue: 'forget-credential'; readonly taskId: TaskId };
-
-export type JobQueue = Job['queue'];
+/**
+ * A task's effect as work the receiver does later, in another process or after a restart.
+ * `projectId`: runs and publications are limited per project.
+ */
+export interface Job {
+  readonly taskId: TaskId;
+  readonly projectId: ProjectId;
+  readonly effect: TaskEffect;
+}
 
 /**
  * Schedules jobs as part of the unit of work that decided them: a job exists exactly when the
- * state change that called for it was committed. Jobs carry ids only; a handler reads the task
- * and acts on its state as it is then, so a job delivered twice does no harm.
+ * state change that called for it was committed, and starts when its effect is due (`dueOf`).
+ * A handler reads the task and acts on its state as it is then, so a job delivered twice does
+ * no harm.
  */
 export interface JobScheduler {
-  schedule(job: Job, startAfter: Instant | null): Promise<void>;
+  schedule(job: Job): Promise<void>;
+}
+
+/** The worker's driving port: what the receiver does with each job the queues hand out. */
+export interface JobHandler {
+  /** Throws when the job is to be tried again. `signal` aborts when the worker stops. */
+  handle(job: Job, signal: AbortSignal): Promise<void>;
 }
 
 /**

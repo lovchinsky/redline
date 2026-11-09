@@ -1,13 +1,13 @@
 import { sql, type Kysely } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ProjectId, RunId, TaskId, UserId, type BlobDigest } from '../../domain/ids';
+import { ProjectId, QuestionId, RunId, TaskId, UserId, type BlobDigest } from '../../domain/ids';
 import { submitTask, type Task } from '../../domain/task';
 import { TaskWriter } from '../../application/task-writer';
 import { FixedClock, silentLogger } from '../../application/testing/fakes';
-import type { Job } from '../../ports/tasks';
+import type { Job, JobHandler } from '../../ports/tasks';
 import { migrate, openDatabase } from './database';
 import { PostgresGateway } from './gateway-store';
-import { PgBossJobs, type JobHandlers } from './jobs';
+import { PgBossJobs } from './jobs';
 import { migrations, type Database } from './schema';
 import { PostgresStore } from './store';
 import { freshDatabase } from './testing/database';
@@ -81,10 +81,11 @@ describe('PostgresStore', () => {
     await expect(
       store.run(async (scope) => {
         await scope.tasks.insert(submitted.task, submitted.key);
-        await scope.jobs.schedule(
-          { queue: 'run', taskId: submitted.task.id, projectId: submitted.task.projectId },
-          null,
-        );
+        await scope.jobs.schedule({
+          taskId: submitted.task.id,
+          projectId: submitted.task.projectId,
+          effect: { kind: 'schedule-run', at: null },
+        });
         throw new Error('changed my mind');
       }),
     ).rejects.toThrow('changed my mind');
@@ -121,11 +122,11 @@ describe('PostgresStore', () => {
     const submitted = transition();
     await store.run((scope) => scope.tasks.insert(submitted.task, submitted.key));
     const job: Job = {
-      queue: 'run',
       taskId: submitted.task.id,
       projectId: submitted.task.projectId,
+      effect: { kind: 'schedule-run', at: null },
     };
-    for (let i = 0; i < 3; i += 1) await store.run((scope) => scope.jobs.schedule(job, null));
+    for (let i = 0; i < 3; i += 1) await store.run((scope) => scope.jobs.schedule(job));
     expect(await queued('run', submitted.task.id)).toHaveLength(1);
   });
 
@@ -236,30 +237,51 @@ describe('PostgresUsers', () => {
 });
 
 describe('PgBossJobs', () => {
-  it('delivers committed jobs to their handler', async () => {
+  it('queues each effect under its own name and key, due when the effect is', async () => {
     const submitted = transition();
+    const { id: taskId, projectId } = submitted.task;
+    const questionId = QuestionId('q-run-1');
+    const runId = RunId('run-queued');
     await store.run(async (scope) => {
       await scope.tasks.insert(submitted.task, submitted.key);
-      await scope.jobs.schedule(
-        { queue: 'publish', taskId: submitted.task.id, projectId: submitted.task.projectId },
-        null,
-      );
+      await scope.jobs.schedule({
+        taskId,
+        projectId,
+        effect: { kind: 'schedule-reply-timeout', questionId, at: Date.now() + 3_600_000 },
+      });
+      await scope.jobs.schedule({ taskId, projectId, effect: { kind: 'end-run', runId } });
+    });
+    expect(await queued('reply-timeout', `${taskId}/${questionId}`)).toEqual([
+      { name: 'reply-timeout', singleton_key: `${taskId}/${questionId}`, state: 'created' },
+    ]);
+    expect(await queued('release-run', runId)).toEqual([
+      { name: 'release-run', singleton_key: runId, state: 'created' },
+    ]);
+    const due = await sql<{ later: boolean }>`
+      select start_after > now() + interval '50 minutes' as later from pgboss.job
+      where name = 'reply-timeout' and singleton_key = ${`${taskId}/${questionId}`}`.execute(db);
+    expect(due.rows).toEqual([{ later: true }]);
+  });
+
+  it('delivers committed jobs to the handler, as they were scheduled', async () => {
+    const submitted = transition();
+    const job: Job = {
+      taskId: submitted.task.id,
+      projectId: submitted.task.projectId,
+      effect: { kind: 'schedule-publish', at: null },
+    };
+    await store.run(async (scope) => {
+      await scope.tasks.insert(submitted.task, submitted.key);
+      await scope.jobs.schedule(job);
     });
     const delivered: Job[] = [];
-    const handlers: JobHandlers = {
-      run: () => Promise.resolve(),
-      publish: (job) => {
-        delivered.push(job);
+    const handler: JobHandler = {
+      handle: (received) => {
+        if (received.taskId === submitted.task.id) delivered.push(received);
         return Promise.resolve();
       },
-      'reply-timeout': () => Promise.resolve(),
-      'abort-run': () => Promise.resolve(),
-      'withdraw-change': () => Promise.resolve(),
-      'forget-credential': () => Promise.resolve(),
     };
-    await jobs.work(handlers, limits);
-    await expect
-      .poll(() => delivered, { timeout: 20_000, interval: 200 })
-      .toEqual([{ queue: 'publish', taskId: submitted.task.id, projectId: 'acme' }]);
+    await jobs.work(handler, limits);
+    await expect.poll(() => delivered, { timeout: 20_000, interval: 200 }).toEqual([job]);
   });
 });

@@ -541,7 +541,7 @@ describe('cancelling', () => {
   it.each([
     ['queued', submitted, []],
     ['awaiting a reply', () => asked(), []],
-    ['running', () => running(), [{ kind: 'abort-run', runId: run1 }]],
+    ['running', () => running(), [{ kind: 'end-run', runId: run1 }]],
     ['publishing', publishing, [{ kind: 'withdraw-change' }]],
   ] as const)('cancels a %s task with what it takes to stop it', (_, make, effects) => {
     const transition = value(cancelTask(make(), 'not needed', 30));

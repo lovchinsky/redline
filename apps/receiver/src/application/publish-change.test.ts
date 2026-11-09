@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BlobDigest } from '../domain/ids';
+import { dueOf } from '../domain/task';
 import { fenced, taskMarker } from './change-request';
 import { never, system } from './testing/system';
 
@@ -85,7 +86,7 @@ describe('PublishChange', () => {
       app.git.failures.set('push', { transient: true, detail: '503 from the git host' });
       await app.publish.handle(task.id);
     }
-    expect(app.store.jobsOf('publish').map((entry) => entry.startAfter)).toEqual([
+    expect(app.store.jobsOf('schedule-publish').map((job) => dueOf(job.effect))).toEqual([
       null,
       2_000,
       3_000,
@@ -166,7 +167,7 @@ describe('PublishChange', () => {
     expect((await app.store.history(task.id)).map((event) => event.type)).toContain(
       'opened-after-cancel',
     );
-    await app.withdraw.handle(task.id);
+    await app.work();
     expect(app.git.closed).toEqual([{ id: '1', url: 'https://git.example/acme/web/pull/1' }]);
   });
 
@@ -181,7 +182,7 @@ describe('PublishChange', () => {
     });
     await app.operations.cancel(task.id, 'stop');
     expect(app.store.jobsOf('withdraw-change')).toHaveLength(1);
-    await app.withdraw.handle(task.id);
+    await app.work();
     expect(app.git.closed).toHaveLength(1);
   });
 
