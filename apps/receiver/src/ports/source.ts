@@ -38,12 +38,12 @@ export interface SourceRepository {
   prepare(repository: RepositoryRef, sha: string | null): Promise<Publishing<string>>;
   /** The team's settings at `sha`; permanent when they are not valid. */
   settings(repository: RepositoryRef, sha: string): Promise<Publishing<RepositorySettings>>;
-  /** Describes the change against its base: what every file becomes. */
+  /** Describes the change against its base: what every file becomes, and the secrets it adds. */
   describe(
     repository: RepositoryRef,
     baseSha: string,
     change: ChangeRef,
-  ): Promise<Publishing<Omit<ChangeDescription, 'secrets'>>>;
+  ): Promise<Publishing<ChangeDescription>>;
   commit(
     repository: RepositoryRef,
     commit: DeterministicCommit,

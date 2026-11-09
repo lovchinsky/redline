@@ -12,7 +12,7 @@ import { ScriptedGit } from '../adapters/scripted/scripted-git';
 import { ScriptedRunner } from '../adapters/scripted/scripted-runner';
 import { GitMirrors } from '../adapters/git/git-mirrors';
 import { LocalRemotes } from '../adapters/git/remotes';
-import { GitleaksScanner } from '../adapters/git/gitleaks-scanner';
+import { GitleaksFinder, NO_SECRET_SCAN } from '../adapters/git/secrets';
 import { GitHubApi } from '../adapters/github/api';
 import { AppAuth, TokenAuth, type GitHubAuth } from '../adapters/github/auth';
 import { GitHubHost } from '../adapters/github/github-host';
@@ -37,7 +37,7 @@ import { TaskWriter } from '../application/task-writer';
 import { ModelCredential, type CredentialVault } from '../ports/access';
 import type { AgentRunner } from '../ports/agent';
 import type { BlobStore } from '../ports/bundles';
-import type { Forge, SecretScanner } from '../ports/publishing';
+import type { Forge } from '../ports/publishing';
 import type { SourceRepository, SourceTrees } from '../ports/source';
 import type { Logger } from '../ports/system';
 import type { Settings } from './settings';
@@ -114,14 +114,12 @@ export type GitSide =
   | {
       readonly kind: 'simulated';
       readonly source: SourceRepository;
-      readonly scanner: SecretScanner;
       readonly forge: Forge;
     }
   | {
       readonly kind: 'mirrored';
       readonly source: SourceRepository;
       readonly trees: SourceTrees;
-      readonly scanner: SecretScanner;
       readonly forge: Forge;
       readonly mirrors: GitMirrors;
       /** The GitHub host, when the repositories are on GitHub. */
@@ -141,23 +139,23 @@ export const gitOf = async (
   const git = config.git;
   if (git.kind === 'scripted') {
     const simulated = new ScriptedGit(git.resultBaseUrl);
-    return { kind: 'simulated', source: simulated, scanner: simulated, forge: simulated };
+    return { kind: 'simulated', source: simulated, forge: simulated };
   }
   if (git.kind === 'local') {
     const simulated = new ScriptedGit(git.resultBaseUrl);
+    // A change goes only to the operator's own repository, as a branch with a simulated change
+    // request; secrets are searched for once changes leave for a git host.
     const mirrors = new GitMirrors({
       root: settings.mirrorsPath,
       remotes: new LocalRemotes(git.root),
       identity: { name: 'Redline', email: 'redline@localhost' },
       blobs,
+      secrets: NO_SECRET_SCAN,
     });
-    // A change goes only to the operator's own repository, as a branch with a simulated change
-    // request; secrets are scanned for once changes leave for a git host.
     return {
       kind: 'mirrored',
       source: mirrors,
       trees: mirrors,
-      scanner: simulated,
       forge: simulated,
       mirrors,
       github: null,
@@ -185,13 +183,12 @@ export const gitOf = async (
     remotes: github,
     identity: git.commitAs,
     blobs,
+    secrets: new GitleaksFinder(git.gitleaks),
   });
-  const scanner = new GitleaksScanner({ mirrors, command: git.gitleaks });
   return {
     kind: 'mirrored',
     source: mirrors,
     trees: mirrors,
-    scanner,
     forge: github,
     mirrors,
     github,
@@ -355,7 +352,6 @@ const workerOf = async (
     bundles,
     identity: users,
     source: git.source,
-    scanner: git.scanner,
     forge: git.forge,
     logger: logger.child({ component: 'publishing' }),
   });

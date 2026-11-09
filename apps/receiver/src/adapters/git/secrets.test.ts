@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RepositoryRef } from '../../ports/access';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
-import { GitleaksScanner } from './gitleaks-scanner';
+import { GitleaksFinder } from './secrets';
 import { LocalRemotes } from './remotes';
 import { gitleaksStandIn, type ReportedFinding } from './testing/gitleaks-stand-in';
 
@@ -27,6 +27,16 @@ let blobs: FsBlobStore;
 let command: string;
 let standIn: Awaited<ReturnType<typeof gitleaksStandIn>>;
 const repository: RepositoryRef = { host: 'local', name: 'origin.git', baseBranch: 'main' };
+
+/** The mirrors, with gitleaks as `command` searching what a change adds. */
+const searchingWith = (command: string) =>
+  new GitMirrors({
+    root: path.join(dir, 'mirrors'),
+    remotes: new LocalRemotes(dir),
+    identity: { name: 'Redline', email: 'bot@redline.invalid' },
+    blobs,
+    secrets: new GitleaksFinder(command),
+  });
 
 const changeWith = async (base: string, content: string) => {
   const work = path.join(dir, `work-${String(Math.random()).slice(2)}`);
@@ -60,27 +70,22 @@ beforeEach(async () => {
   await git(seed, 'commit', '-qm', 'base');
   await run('git', ['clone', '-q', '--bare', seed, path.join(dir, 'origin.git')]);
   blobs = new FsBlobStore(path.join(dir, 'blobs'));
-  mirrors = new GitMirrors({
-    root: path.join(dir, 'mirrors'),
-    remotes: new LocalRemotes(dir),
-    identity: { name: 'Redline', email: 'bot@redline.invalid' },
-    blobs,
-  });
   standIn = await gitleaksStandIn(dir);
   command = standIn.command;
+  mirrors = searchingWith(command);
 });
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-describe('GitleaksScanner', () => {
+describe('GitleaksFinder', () => {
   it('has gitleaks scan the change’s commit on the mirror, told nothing by the change', async () => {
     const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
     const base = prepared.value;
     const change = await changeWith(base, 'export const key = "AKIAIOSFODNN7EXAMPLE";\n');
-    await new GitleaksScanner({ mirrors, command }).scan(repository, base, change);
+    await mirrors.describe(repository, base, change);
     const args = (await readFile(path.join(dir, 'arguments'), 'utf8')).trim().split('\n');
     const ignorePath = args.find((arg) => arg.startsWith('--gitleaks-ignore-path='))?.split('=')[1];
     expect(args.slice(0, 2)).toEqual(['git', mirrors.mirrorOf(repository)]);
@@ -101,16 +106,18 @@ describe('GitleaksScanner', () => {
     const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
     const base = prepared.value;
-    const scanner = new GitleaksScanner({ mirrors, command });
     const change = await changeWith(base, 'x');
-    expect(await scanner.scan(repository, base, change)).toEqual({ ok: true, value: [] });
+    expect(await mirrors.describe(repository, base, change)).toMatchObject({
+      ok: true,
+      value: { secrets: [] },
+    });
     await standIn.report([
       { File: 'config.js', StartLine: 1, RuleID: 'aws-access-token' },
       { File: 'config.js', StartLine: 'one', RuleID: 'x' } as unknown as ReportedFinding,
     ]);
-    expect(await scanner.scan(repository, base, change)).toEqual({
+    expect(await mirrors.describe(repository, base, change)).toMatchObject({
       ok: true,
-      value: [{ path: 'config.js', line: 1, rule: 'aws-access-token' }],
+      value: { secrets: [{ path: 'config.js', line: 1, rule: 'aws-access-token' }] },
     });
   });
 
@@ -119,8 +126,7 @@ describe('GitleaksScanner', () => {
     if (!prepared.ok) throw new Error(prepared.error.detail);
     const base = prepared.value;
     const change = await changeWith(base, 'x');
-    const scan = (command: string) =>
-      new GitleaksScanner({ mirrors, command }).scan(repository, base, change);
+    const scan = (command: string) => searchingWith(command).describe(repository, base, change);
     expect(await scan(path.join(dir, 'missing-gitleaks'))).toMatchObject({
       ok: false,
       error: { transient: false },

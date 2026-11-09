@@ -31,7 +31,7 @@ import {
 } from '../../ports/access';
 import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 import type { BundleContents, BundleReader } from '../../ports/bundles';
-import type { ChangeRequestDraft, Forge, Publishing, SecretScanner } from '../../ports/publishing';
+import type { ChangeRequestDraft, Forge, Publishing } from '../../ports/publishing';
 import {
   NO_SETTINGS,
   type DeterministicCommit,
@@ -495,7 +495,7 @@ export class FakeRunner implements AgentRunner {
 const done = <T>(value: T): Promise<Publishing<T>> => Promise.resolve({ ok: true, value });
 
 /** A git host and mirror that remember what was pushed and opened. */
-export class FakeGit implements SourceRepository, Forge, SecretScanner {
+export class FakeGit implements SourceRepository, Forge {
   baseSha = 'base-sha';
   description: Omit<ChangeDescription, 'secrets'> = {
     entries: [
@@ -541,10 +541,7 @@ export class FakeGit implements SourceRepository, Forge, SecretScanner {
     return this.outcome('settings', () => this.settingsAtBase);
   }
   describe() {
-    return this.outcome('describe', () => this.description);
-  }
-  scan() {
-    return this.outcome('scan', () => this.secrets);
+    return this.outcome('describe', () => ({ ...this.description, secrets: this.secrets }));
   }
   commit(_: unknown, commit: DeterministicCommit) {
     return this.outcome('commit', () => {

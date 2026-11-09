@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import type { ChangeDescription, SecretFinding } from '../../domain/change-policy';
+import type { ChangeDescription } from '../../domain/change-policy';
 import type { ChangeRequestRef } from '../../domain/work';
 import type { RepositoryRef } from '../../ports/access';
-import type { ChangeRequestDraft, Forge, Publishing, SecretScanner } from '../../ports/publishing';
+import type { ChangeRequestDraft, Forge, Publishing } from '../../ports/publishing';
 import {
   NO_SETTINGS,
   type DeterministicCommit,
@@ -20,7 +20,7 @@ const done = <T>(value: T): Promise<Publishing<T>> => Promise.resolve({ ok: true
  * no settings, every change touches one file, commits are hashes of their input, and change requests are
  * numbered per repository at `resultBaseUrl`.
  */
-export class ScriptedGit implements SourceRepository, SecretScanner, Forge {
+export class ScriptedGit implements SourceRepository, Forge {
   private readonly open_ = new Map<string, ChangeRequestRef>();
   private numbers = 0;
 
@@ -34,7 +34,7 @@ export class ScriptedGit implements SourceRepository, SecretScanner, Forge {
     return done(NO_SETTINGS);
   }
 
-  describe(): Promise<Publishing<Omit<ChangeDescription, 'secrets'>>> {
+  describe(): Promise<Publishing<ChangeDescription>> {
     return done({
       entries: [
         {
@@ -49,11 +49,8 @@ export class ScriptedGit implements SourceRepository, SecretScanner, Forge {
         },
       ],
       scriptChanges: [],
+      secrets: [],
     });
-  }
-
-  scan(): Promise<Publishing<readonly SecretFinding[]>> {
-    return done([]);
   }
 
   commit(_repository: RepositoryRef, commit: DeterministicCommit) {

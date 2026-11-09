@@ -11,6 +11,7 @@ import type { GrantToken } from '../../ports/tasks';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { systemClock } from '../system/system';
 import { GitMirrors } from '../git/git-mirrors';
+import { NO_SECRET_SCAN } from '../git/secrets';
 import { LocalRemotes } from '../git/remotes';
 import { DockerSandboxes } from './docker-sandboxes';
 import { SandboxedClaudeRunner } from './sandboxed-runner';
@@ -139,6 +140,7 @@ beforeAll(async () => {
     remotes: new LocalRemotes(dir),
     identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
+    secrets: NO_SECRET_SCAN,
   });
   image = await buildStandInImage();
   await internalNetwork(networks.setup);

@@ -6,10 +6,10 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
-import { GitleaksScanner } from './gitleaks-scanner';
+import { GitleaksFinder } from './secrets';
 import { LocalRemotes } from './remotes';
 
-/** The scanner with the real gitleaks: `REDLINE_TEST_GITLEAKS` names its binary. */
+/** The search with the real gitleaks: `REDLINE_TEST_GITLEAKS` names its binary. */
 const command = process.env['REDLINE_TEST_GITLEAKS'];
 if (command === undefined || command === '') {
   throw new Error('Set REDLINE_TEST_GITLEAKS to the gitleaks binary to test secret scanning');
@@ -75,6 +75,7 @@ beforeAll(async () => {
     remotes: new LocalRemotes(dir),
     identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
+    secrets: new GitleaksFinder(command),
   });
   const prepared = await mirrors.prepare(repository, null);
   if (!prepared.ok) throw new Error(prepared.error.detail);
@@ -85,24 +86,21 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-describe('GitleaksScanner with gitleaks', () => {
+describe('GitleaksFinder with gitleaks', () => {
   it('finds a token the change adds, and nothing in a clean one', async () => {
-    const scanner = new GitleaksScanner({ mirrors, command });
+    const secretsIn = async (files: Record<string, string>) => {
+      const described = await mirrors.describe(repository, base, await change(files));
+      return described.ok ? described.value.secrets : described;
+    };
     // Put together here, so this repository holds no token-shaped string of its own.
     const token = ['ghp', 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'].join('_');
-    const found = await scanner.scan(
-      repository,
-      base,
-      await change({ 'deploy.js': `const token = "${token}";\n` }),
-    );
-    expect(found).toMatchObject({ ok: true, value: [{ path: 'deploy.js', line: 1 }] });
-    expect(
-      await scanner.scan(repository, base, await change({ 'Card.css': '.card { }\n' })),
-    ).toEqual({ ok: true, value: [] });
+    expect(await secretsIn({ 'deploy.js': `const token = "${token}";\n` })).toMatchObject([
+      { path: 'deploy.js', line: 1 },
+    ]);
+    expect(await secretsIn({ 'Card.css': '.card { }\n' })).toEqual([]);
   });
 
   it('is not told by the change what to ignore', async () => {
-    const scanner = new GitleaksScanner({ mirrors, command });
     const token = ['ghp', 'Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2'].join('_');
     const leaked = await change({
       '.gitleaks.toml': "[allowlist]\npaths = ['''.*''']\n",
@@ -110,11 +108,10 @@ describe('GitleaksScanner with gitleaks', () => {
       'deploy.js': `const token = "${token}";\n`,
       'release.js': `const token = "${token}"; // gitleaks:allow\n`,
     });
-    const scanned = await scanner.scan(repository, base, leaked);
-    expect(scanned).toMatchObject({ ok: true });
-    expect(scanned.ok ? scanned.value.map((finding) => finding.path).sort() : []).toEqual([
-      'deploy.js',
-      'release.js',
-    ]);
+    const described = await mirrors.describe(repository, base, leaked);
+    expect(described).toMatchObject({ ok: true });
+    expect(
+      described.ok ? described.value.secrets.map((finding) => finding.path).sort() : [],
+    ).toEqual(['deploy.js', 'release.js']);
   });
 });

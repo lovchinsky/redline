@@ -1,5 +1,5 @@
 import type { ModelAccessPolicy, ModelCredential, User } from '../../ports/access';
-import type { Forge, SecretScanner } from '../../ports/publishing';
+import type { Forge } from '../../ports/publishing';
 import type { SourceRepository } from '../../ports/source';
 import { CredentialRelay } from '../credentials';
 import { TaskOperations } from '../operations';
@@ -27,7 +27,6 @@ import {
 /** Adapters a test brings in place of the fakes: real git, a real git host. */
 export interface SystemParts {
   readonly source?: SourceRepository;
-  readonly scanner?: SecretScanner;
   readonly forge?: Forge;
 }
 
@@ -76,7 +75,6 @@ export const system = (access: ModelAccessPolicy = managed, parts: SystemParts =
     bundles,
     identity,
     source: parts.source ?? git,
-    scanner: parts.scanner ?? git,
     forge: parts.forge ?? git,
     logger: silentLogger,
   });

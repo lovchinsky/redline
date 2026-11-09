@@ -2,7 +2,7 @@ import { chmod, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 /**
- * gitleaks as the scanner calls it, standing in for the binary: it keeps its arguments and
+ * gitleaks as the receiver calls it, standing in for the binary: it keeps its arguments and
  * writes the report the test gave it. What gitleaks itself finds is the integration test's
  * (`gitleaks.integration.test.ts`).
  */

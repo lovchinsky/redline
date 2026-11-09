@@ -18,6 +18,7 @@ import type {
 } from '../../ports/source';
 import { git, reaching, streamOf } from './git';
 import { REPOSITORY_SETTINGS, parseRepositorySettings } from './repository-settings';
+import type { SecretFinder } from './secrets';
 
 /** The ref a change bundle carries its commit at (`CHANGE_REF` of the agent protocol). */
 const BUNDLE_REF = 'refs/redline/change';
@@ -95,6 +96,8 @@ export interface GitMirrorsOptions {
   /** Who the receiver's commits are by. */
   readonly identity: { readonly name: string; readonly email: string };
   readonly blobs: BlobStore;
+  /** What finds secrets in a change before it is described as fit to publish. */
+  readonly secrets: SecretFinder;
 }
 
 /**
@@ -249,58 +252,71 @@ export class GitMirrors implements SourceRepository, SourceTrees {
     repository: RepositoryRef,
     baseSha: string,
     change: ChangeRef,
-  ): Promise<Publishing<Omit<ChangeDescription, 'secrets'>>> {
+  ): Promise<Publishing<ChangeDescription>> {
+    const imported = await this.importChange(repository, baseSha, change);
+    if (!imported.ok) return imported;
+    const head = imported.value;
     return attempt(async () => {
-      const imported = await this.importChange(repository, baseSha, change);
-      if (!imported.ok) return imported;
-      const mirror = this.mirrorOf(repository);
-      const head = imported.value;
-      const raw = await git(mirror, ['diff', '--raw', '-z', '-M', '--no-abbrev', baseSha, head]);
-      const numstat = await git(mirror, ['diff', '--numstat', '-z', '-M', baseSha, head]);
-      const lines = this.numstatOf(numstat);
-      const entries: DiffEntry[] = [];
-      const fields = raw.split('\0');
-      for (let i = 0; i < fields.length - 1;) {
-        const meta = fields[i] ?? '';
-        i += 1;
-        const [, newMode = '', , newObject = '', statusField = ''] = meta.slice(1).split(' ');
-        const status = statusField.charAt(0);
-        const first = fields[i] ?? '';
-        i += 1;
-        const second = status === 'R' || status === 'C' ? (fields[i++] ?? '') : null;
-        const file = second ?? first;
-        const counted = lines.get(file);
-        const deleted = status === 'D';
-        entries.push({
-          path: file,
-          previousPath: second === null ? null : first,
-          status: STATUS[status] ?? 'modified',
-          mode: deleted ? 'file' : (MODES[newMode] ?? 'file'),
-          binary: counted?.binary ?? false,
-          bytes:
-            deleted || MODES[newMode] === 'submodule'
-              ? 0
-              : Number(await git(mirror, ['cat-file', '-s', newObject])),
-          addedLines: counted?.added ?? 0,
-          removedLines: counted?.removed ?? 0,
-        });
-      }
-      const scriptChanges: ScriptChange[] = [];
-      for (const entry of entries) {
-        if (path.posix.basename(entry.path) !== 'package.json') continue;
-        const before = scriptsOf(
-          await this.fileAt(repository, baseSha, entry.previousPath ?? entry.path),
-        );
-        const after = scriptsOf(
-          entry.status === 'deleted' ? null : await this.fileAt(repository, head, entry.path),
-        );
-        const names = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
-          (name) => before[name] !== after[name],
-        );
-        if (names.length > 0) scriptChanges.push({ path: entry.path, scripts: names.sort() });
-      }
-      return ok({ entries, scriptChanges });
+      const [diff, secrets] = await Promise.all([
+        this.diffOf(repository, baseSha, head),
+        this.options.secrets.find(this.mirrorOf(repository), baseSha, head),
+      ]);
+      return secrets.ok ? ok({ ...diff, secrets: secrets.value }) : secrets;
     });
+  }
+
+  /** What every file of `baseSha..head` becomes, and the scripts it changes. */
+  private async diffOf(
+    repository: RepositoryRef,
+    baseSha: string,
+    head: string,
+  ): Promise<Omit<ChangeDescription, 'secrets'>> {
+    const mirror = this.mirrorOf(repository);
+    const raw = await git(mirror, ['diff', '--raw', '-z', '-M', '--no-abbrev', baseSha, head]);
+    const numstat = await git(mirror, ['diff', '--numstat', '-z', '-M', baseSha, head]);
+    const lines = this.numstatOf(numstat);
+    const entries: DiffEntry[] = [];
+    const fields = raw.split('\0');
+    for (let i = 0; i < fields.length - 1;) {
+      const meta = fields[i] ?? '';
+      i += 1;
+      const [, newMode = '', , newObject = '', statusField = ''] = meta.slice(1).split(' ');
+      const status = statusField.charAt(0);
+      const first = fields[i] ?? '';
+      i += 1;
+      const second = status === 'R' || status === 'C' ? (fields[i++] ?? '') : null;
+      const file = second ?? first;
+      const counted = lines.get(file);
+      const deleted = status === 'D';
+      entries.push({
+        path: file,
+        previousPath: second === null ? null : first,
+        status: STATUS[status] ?? 'modified',
+        mode: deleted ? 'file' : (MODES[newMode] ?? 'file'),
+        binary: counted?.binary ?? false,
+        bytes:
+          deleted || MODES[newMode] === 'submodule'
+            ? 0
+            : Number(await git(mirror, ['cat-file', '-s', newObject])),
+        addedLines: counted?.added ?? 0,
+        removedLines: counted?.removed ?? 0,
+      });
+    }
+    const scriptChanges: ScriptChange[] = [];
+    for (const entry of entries) {
+      if (path.posix.basename(entry.path) !== 'package.json') continue;
+      const before = scriptsOf(
+        await this.fileAt(repository, baseSha, entry.previousPath ?? entry.path),
+      );
+      const after = scriptsOf(
+        entry.status === 'deleted' ? null : await this.fileAt(repository, head, entry.path),
+      );
+      const names = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+        (name) => before[name] !== after[name],
+      );
+      if (names.length > 0) scriptChanges.push({ path: entry.path, scripts: names.sort() });
+    }
+    return { entries, scriptChanges };
   }
 
   async commit(
@@ -370,7 +386,7 @@ export class GitMirrors implements SourceRepository, SourceTrees {
    * the base, which is fetched again if the mirror lost it. A bundle is checked and stored once
    * (it is stored by its content's hash), and each later import of it only checks the commit.
    */
-  async importChange(
+  private async importChange(
     repository: RepositoryRef,
     baseSha: string,
     change: ChangeRef,

@@ -5,10 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { SecretFinding } from '../../domain/change-policy';
 import { err, ok, type Fault } from '../../domain/result';
-import type { ChangeRef } from '../../domain/work';
-import type { RepositoryRef } from '../../ports/access';
-import type { Publishing, SecretScanner } from '../../ports/publishing';
-import type { GitMirrors } from './git-mirrors';
+import type { Publishing } from '../../ports/publishing';
 
 const run = promisify(execFile);
 
@@ -35,33 +32,44 @@ const findingOf = (value: unknown): SecretFinding | null => {
     : null;
 };
 
-/**
- * Secrets in what a change adds, found by gitleaks in the change's commit on the mirror. The
- * change is the sandbox's, so nothing in it decides what gitleaks reports: the mirror is bare (a
- * `.gitleaks.toml` the change brings is not on disk), the ignore file is looked for in an empty
- * directory, and `gitleaks:allow` comments are not honoured. Secrets are redacted in its report.
- */
-export class GitleaksScanner implements SecretScanner {
-  constructor(
-    private readonly options: { readonly mirrors: GitMirrors; readonly command: string },
-  ) {}
-
-  async scan(
-    repository: RepositoryRef,
+/** Finds secrets in what the commits `baseSha..head` of a mirror add. */
+export interface SecretFinder {
+  find(
+    mirror: string,
     baseSha: string,
-    change: ChangeRef,
+    head: string,
+  ): Promise<Publishing<readonly SecretFinding[]>>;
+}
+
+/**
+ * No search for secrets: for repositories by path, whose changes stay in the operator's own
+ * repository and are never pushed to a git host.
+ */
+export const NO_SECRET_SCAN: SecretFinder = { find: () => Promise.resolve(ok([])) };
+
+/**
+ * Secrets found by gitleaks. The change is the sandbox's, so nothing in it decides what gitleaks
+ * reports: the mirror is bare (a `.gitleaks.toml` the change brings is not on disk), the ignore
+ * file is looked for in an empty directory, and `gitleaks:allow` comments are not honoured.
+ * Secrets are redacted in its report.
+ */
+export class GitleaksFinder implements SecretFinder {
+  constructor(private readonly command: string) {}
+
+  async find(
+    mirror: string,
+    baseSha: string,
+    head: string,
   ): Promise<Publishing<readonly SecretFinding[]>> {
-    const imported = await this.options.mirrors.importChange(repository, baseSha, change);
-    if (!imported.ok) return imported;
     const scratch = await mkdtemp(path.join(tmpdir(), 'redline-gitleaks-'));
     const report = path.join(scratch, 'report.json');
     try {
       await run(
-        this.options.command,
+        this.command,
         [
           'git',
-          this.options.mirrors.mirrorOf(repository),
-          `--log-opts=${baseSha}..${imported.value}`,
+          mirror,
+          `--log-opts=${baseSha}..${head}`,
           '--report-format=json',
           `--report-path=${report}`,
           `--gitleaks-ignore-path=${scratch}`,

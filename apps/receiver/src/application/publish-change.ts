@@ -11,7 +11,7 @@ import {
 import type { ChangeRequestRef } from '../domain/work';
 import type { Identity, Project, ProjectCatalog } from '../ports/access';
 import type { BundleReader } from '../ports/bundles';
-import type { Forge, Publishing, SecretScanner } from '../ports/publishing';
+import type { Forge, Publishing } from '../ports/publishing';
 import type { SourceRepository } from '../ports/source';
 import type { Logger } from '../ports/system';
 import type { TaskQueries } from '../ports/tasks';
@@ -41,7 +41,6 @@ export class PublishChange {
       readonly bundles: BundleReader;
       readonly identity: Identity;
       readonly source: SourceRepository;
-      readonly scanner: SecretScanner;
       readonly forge: Forge;
       readonly logger: Logger;
     },
@@ -147,21 +146,13 @@ export class PublishChange {
     { baseSha, change }: Publication,
     project: Project,
   ): Promise<Publishing<Verdict>> {
-    const [described, secrets] = await Promise.all([
-      this.deps.source.describe(project.repository, baseSha, change),
-      this.deps.scanner.scan(project.repository, baseSha, change),
-    ]);
+    const described = await this.deps.source.describe(project.repository, baseSha, change);
     if (!described.ok) return described;
-    if (!secrets.ok) return secrets;
-    const verdict = evaluateChange(
-      { ...described.value, secrets: secrets.value },
-      project.changePolicy,
-    );
-    return {
-      ok: true,
-      value: verdict.accepted
+    const verdict = evaluateChange(described.value, project.changePolicy);
+    return ok(
+      verdict.accepted
         ? { kind: 'publish', flags: verdict.flags }
         : { kind: 'reject', summary: verdict.violations.map(describeViolation).join('; ') },
-    };
+    );
   }
 }

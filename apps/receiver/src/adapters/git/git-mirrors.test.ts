@@ -10,6 +10,7 @@ import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
 import type { GitRemote } from '../../ports/source';
 import { LocalRemotes } from './remotes';
+import { NO_SECRET_SCAN, type SecretFinder } from './secrets';
 import { httpGitServer } from './testing/http-git-server';
 
 const run = promisify(execFile);
@@ -72,6 +73,7 @@ beforeEach(async () => {
     remotes: new LocalRemotes(dir),
     identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
+    secrets: NO_SECRET_SCAN,
   });
 });
 
@@ -213,6 +215,37 @@ describe('GitMirrors', () => {
     });
   });
 
+  it('describes a change with the secrets found in its commit, and fails with the search', async () => {
+    const asked: string[][] = [];
+    let found: Awaited<ReturnType<SecretFinder['find']>> = {
+      ok: true,
+      value: [{ path: 'a.txt', line: 1, rule: 'aws-access-token' }],
+    };
+    const searching = new GitMirrors({
+      root: path.join(dir, 'searching-mirrors'),
+      remotes: new LocalRemotes(dir),
+      identity: { name: 'Redline', email: 'bot@redline.invalid' },
+      blobs,
+      secrets: {
+        find: (mirror, baseSha, head) => {
+          asked.push([mirror, baseSha, head]);
+          return Promise.resolve(found);
+        },
+      },
+    });
+    const prepared = await searching.prepare(repository, null);
+    if (!prepared.ok) throw new Error(prepared.error.detail);
+    const base = prepared.value;
+    const change = await agentChange(base, (work) => writeFile(path.join(work, 'a.txt'), 'a'));
+    expect(await searching.describe(repository, base, change)).toMatchObject({
+      ok: true,
+      value: { secrets: [{ path: 'a.txt', line: 1, rule: 'aws-access-token' }] },
+    });
+    expect(asked).toEqual([[searching.mirrorOf(repository), base, change.head]]);
+    found = { ok: false, error: { transient: true, detail: 'gitleaks was stopped (SIGKILL)' } };
+    expect(await searching.describe(repository, base, change)).toEqual(found);
+  });
+
   it('refuses a bundle whose objects git would not accept, before any of them is stored', async () => {
     const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
@@ -300,6 +333,7 @@ describe('GitMirrors', () => {
         remotes: { source: () => reachable(remote), target: () => reachable(remote) },
         identity: { name: 'Redline', email: 'bot@redline.invalid' },
         blobs,
+        secrets: NO_SECRET_SCAN,
       });
       const prepared = await viaHttp.prepare(repository, null);
       if (!prepared.ok) throw new Error(prepared.error.detail);
@@ -338,6 +372,7 @@ describe('GitMirrors', () => {
         },
         identity: { name: 'Redline', email: 'bot@redline.invalid' },
         blobs,
+        secrets: NO_SECRET_SCAN,
       });
       expect(await refused.prepare(repository, null)).toMatchObject({
         ok: false,
