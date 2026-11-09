@@ -48,6 +48,33 @@ const probes = [
     expectRule: 'not-to-unresolvable',
   },
   {
+    name: 'one app reaching into another',
+    files: {
+      'apps/receiver/src/__cruise_probe__/app.ts':
+        "export type { TaskRepository } from '../../../extension/src/ports/drafts';\n",
+    },
+    entry: 'apps/receiver/src/__cruise_probe__',
+    expectRule: 'apps-isolated',
+  },
+  {
+    name: 'the receiver using an extension package',
+    files: {
+      'apps/receiver/src/__cruise_probe__/core.ts':
+        "export { ok } from '../../../../packages/core/src/shared/result';\n",
+    },
+    entry: 'apps/receiver/src/__cruise_probe__',
+    expectRule: 'receiver-not-to-extension-packages',
+  },
+  {
+    name: 'control: the receiver using the contract',
+    files: {
+      'apps/receiver/src/__cruise_probe__/contract.ts':
+        "export { BUNDLE_ENTRY } from '../../../../packages/contract/src/bundle.v1';\n",
+    },
+    entry: 'apps/receiver/src/__cruise_probe__',
+    expectRule: null,
+  },
+  {
     name: 'control: a package importing its own code',
     files: {
       'packages/core/src/__cruise_probe__/ok.ts': "export { ok } from '../shared/result';\n",

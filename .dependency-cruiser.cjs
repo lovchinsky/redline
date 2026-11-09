@@ -34,6 +34,25 @@ module.exports = {
       to: { path: '^apps/' },
     },
     {
+      name: 'apps-isolated',
+      severity: 'error',
+      comment:
+        'Apps are separate deployables: they share code only through packages, never with each other.',
+      from: { path: '^apps/([^/]+)/' },
+      to: { path: '^apps/([^/]+)/', pathNot: '^apps/$1/' },
+    },
+    {
+      name: 'receiver-not-to-extension-packages',
+      severity: 'error',
+      comment:
+        'The receiver and the agent host share only the contract and the agent protocol with the extension.',
+      from: { path: '^apps/(receiver|agent-host)/' },
+      to: {
+        path: '^packages/',
+        pathNot: '^packages/(contract|agent-protocol)/',
+      },
+    },
+    {
       name: 'not-to-test',
       severity: 'error',
       comment: 'Production code must not import tests.',

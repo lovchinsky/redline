@@ -86,6 +86,48 @@ const probes = [
     expectRule: 'boundaries/dependencies',
   },
   {
+    name: 'the receiver domain must not depend on its ports',
+    file: 'apps/receiver/src/domain/__boundary_probe__.ts',
+    code: "import type { Clock } from '../ports/system';\nexport type Probe = Clock;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'receiver use cases must not depend on the contract',
+    file: 'apps/receiver/src/application/__boundary_probe__.ts',
+    code: "import { BUNDLE_ENTRY } from '../../../../packages/contract/src/bundle.v1';\nexport const probe = BUNDLE_ENTRY;\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'receiver use cases must not reach storage directly',
+    file: 'apps/receiver/src/application/__boundary_probe__.ts',
+    code: "import { readFile } from 'node:fs/promises';\nexport const probe = readFile;\n",
+    expectRule: 'no-restricted-imports',
+  },
+  {
+    name: 'the receiver domain must not read the clock itself',
+    file: 'apps/receiver/src/domain/__boundary_probe__.ts',
+    code: 'export const probe = () => Date.now();\n',
+    expectRule: 'no-restricted-globals',
+  },
+  {
+    name: 'the receiver must not depend on the extension’s core',
+    file: 'apps/receiver/src/application/__boundary_probe__.ts',
+    code: "import { ok } from '../../../../packages/core/src/shared/result';\nexport const probe = ok(1);\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'the extension must not depend on the receiver',
+    file: 'apps/extension/src/adapters/__boundary_probe__.ts',
+    code: "import { ok } from '../../../receiver/src/domain/result';\nexport const probe = ok(1);\n",
+    expectRule: 'boundaries/dependencies',
+  },
+  {
+    name: 'control: receiver use cases may depend on the domain',
+    file: 'apps/receiver/src/application/__boundary_probe__.ts',
+    code: "import { ok } from '../domain/result';\nexport const probe = ok(1);\n",
+    expectRule: null,
+  },
+  {
     name: 'control: the module catalog may list modules',
     file: 'packages/modules/src/__boundary_probe__.ts',
     code: "import { layoutCollector } from './layout/collector';\nexport const probe = layoutCollector;\n",

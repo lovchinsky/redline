@@ -31,6 +31,19 @@ const elements = [
   { type: 'ext-application', pattern: 'apps/extension/src/application' },
   { type: 'ext-adapter', pattern: 'apps/extension/src/adapters' },
   { type: 'ext-ui', pattern: 'apps/extension/src/ui' },
+  // The receiver: a separate deployable that shares only the contract with the extension.
+  { type: 'agent-protocol', pattern: 'packages/agent-protocol' },
+  { type: 'rcv-domain', pattern: 'apps/receiver/src/domain' },
+  { type: 'rcv-ports', pattern: 'apps/receiver/src/ports' },
+  { type: 'rcv-application', pattern: 'apps/receiver/src/application' },
+  {
+    type: 'rcv-adapter',
+    pattern: 'apps/receiver/src/adapters/*',
+    capture: ['adapterName'],
+  },
+  { type: 'rcv-composition', pattern: 'apps/receiver/src/composition' },
+  { type: 'rcv-entrypoint', pattern: 'apps/receiver/src/entrypoints' },
+  { type: 'agent-host', pattern: 'apps/agent-host/src' },
 ];
 
 /** @param {string[]} types */
@@ -105,6 +118,49 @@ const dependencyPolicies = [
     allow: to(elements.map((element) => element.type).filter((type) => type !== 'ext-entrypoint')),
   },
   { from: { element: { type: 'ext-entrypoint' } }, allow: to(['ext-composition', 'ext-ui']) },
+  // The agent's exchange format with the receiver: data schemas only.
+  { from: { element: { type: 'agent-protocol' } }, allow: to(['agent-protocol']) },
+  // The domain knows nothing outside itself: no contract, no storage, no agent, no git host.
+  { from: { element: { type: 'rcv-domain' } }, allow: to(['rcv-domain']) },
+  { from: { element: { type: 'rcv-ports' } }, allow: to(['rcv-ports', 'rcv-domain']) },
+  {
+    from: { element: { type: 'rcv-application' } },
+    allow: to(['rcv-application', 'rcv-ports', 'rcv-domain']),
+  },
+  {
+    // An adapter may use its own files and the ones it builds on; only the Claude runner speaks
+    // the agent's exchange format.
+    from: { element: { type: 'rcv-adapter' } },
+    allow: [
+      to(['rcv-ports', 'rcv-domain', 'contract']),
+      {
+        to: {
+          element: {
+            type: 'rcv-adapter',
+            captured: { adapterName: '{{from.captured.adapterName}}' },
+          },
+        },
+      },
+      { to: { element: { type: 'rcv-adapter', captured: { adapterName: 'shared' } } } },
+    ],
+  },
+  {
+    from: { element: { type: 'rcv-adapter', captured: { adapterName: 'runner-claude' } } },
+    allow: to(['agent-protocol']),
+  },
+  {
+    from: { element: { type: 'rcv-composition' } },
+    allow: to([
+      'rcv-composition',
+      'rcv-adapter',
+      'rcv-application',
+      'rcv-ports',
+      'rcv-domain',
+      'contract',
+    ]),
+  },
+  { from: { element: { type: 'rcv-entrypoint' } }, allow: to(['rcv-composition']) },
+  { from: { element: { type: 'agent-host' } }, allow: to(['agent-host', 'agent-protocol']) },
 ];
 
 export default defineConfig(
@@ -135,7 +191,12 @@ export default defineConfig(
     },
   },
   {
-    files: ['packages/**/*.{ts,tsx}', 'apps/extension/src/**/*.{ts,tsx}'],
+    files: [
+      'packages/**/*.{ts,tsx}',
+      'apps/extension/src/**/*.{ts,tsx}',
+      'apps/receiver/src/**/*.ts',
+      'apps/agent-host/src/**/*.ts',
+    ],
     // Tests and tool configuration are not part of the architecture.
     ignores: ['**/*.test.ts', '**/*.test.tsx', '**/vitest.config.ts'],
     plugins: { boundaries },
@@ -192,6 +253,50 @@ export default defineConfig(
         },
       ],
       'no-restricted-globals': ['error', { name: 'chrome', message: 'Use a port.' }],
+    },
+  },
+  {
+    // The receiver's core decides; adapters do I/O. Its domain, ports and use cases reach the
+    // platform, storage, network, agent and git host only through ports.
+    files: ['apps/receiver/src/{domain,ports,application}/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'node:*',
+                'fs',
+                'path',
+                'crypto',
+                'child_process',
+                'pg',
+                'pg-boss',
+                'kysely',
+                'fastify',
+                '@fastify/*',
+                'yaml',
+                'pino',
+                '@anthropic-ai/*',
+                '@octokit/*',
+                'zod',
+                'zod/*',
+              ],
+              message:
+                'Platform, storage and network belong in adapters; receive them through ports.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        { name: 'process', message: 'Configuration arrives through the composition root.' },
+        { name: 'fetch', message: 'Network access belongs in adapters.' },
+        { name: 'setTimeout', message: 'Time comes from the Clock port; scheduling from jobs.' },
+        { name: 'Date', message: 'Time comes from the Clock port.' },
+      ],
     },
   },
   {

@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r typecheck",
     "lint": "eslint .",
     "lint:boundaries:selftest": "node scripts/verify-boundaries.mjs",
-    "depcruise": "depcruise packages apps/extension/src --config .dependency-cruiser.cjs",
+    "depcruise": "depcruise packages apps/extension/src apps/receiver/src --config .dependency-cruiser.cjs",
     "depcruise:selftest": "node scripts/verify-depcruise.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
