@@ -14,6 +14,15 @@ agent:
 # into the worker): a change is pushed there as the branch `redline/<task>`, and its change
 # request is simulated at `resultBaseUrl`.
 git: { kind: local, root: /srv/git, resultBaseUrl: 'https://git.example/acme/web/pull/' }
+# GitHub instead: a GitHub App (contents and pull requests: write; no workflows), or a bot's
+# fine-grained token. Changes are scanned by gitleaks before anything is pushed; a project
+# publishes to the bot's fork (`git.fork`) or, confirmed with `ciWithoutSecrets: true`, to a
+# branch of the repository itself. Repositories are then `{ host: github, name: owner/repo }`.
+# git:
+#   kind: github
+#   auth: { app: { id: 123456, privateKeyFile: /run/secrets/github-app.pem } }
+#   fork: { owner: acme-redline-bot }
+#   commitAs: { name: 'acme-redline[bot]', email: '123456+acme-redline[bot]@users.noreply.github.com' }
 
 # Whose model credential tasks run with: managed (the operator's), required (each requester
 # brings their own with every request), optional (theirs when given, the operator's otherwise).

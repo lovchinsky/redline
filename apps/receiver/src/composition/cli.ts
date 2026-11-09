@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import { parseArgs } from 'node:util';
 import { TaskId, UserId } from '../domain/ids';
 import { administration, assemble, loadConfig, loggerFor, type Role } from './receiver';
+import { checkDeployment } from './check';
 import { settingsFrom } from './settings';
 
 const USAGE = `Usage: receiver <command>
@@ -10,7 +11,9 @@ const USAGE = `Usage: receiver <command>
                                   Serve the API, work the queues, serve the gateway's model or
                                   egress side, or all of them in one process
   migrate                         Bring the database schema up to date
-  config check                    Validate the configuration
+  config check [--offline]        Validate the configuration, then check what it names:
+                                  repositories, publishing targets, the secret scanner,
+                                  sandboxes and their image, the operator's credential
   users add <id> --name <name> [--email <email>]
   users token <id> [--label <label>]   Issue an access token (shown once)
   users revoke <id>               Revoke every token of a user
@@ -59,6 +62,7 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
       label: { type: 'string' },
       reason: { type: 'string' },
       help: { type: 'boolean' },
+      offline: { type: 'boolean' },
     },
   });
   const [command, sub] = positionals;
@@ -117,7 +121,11 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
           `  ${project.id} (${project.name}): ${project.repository.host}:${project.repository.name}@${project.repository.baseBranch}`,
         );
       }
-      return 0;
+      if (values.offline === true) return 0;
+      const checks = await checkDeployment(settings, config, loggerFor(settings, 'cli'));
+      for (const check of checks)
+        print(`${check.ok ? 'ok  ' : 'FAIL'} ${check.name}: ${check.detail}`);
+      return checks.every((check) => check.ok) ? 0 : 1;
     }
 
     const admin = await administration(

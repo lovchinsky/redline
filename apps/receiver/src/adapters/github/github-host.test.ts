@@ -230,4 +230,32 @@ describe('GitHubHost', () => {
       body: { state: 'closed' },
     });
   });
+
+  it('checks that a fork target is the bot’s fork of the repository', async () => {
+    const answers: Record<string, unknown> = {
+      '/repos/redline-bot/web': { full_name: 'redline-bot/web', parent: { full_name: 'acme/web' } },
+      '/repos/acme/web': { full_name: 'acme/web' },
+    };
+    const { api } = fakeGitHub((call) =>
+      call.path in answers
+        ? { status: 200, body: answers[call.path] }
+        : { status: 404, body: { message: 'Not Found' } },
+    );
+    expect(await host(api).checkTarget(repository, { target: 'fork', draft: true })).toEqual({
+      ok: true,
+      value: 'redline-bot/web',
+    });
+    expect(await host(api).checkTarget(repository, { target: 'branch', draft: true })).toEqual({
+      ok: true,
+      value: 'acme/web',
+    });
+    answers['/repos/redline-bot/web'] = {
+      full_name: 'redline-bot/web',
+      parent: { full_name: 'someone/else' },
+    };
+    expect(await host(api).checkTarget(repository, { target: 'fork', draft: true })).toMatchObject({
+      ok: false,
+      error: { detail: 'redline-bot/web is not a fork of acme/web' },
+    });
+  });
 });

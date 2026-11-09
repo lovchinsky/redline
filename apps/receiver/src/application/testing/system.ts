@@ -1,4 +1,5 @@
 import type { ModelAccessPolicy, ModelCredential, User } from '../../ports/access';
+import type { Forge, SecretScanner, SourceRepository } from '../../ports/publishing';
 import { CredentialRelay } from '../credentials';
 import { TaskOperations } from '../operations';
 import { PublishChange } from '../publish-change';
@@ -22,8 +23,15 @@ import {
   silentLogger,
 } from './fakes';
 
+/** Adapters a test brings in place of the fakes: real git, a real git host. */
+export interface SystemParts {
+  readonly source?: SourceRepository;
+  readonly scanner?: SecretScanner;
+  readonly forge?: Forge;
+}
+
 /** The application wired to fakes, as a composition root wires it to adapters. */
-export const system = (access: ModelAccessPolicy = managed) => {
+export const system = (access: ModelAccessPolicy = managed, parts: SystemParts = {}) => {
   const store = new MemoryStore();
   const clock = new FixedClock();
   const ids = new SequentialIds();
@@ -52,7 +60,7 @@ export const system = (access: ModelAccessPolicy = managed) => {
     writer,
     projects: catalog,
     bundles,
-    source: git,
+    source: parts.source ?? git,
     runner,
     vault,
     access,
@@ -66,9 +74,9 @@ export const system = (access: ModelAccessPolicy = managed) => {
     projects: catalog,
     bundles,
     identity,
-    source: git,
-    scanner: git,
-    forge: git,
+    source: parts.source ?? git,
+    scanner: parts.scanner ?? git,
+    forge: parts.forge ?? git,
     logger: silentLogger,
   });
   const expire = new ExpireQuestion({ writer, projects: catalog });
@@ -76,7 +84,7 @@ export const system = (access: ModelAccessPolicy = managed) => {
   const withdraw = new WithdrawChange({
     queries: store,
     projects: catalog,
-    forge: git,
+    forge: parts.forge ?? git,
     logger: silentLogger,
   });
   const operations = new TaskOperations({ queries: store, writer });
@@ -107,6 +115,7 @@ export const system = (access: ModelAccessPolicy = managed) => {
     vault,
     runner,
     git,
+    identity,
     writer,
     requests,
     supervise,

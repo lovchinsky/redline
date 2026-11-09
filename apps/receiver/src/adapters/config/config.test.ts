@@ -208,4 +208,42 @@ projects:
       errors: ['git: the claude agent works on real repositories; the scripted git host has none'],
     });
   });
+
+  it('reads GitHub as the git host, and holds publishing to a fork or to a confirmed branch', () => {
+    const source = (git: string, publishing: string) => `
+agent: { kind: scripted }
+git: ${git}
+models: { credentials: required }
+projects:
+  - id: web
+    name: Web
+    repository: { host: github, name: acme/web }
+    publishing: ${publishing}
+`;
+    const app =
+      '{ kind: github, auth: { app: { id: 12345, privateKeyFile: /run/secrets/app.pem } }, fork: { owner: redline-bot } }';
+    const parsed = parseConfig(source(app, '{ target: fork }'));
+    if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+    expect(parsed.value.git).toEqual({
+      kind: 'github',
+      api: 'https://api.github.com',
+      web: 'https://github.com',
+      auth: { kind: 'app', appId: '12345', privateKeyFile: '/run/secrets/app.pem' },
+      forkOwner: 'redline-bot',
+      commitAs: { name: 'Redline', email: 'redline@users.noreply.github.com' },
+      gitleaks: 'gitleaks',
+    });
+    const token = '{ kind: github, auth: { token: { file: /run/secrets/pat } } }';
+    expect(parseConfig(source(token, '{ target: fork }'))).toMatchObject({
+      ok: false,
+      errors: ['projects.web.publishing: it publishes to a fork; set git.fork.owner'],
+    });
+    expect(parseConfig(source(token, '{ target: branch }'))).toMatchObject({
+      ok: false,
+      errors: [expect.stringContaining('ciWithoutSecrets: true') as string],
+    });
+    expect(parseConfig(source(token, '{ target: branch, ciWithoutSecrets: true }'))).toMatchObject({
+      ok: true,
+    });
+  });
 });

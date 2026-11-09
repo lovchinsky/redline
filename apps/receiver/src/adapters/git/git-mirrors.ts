@@ -111,6 +111,25 @@ export class GitMirrors implements SourceRepository {
     }
   }
 
+  /** The head of the repository's base branch, read from its host: whether the mirrors reach it. */
+  async reach(repository: RepositoryRef): Promise<Publishing<string>> {
+    try {
+      const remote = await this.options.remotes.source(repository);
+      if (remote === null) return fail(`No git host ${repository.host} is configured`, false);
+      const listed = await git(
+        tmpdir(),
+        ['ls-remote', remote.url, `refs/heads/${repository.baseBranch}`],
+        reaching(remote),
+      );
+      const sha = listed.split(/\s/)[0] ?? '';
+      return sha === ''
+        ? fail(`${repository.name} has no branch ${repository.baseBranch}`, false)
+        : ok(sha);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error), true);
+    }
+  }
+
   /**
    * A working copy of the task's base as a tar archive: the tree and a shallow history, with no
    * remote. What a sandbox starts from.
@@ -256,7 +275,7 @@ export class GitMirrors implements SourceRepository {
    * Fetches a change bundle into the mirror. A change is one commit whose parent is the base:
    * anything else is not a change the receiver takes.
    */
-  private async importChange(
+  async importChange(
     repository: RepositoryRef,
     baseSha: string,
     change: ChangeRef,
@@ -311,7 +330,8 @@ export class GitMirrors implements SourceRepository {
     return `refs/redline/base/${taskId}`;
   }
 
-  private mirrorOf(repository: RepositoryRef): string {
+  /** Where the mirror of `repository` is. */
+  mirrorOf(repository: RepositoryRef): string {
     const safe = (part: string) => part.replace(/[^A-Za-z0-9._-]/g, '_');
     return path.join(this.options.root, safe(repository.host), `${safe(repository.name)}.git`);
   }

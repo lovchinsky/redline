@@ -116,6 +116,32 @@ export class GitHubHost implements Forge {
     });
   }
 
+  /**
+   * Whether the task branches can go where the project publishes them: the repository itself,
+   * or the bot's fork of it. Names the repository the branches go to.
+   */
+  checkTarget(repository: RepositoryRef, publishing: PublishingProfile) {
+    return caught(async () => {
+      const target = this.headRepository(repository, publishing);
+      const answer = await this.options.api.call(
+        'GET',
+        `/repos/${target}`,
+        await this.options.auth.tokenFor(target),
+      );
+      if (target !== repository.name) {
+        const parent = field(field(answer.body, 'parent'), 'full_name');
+        if (parent !== repository.name) {
+          throw new GitHubError(
+            answer.status,
+            false,
+            `${target} is not a fork of ${repository.name}`,
+          );
+        }
+      }
+      return target;
+    });
+  }
+
   close(repository: RepositoryRef, change: ChangeRequestRef) {
     return caught(async () => {
       const token = await this.options.auth.tokenFor(repository.name);

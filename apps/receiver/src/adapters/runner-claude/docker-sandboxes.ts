@@ -74,6 +74,11 @@ export class DockerSandboxes implements SandboxProvider {
     return null;
   }
 
+  /** Whether Docker has the image, so a sandbox can start without pulling it. */
+  async hasImage(image: string): Promise<boolean> {
+    return (await this.call('GET', `/images/${encodeURIComponent(image)}/json`)).status === 200;
+  }
+
   async createVolume(name: string, labels: Readonly<Record<string, string>>): Promise<void> {
     const answer = await this.call('POST', '/volumes/create', { Name: name, Labels: labels });
     if (answer.status !== 201 && answer.status !== 200)

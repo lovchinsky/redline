@@ -92,6 +92,9 @@ jobs:
       REDLINE_TEST_DATABASE_URL: postgres://redline@localhost:5432/postgres
       # The runner tests run sandboxes on the runner's Docker Engine, under runc.
       REDLINE_TEST_DOCKER: /var/run/docker.sock
+      # The scanner's tests run the gitleaks the receiver's image ships.
+      REDLINE_TEST_GITLEAKS: /usr/local/bin/gitleaks
+      GITLEAKS_VERSION: 8.28.0
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -101,6 +104,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Storage, the job queue in one transaction, and the contract the extension relies on.
+      - name: Install gitleaks
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          cd /tmp && curl -fsSLO "$base/$archive" && curl -fsSLO "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " $archive\$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -
+          sudo tar -xzf "$archive" -C /usr/local/bin gitleaks
       - run: pnpm test:integration
       # The images the deployment builds (apps/receiver/deploy/compose.yaml).
       - run: docker build -f apps/receiver/Dockerfile -t redline-receiver .

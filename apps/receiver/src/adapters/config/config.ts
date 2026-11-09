@@ -57,7 +57,15 @@ const project = z.object({
   access: z.optional(z.union([z.literal('everyone'), z.object({ users: z.array(text) })])),
   repository: z.object({ host: text, name: text, baseBranch: z.optional(text) }),
   publishing: z.optional(
-    z.object({ target: z.optional(z.enum(['fork', 'branch'])), draft: z.optional(z.boolean()) }),
+    z.object({
+      target: z.optional(z.enum(['fork', 'branch'])),
+      draft: z.optional(z.boolean()),
+      /**
+       * With `target: branch`, the operator's word that the repository's CI gives `redline/**`
+       * branches no secrets: the agent's code runs there.
+       */
+      ciWithoutSecrets: z.optional(z.boolean()),
+    }),
   ),
   policy: z.optional(policy),
   execution: z.optional(execution),
@@ -109,6 +117,22 @@ const git = z.discriminatedUnion('kind', [
     kind: z.literal('local'),
     root: text,
     resultBaseUrl: z.optional(z.url({ protocol: /^https?$/ })),
+  }),
+  z.object({
+    kind: z.literal('github'),
+    /** The REST API: GitHub's, or a GitHub Enterprise Server's `https://host/api/v3`. */
+    api: z.optional(z.url({ protocol: /^https$/ })),
+    /** Where git reaches repositories. */
+    web: z.optional(z.url({ protocol: /^https$/ })),
+    auth: z.union([
+      z.object({ app: z.object({ id: z.union([text, positive]), privateKeyFile: text }) }),
+      z.object({ token: z.object({ file: text }) }),
+    ]),
+    /** The owner of the bot's forks, for projects that publish to a fork. */
+    fork: z.optional(z.object({ owner: text })),
+    /** Who the receiver's commits are by: the App's bot, or the token's account. */
+    commitAs: z.optional(z.object({ name: text, email: text })),
+    gitleaks: z.optional(text),
   }),
 ]);
 
@@ -184,6 +208,38 @@ type RawAgent = z.infer<typeof agent>;
 
 const SCRIPTED_RESULTS = 'https://git.example/redline/scripted/pull/';
 
+type RawGit = z.infer<typeof git>;
+
+const gitOf = (raw: RawGit): GitConfig => {
+  switch (raw.kind) {
+    case 'scripted':
+      return { kind: 'scripted', resultBaseUrl: raw.resultBaseUrl ?? SCRIPTED_RESULTS };
+    case 'local':
+      return {
+        kind: 'local',
+        root: raw.root,
+        resultBaseUrl: raw.resultBaseUrl ?? SCRIPTED_RESULTS,
+      };
+    case 'github':
+      return {
+        kind: 'github',
+        api: raw.api ?? 'https://api.github.com',
+        web: raw.web ?? 'https://github.com',
+        auth:
+          'app' in raw.auth
+            ? {
+                kind: 'app',
+                appId: String(raw.auth.app.id),
+                privateKeyFile: raw.auth.app.privateKeyFile,
+              }
+            : { kind: 'token', file: raw.auth.token.file },
+        forkOwner: raw.fork?.owner ?? null,
+        commitAs: raw.commitAs ?? { name: 'Redline', email: 'redline@users.noreply.github.com' },
+        gitleaks: raw.gitleaks ?? 'gitleaks',
+      };
+  }
+};
+
 const agentOf = (raw: RawAgent): AgentConfig =>
   raw.kind === 'scripted'
     ? { kind: 'scripted', durationMs: (raw.durationSeconds ?? 5) * 1000, asks: raw.asks ?? true }
@@ -230,7 +286,18 @@ export type AgentConfig =
 
 export type GitConfig =
   | { readonly kind: 'scripted'; readonly resultBaseUrl: string }
-  | { readonly kind: 'local'; readonly root: string; readonly resultBaseUrl: string };
+  | { readonly kind: 'local'; readonly root: string; readonly resultBaseUrl: string }
+  | {
+      readonly kind: 'github';
+      readonly api: string;
+      readonly web: string;
+      readonly auth:
+        | { readonly kind: 'app'; readonly appId: string; readonly privateKeyFile: string }
+        | { readonly kind: 'token'; readonly file: string };
+      readonly forkOwner: string | null;
+      readonly commitAs: { readonly name: string; readonly email: string };
+      readonly gitleaks: string;
+    };
 
 export interface GatewayConfig {
   readonly upstream: string;
@@ -382,6 +449,25 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
       }
     }
   }
+  if (raw.git.kind === 'github') {
+    for (const entry of raw.projects) {
+      if (entry.repository.host !== 'github' || !/^[\w.-]+\/[\w.-]+$/.test(entry.repository.name)) {
+        errors.push(
+          `projects.${entry.id}.repository: git is github, so its host is github and its name owner/repo`,
+        );
+      }
+      const target = entry.publishing?.target ?? 'fork';
+      if (target === 'fork' && raw.git.fork === undefined) {
+        errors.push(`projects.${entry.id}.publishing: it publishes to a fork; set git.fork.owner`);
+      }
+      if (target === 'branch' && entry.publishing?.ciWithoutSecrets !== true) {
+        errors.push(
+          `projects.${entry.id}.publishing: a branch of the repository runs its CI with the agent's code; ` +
+            'confirm that CI gives redline/** no secrets with ciWithoutSecrets: true, or publish to a fork',
+        );
+      }
+    }
+  }
   if (raw.models.credentials !== 'required' && raw.models.operator === undefined) {
     errors.push(
       `models.operator: tasks run with the operator's credential (credentials: ${raw.models.credentials}); say where it is`,
@@ -406,14 +492,7 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
         finished: raw.polling?.finishedSeconds ?? 3600,
       },
       agent: agentOf(raw.agent),
-      git:
-        raw.git.kind === 'scripted'
-          ? { kind: 'scripted', resultBaseUrl: raw.git.resultBaseUrl ?? SCRIPTED_RESULTS }
-          : {
-              kind: 'local',
-              root: raw.git.root,
-              resultBaseUrl: raw.git.resultBaseUrl ?? SCRIPTED_RESULTS,
-            },
+      git: gitOf(raw.git),
       modelAccess: {
         credentials: raw.models.credentials,
         operator: raw.models.operator?.kind ?? null,

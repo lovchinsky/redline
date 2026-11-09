@@ -110,7 +110,10 @@ without it, unless the configuration waives isolation by name (`isolation: unsaf
 token is shown once; with `https://redline.example.com` it goes on the extension's options page.
 `receiver --help` lists the operator's commands: users and tokens, `config check`, `tasks show`
 and `tasks cancel`. `agent: { kind: scripted }` runs the whole flow (a question, an answer, a
-change request) without a model or sandboxes.
+change request) without a model or sandboxes. With `git: github` the worker publishes pull requests through a
+GitHub App or a bot's token, to the bot's fork or to a confirmed branch, after gitleaks found no
+secret in the change; `receiver config check` then also checks every repository and publishing
+target, the sandboxes and their image.
 
 A bundle is `manifest.json` plus `context.md` (the summary an agent reads first, within a token
 budget per step), `more-context.md` (what did not fit), screenshots under `assets/` and detail
@@ -172,7 +175,8 @@ pnpm package    # Chrome Web Store zip, verified
 databases: `REDLINE_TEST_DATABASE_URL=postgres://user@localhost:5432/postgres`. The e2e tests
 start the real receiver against it, as well as the mock. `pnpm test:integration` also runs
 agent sandboxes: `REDLINE_TEST_DOCKER=/var/run/docker.sock` names the Docker Engine. Its test
-image is made from this machine's own `sh` and `node`; nothing is pulled.
+image is made from this machine's own `sh` and `node`; nothing is pulled. The secret scanner's
+test runs gitleaks: `REDLINE_TEST_GITLEAKS=/usr/local/bin/gitleaks`.
 
 CI runs all of these. The store package is the exact build the e2e tests ran on.
 
