@@ -48,7 +48,7 @@ const fakeGitHub = (
   };
   return {
     calls,
-    api: new GitHubApi({ url: 'https://api.github.test', fetch: fetchStub as typeof fetch }),
+    api: new GitHubApi({ url: 'https://api.github.test', fetch: fetchStub }),
   };
 };
 
