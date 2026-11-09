@@ -76,8 +76,16 @@ describe('decideOutcome', () => {
       }),
     ).toMatchObject({ kind: 'failed', reason: 'infra' });
     expect(
-      decideOutcome({ end: { ...apiError, status: 400 }, change: null, gateway: null }),
+      decideOutcome({
+        end: { ...apiError, status: 400 },
+        change: null,
+        gateway: { state: 'active' },
+      }),
     ).toMatchObject({ kind: 'failed', reason: 'agent-failed' });
+    // A gateway that could not be asked may have refused the run in a way it waits out.
+    expect(
+      decideOutcome({ end: { ...apiError, status: 403 }, change: null, gateway: null }),
+    ).toMatchObject({ kind: 'failed', reason: 'infra' });
   });
 
   it('names the limits a run ran into', () => {

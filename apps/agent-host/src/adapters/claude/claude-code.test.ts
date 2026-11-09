@@ -116,6 +116,7 @@ const request = (start: SessionStart, questionsLeft = 1): SessionRequest => ({
   budgetUsd: null,
   judge: () => ({ allow: true }),
   onActivity: () => undefined,
+  onLife: () => undefined,
 });
 
 describe('Claude Code with ask_requester', () => {

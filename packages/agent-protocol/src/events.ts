@@ -20,6 +20,8 @@ export const runEventSchema = z.discriminatedUnion('kind', [
     tool: z.string(),
     reason: z.string(),
   }),
+  /** Something the run could not do that did not end it, e.g. keep its work for a resume. */
+  z.object({ kind: z.literal('warning'), at: z.iso.datetime(), text: z.string() }),
   z.object({ kind: z.literal('ended'), at: z.iso.datetime(), result: z.string() }),
 ]);
 

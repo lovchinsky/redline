@@ -13,7 +13,7 @@ import * as z from 'zod/mini';
 import { ASK_TOOL, GO_ON, askTurn } from '../../domain/asking';
 import type { PromptPart } from '../../domain/prompt';
 import type { SessionEnd, SessionResult } from '../../domain/session';
-import type { AgentSession, SessionRequest } from '../../ports/agent';
+import { isStopReason, type AgentSession, type SessionRequest } from '../../ports/agent';
 import { ASKING_VARIABLE, type Asking } from './ask-tool';
 
 /**
@@ -29,7 +29,7 @@ const REPORT_SCHEMA = z.toJSONSchema(agentReportSchema, { target: 'draft-7' });
 const targetOf = (input: unknown): string => {
   if (typeof input !== 'object' || input === null) return '';
   const fields = input as Record<string, unknown>;
-  for (const key of ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'question']) {
+  for (const key of ['file_path', 'path', 'pattern', 'command', 'question']) {
     const value = fields[key];
     if (typeof value === 'string') return value.split('\n')[0] ?? '';
   }
@@ -39,6 +39,13 @@ const targetOf = (input: unknown): string => {
 const endOf = (result: SDKResultMessage): SessionEnd => {
   switch (result.subtype) {
     case 'success': {
+      if (result.terminal_reason === 'tool_deferred_unavailable') {
+        return {
+          kind: 'error',
+          detail:
+            'The resumed session could not run the call it waited on: ask_requester was not there',
+        };
+      }
       const deferred = result.deferred_tool_use;
       if (deferred !== undefined && !result.is_error) {
         return deferred.name === ASK_TOOL.qualified
@@ -132,6 +139,7 @@ export class ClaudeSession implements AgentSession {
     try {
       for await (const item of session) {
         sessionId = item.session_id ?? sessionId;
+        request.onLife();
         this.observe(item, request);
         if (item.type === 'result') {
           result = item;
@@ -152,9 +160,11 @@ export class ClaudeSession implements AgentSession {
       session.close();
     }
     if (result === null) {
-      // Stopped from outside: whoever aborted knows why.
+      const reason: unknown = signal.reason;
       return {
-        end: { kind: 'error', detail: 'The session ended without a result' },
+        end: isStopReason(reason)
+          ? { kind: 'stopped', why: reason }
+          : { kind: 'error', detail: 'The session ended without a result' },
         sessionId,
         usage: { turns: 0, durationMs: Date.now() - started, costUsd: 0 },
       };
@@ -216,12 +226,19 @@ export class ClaudeSession implements AgentSession {
       hooks: [
         (input) => {
           if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
-          const turn = askTurn(input.tool_use_id, asking);
+          const turn = askTurn(input.tool_use_id, input.tool_input, asking);
           return Promise.resolve({
-            hookSpecificOutput: {
-              hookEventName: 'PreToolUse',
-              permissionDecision: turn.kind === 'pause' ? 'defer' : 'allow',
-            },
+            hookSpecificOutput:
+              turn.kind === 'refuse'
+                ? {
+                    hookEventName: 'PreToolUse',
+                    permissionDecision: 'deny',
+                    permissionDecisionReason: turn.reason,
+                  }
+                : {
+                    hookEventName: 'PreToolUse',
+                    permissionDecision: turn.kind === 'pause' ? 'defer' : 'allow',
+                  },
           });
         },
       ],

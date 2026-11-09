@@ -14,7 +14,6 @@ describe('judgeToolUse', () => {
     ['Write', { file_path: '/etc/passwd' }, false],
     ['Write', { file_path: '/workspace/../etc/passwd' }, false],
     ['Edit', { file_path: '/workspace/.git/config' }, false],
-    ['NotebookEdit', { notebook_path: '/workspace/CLAUDE.md' }, false],
     ['Read', { file_path: '/workspace/CLAUDE.md' }, true],
     ['Bash', { command: 'cat CLAUDE.md' }, true],
   ])('%s %j allowed: %s', (tool, input, allowed) => {

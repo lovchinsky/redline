@@ -16,6 +16,12 @@ export type SessionStart =
   /** Answers the deferred call the session waits on; with none, the session is told to go on. */
   | { readonly kind: 'resume'; readonly sessionId: string; readonly answer: PendingAnswer | null };
 
+/** Why agent-host stops a session: it ran out of time, or showed no sign of life. */
+export type StopReason = 'timeout' | 'stalled';
+
+export const isStopReason = (reason: unknown): reason is StopReason =>
+  reason === 'timeout' || reason === 'stalled';
+
 export interface SessionRequest {
   readonly model: string;
   /** How the agent works, on top of the agent's own system prompt. */
@@ -27,14 +33,19 @@ export interface SessionRequest {
   readonly budgetUsd: number | null;
   /** Asked before every tool call; a denied call is refused and the agent told why. */
   readonly judge: (tool: string, input: unknown) => ToolDecision;
-  /** Called on everything the agent does: the run's journal and its sign of life. */
+  /** Called on what the agent does that is worth a line of the run's journal. */
   readonly onActivity: (activity: SessionActivity) => void;
+  /** Called on everything the session sends, progress included: its sign of life. */
+  readonly onLife: () => void;
 }
 
 /** One session of the coding agent in the workspace, from the first message to its report. */
 export interface AgentSession {
-  /** Runs until the agent ends its turn or `signal` aborts; never throws for the agent's failures. */
-  run(request: SessionRequest, signal: AbortSignal): Promise<SessionResult>;
+  /**
+   * Runs until the agent ends its turn or `stop` aborts, with a `StopReason` as its reason: a
+   * session stopped before its result ends `stopped`. Never throws for the agent's failures.
+   */
+  run(request: SessionRequest, stop: AbortSignal): Promise<SessionResult>;
   /** Whether the files of session `sessionId` are here, so that it can be resumed. */
   stored(sessionId: string): Promise<boolean>;
 }

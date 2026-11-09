@@ -74,6 +74,7 @@ const request = (
   budgetUsd: null,
   judge: (tool) => (tool === 'Write' ? { allow: false, reason: 'protected' } : { allow: true }),
   onActivity: (activity) => activities.push(activity),
+  onLife: () => undefined,
 });
 
 const session = (fake: typeof query) =>
@@ -276,6 +277,16 @@ describe('ClaudeSession', () => {
       const start: SessionStart = { kind: 'resume', sessionId: 'session-1', answer: null };
       await session(fake).run(request([], { start }), new AbortController().signal);
       expect(calls[0]?.prompt.map((message) => message.message.content)).toEqual([GO_ON]);
+    });
+  });
+
+  it('ends a session stopped before its result with the reason it was stopped for', async () => {
+    const { fake } = scripted([]);
+    const stop = new AbortController();
+    stop.abort('stalled');
+    expect((await session(fake).run(request(), stop.signal)).end).toEqual({
+      kind: 'stopped',
+      why: 'stalled',
     });
   });
 

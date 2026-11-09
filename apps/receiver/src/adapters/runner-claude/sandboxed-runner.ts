@@ -467,6 +467,13 @@ export class SandboxedClaudeRunner implements AgentRunner {
     const parsed = outcomeSchema.safeParse(document);
     if (!parsed.success || parsed.data.runId !== runId)
       return infra('agent-host left an outcome the receiver cannot read');
+    // The SDK's own estimate, beside what the gateway metered: the two are compared, not added.
+    this.deps.logger.info('The run ended', {
+      runId,
+      result: parsed.data.result.kind,
+      turns: parsed.data.usage.turns,
+      estimatedCostUsd: parsed.data.usage.costUsd,
+    });
     const bundle = files.get(path(RUN_OUTPUTS.change));
     const stored: StoredOutputs = {
       change:

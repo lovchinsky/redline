@@ -12,7 +12,7 @@ import { judgeToolUse } from '../domain/guard';
 import { decideOutcome, pauses } from '../domain/outcome';
 import { composePrompt, workingRules } from '../domain/prompt';
 import type { SessionEnd, SessionResult } from '../domain/session';
-import type { AgentSession, SessionActivity, SessionStart } from '../ports/agent';
+import type { AgentSession, SessionActivity, SessionStart, StopReason } from '../ports/agent';
 import type { Gateway, RunFiles, Workspace } from '../ports/run';
 import type { Clock, Timers } from '../ports/system';
 
@@ -35,6 +35,9 @@ interface Concluded {
  * own failures included.
  */
 export class RunAgent {
+  /** The journal's lines written so far: each waits for the one before. */
+  private journaled: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly deps: {
       readonly files: RunFiles;
@@ -58,7 +61,9 @@ export class RunAgent {
         usage: NO_USAGE,
       };
     }
-    await this.record({ kind: 'ended', at: this.deps.clock.iso(), result: concluded.result.kind });
+    this.record({ kind: 'ended', at: this.deps.clock.iso(), result: concluded.result.kind });
+    // The journal is complete before the outcome says the run is over.
+    await this.journaled;
     await this.deps.files.conclude({
       protocol: AGENT_PROTOCOL_VERSION,
       runId: brief.runId,
@@ -87,14 +92,21 @@ export class RunAgent {
    * starts a new session, told the exchanges so far.
    */
   private async startOf(brief: Brief): Promise<SessionStart> {
+    const anew: SessionStart = { kind: 'new', prompt: composePrompt(brief) };
     const { resume } = brief;
-    if (resume === null || !(await this.deps.session.stored(resume.sessionId))) {
-      return { kind: 'new', prompt: composePrompt(brief) };
+    if (resume === null) return anew;
+    if (!(await this.deps.session.stored(resume.sessionId))) {
+      this.warn('The paused session’s files are not here: the run starts over');
+      return anew;
+    }
+    const asked = brief.exchanges.at(-1);
+    if (resume.deferredCall !== null && asked === undefined) {
+      this.warn('The paused session waits on a question the brief does not hold: it starts over');
+      return anew;
     }
     if (resume.workHead !== null) {
       await this.deps.workspace.restoreWork(brief.baseSha, resume.workHead);
     }
-    const asked = brief.exchanges.at(-1);
     return {
       kind: 'resume',
       sessionId: resume.sessionId,
@@ -117,7 +129,8 @@ export class RunAgent {
         deferredCall: end.kind === 'asked' ? end.call : null,
         workHead: work?.head ?? null,
       };
-    } catch {
+    } catch (error) {
+      this.warn(`The work so far could not be kept, so a later run starts over: ${String(error)}`);
       return null;
     }
   }
@@ -125,20 +138,21 @@ export class RunAgent {
   /** Runs the session, stopping it when the run takes too long or the agent goes quiet. */
   private async supervised(brief: Brief, start: SessionStart): Promise<SessionResult> {
     const controller = new AbortController();
-    const stopped: { why: 'timeout' | 'stalled' | null } = { why: null };
-    const stop = (why: 'timeout' | 'stalled') => () => {
-      stopped.why ??= why;
-      controller.abort();
+    // The first reason given is the one the session ends with.
+    const stop = (why: StopReason) => () => {
+      if (!controller.signal.aborted) controller.abort(why);
     };
     const cancelTimeout = this.deps.timers.after(brief.limits.timeoutMs, stop('timeout'));
     let cancelStall = this.deps.timers.after(brief.limits.stallTimeoutMs, stop('stalled'));
-    const onActivity = (activity: SessionActivity) => {
+    const onLife = () => {
       cancelStall();
       cancelStall = this.deps.timers.after(brief.limits.stallTimeoutMs, stop('stalled'));
-      void this.record(this.eventOf(activity));
+    };
+    const onActivity = (activity: SessionActivity) => {
+      this.record(this.eventOf(activity));
     };
     try {
-      const result = await this.deps.session.run(
+      return await this.deps.session.run(
         {
           model: brief.model,
           rules: workingRules(brief),
@@ -148,12 +162,10 @@ export class RunAgent {
           budgetUsd: brief.limits.budgetUsd,
           judge: (tool, input) => judgeToolUse(tool, input, brief.policy.protectedPaths),
           onActivity,
+          onLife,
         },
         controller.signal,
       );
-      return stopped.why === null
-        ? result
-        : { ...result, end: { kind: 'stopped', why: stopped.why } };
     } finally {
       cancelTimeout();
       cancelStall();
@@ -174,12 +186,17 @@ export class RunAgent {
     }
   }
 
-  /** The journal is a trace: a line that cannot be written does not end the run. */
-  private async record(event: RunEvent): Promise<void> {
-    try {
-      await this.deps.files.journal(event);
-    } catch {
-      // The outcome, written last, is what the receiver acts on.
-    }
+  private warn(text: string): void {
+    this.record({ kind: 'warning', at: this.deps.clock.iso(), text: clip(text) });
+  }
+
+  /**
+   * Appends to the journal, line after line in the order they happen. The journal is a trace: a
+   * line that cannot be written does not end the run.
+   */
+  private record(event: RunEvent): void {
+    this.journaled = this.journaled
+      .then(() => this.deps.files.journal(event))
+      .catch(() => undefined);
   }
 }

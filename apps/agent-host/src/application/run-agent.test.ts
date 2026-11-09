@@ -10,7 +10,7 @@ import {
   ScriptedSession,
   fixedClock,
 } from './testing/fakes';
-import type { SessionRequest } from '../ports/agent';
+import { isStopReason, type SessionRequest } from '../ports/agent';
 import { RunAgent } from './run-agent';
 
 const usage = { turns: 4, durationMs: 5000, costUsd: 0.8 };
@@ -52,7 +52,13 @@ const started = () => new Promise<void>((resolve) => setImmediate(resolve));
 const hanging = (_request: SessionRequest, signal: AbortSignal) =>
   new Promise<SessionResult>((resolve) => {
     signal.addEventListener('abort', () => {
-      resolve({ end: { kind: 'error', detail: 'aborted' }, sessionId: 'session-1', usage });
+      // As a session stopped from outside ends: with the reason it was stopped for.
+      const why: unknown = signal.reason;
+      resolve({
+        end: isStopReason(why) ? { kind: 'stopped', why } : { kind: 'error', detail: 'aborted' },
+        sessionId: 'session-1',
+        usage,
+      });
     });
   });
 
@@ -116,7 +122,8 @@ describe('RunAgent', () => {
     const running = agent.execute();
     await started();
     const stall = sampleBrief().limits.stallTimeoutMs;
-    (request as SessionRequest | null)?.onActivity({ kind: 'turn', text: 'Looking at the cards' });
+    // Progress of a long command is a sign of life, though it is not worth a journal line.
+    (request as SessionRequest | null)?.onLife();
     expect([...timers.pending.values()].filter((timer) => timer.ms === stall)).toHaveLength(1);
     timers.fire(sampleBrief().limits.timeoutMs);
     await running;
@@ -212,6 +219,7 @@ describe('RunAgent', () => {
       await agent.execute();
       expect(files.outcome?.result.kind).toBe('question');
       expect(files.outcome?.pause).toBeNull();
+      expect(files.events.map((event) => event.kind)).toEqual(['warning', 'ended']);
     });
   });
 

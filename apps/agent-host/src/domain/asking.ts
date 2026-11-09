@@ -9,7 +9,7 @@ import {
 export const ASK_TOOL = {
   server: 'redline',
   name: 'ask_requester',
-  /** The name Claude Code gives the tool of an in-process server. */
+  /** The name Claude Code gives the tool of the server `redline`. */
   qualified: 'mcp__redline__ask_requester',
   description: [
     'Ask the person who requested the change one question, and wait for the answer.',
@@ -33,7 +33,9 @@ export type AskTurn =
   /** The run ends with the question and waits for the answer. */
   | { readonly kind: 'pause' }
   /** The call returns at once with `text`. */
-  | { readonly kind: 'reply'; readonly text: string; readonly isError: boolean };
+  | { readonly kind: 'reply'; readonly text: string; readonly isError: boolean }
+  /** The question cannot be shown to the requester: the agent is told why, and asks again. */
+  | { readonly kind: 'refuse'; readonly reason: string };
 
 const NO_QUESTIONS_LEFT =
   'You cannot ask more questions in this task. Decide yourself and record the assumption in your report.';
@@ -41,19 +43,28 @@ const NO_QUESTIONS_LEFT =
 const ASK_ALONE =
   'The question was not asked: call ask_requester alone, in a turn of its own, with no other tool calls.';
 
+const UNSHOWABLE = [
+  'The question was not asked: it needs a question in plain words of at most',
+  `${String(QUESTION_LIMITS.text)} characters, and at most ${String(QUESTION_LIMITS.options)}`,
+  `suggested answers of at most ${String(QUESTION_LIMITS.option)} characters each.`,
+].join(' ');
+
 /**
- * Decides a call of `ask_requester`. The call the session waited on gets its answer; with no
- * questions left, the agent is told to decide itself; any other call pauses the run. A null
- * `call` is one whose id is unknown, which is never the call the session waited on.
+ * Decides a call of `ask_requester` with `input`. The call the session waited on gets its
+ * answer; with no questions left, the agent is told to decide itself; a question the requester
+ * could not be shown is refused before it pauses anything; any other call pauses the run. A
+ * null `call` is one whose id is unknown, which is never the call the session waited on.
  */
 export const askTurn = (
   call: string | null,
+  input: unknown,
   context: { readonly pending: PendingAnswer | null; readonly questionsLeft: number },
 ): AskTurn => {
   if (call !== null && context.pending?.call === call)
     return { kind: 'reply', text: context.pending.text, isError: false };
   if (context.questionsLeft === 0)
     return { kind: 'reply', text: NO_QUESTIONS_LEFT, isError: false };
+  if (questionOf(input) === null) return { kind: 'refuse', reason: UNSHOWABLE };
   return { kind: 'pause' };
 };
 
@@ -64,10 +75,18 @@ export const askTurn = (
  */
 export const askReply = (
   call: string | null,
+  input: unknown,
   context: { readonly pending: PendingAnswer | null; readonly questionsLeft: number },
 ): Extract<AskTurn, { kind: 'reply' }> => {
-  const turn = askTurn(call, context);
-  return turn.kind === 'reply' ? turn : { kind: 'reply', text: ASK_ALONE, isError: true };
+  const turn = askTurn(call, input, context);
+  switch (turn.kind) {
+    case 'reply':
+      return turn;
+    case 'refuse':
+      return { kind: 'reply', text: turn.reason, isError: true };
+    case 'pause':
+      return { kind: 'reply', text: ASK_ALONE, isError: true };
+  }
 };
 
 /** The answer a resumed session gets for the question it stopped at: the last exchange's. */

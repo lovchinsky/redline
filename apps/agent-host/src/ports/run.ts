@@ -21,6 +21,6 @@ export interface Workspace {
 
 /** The gateway, asked about the run's own grant. */
 export interface Gateway {
-  /** Why the gateway last refused the run, or null when it cannot be reached. */
+  /** Why the gateway last refused the run, or null when it could not be asked. */
   grantStatus(): Promise<GrantStatus | null>;
 }

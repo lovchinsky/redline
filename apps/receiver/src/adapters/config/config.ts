@@ -1,6 +1,7 @@
 import { parse as parseYaml } from 'yaml';
 import * as z from 'zod/mini';
 import { DEFAULT_CHANGE_POLICY, type ChangePolicyRules } from '../../domain/change-policy';
+import { isEgressRule } from '../../domain/egress';
 import { ProjectId, UserId } from '../../domain/ids';
 import type { TaskPolicy } from '../../domain/policy';
 import type { CredentialKind } from '../../domain/grant';
@@ -32,7 +33,13 @@ const execution = z.object({
   stallMinutes: z.optional(positive),
   budgetUsd: z.optional(z.number().check(z.positive())),
   budgetTokens: z.optional(positive),
-  setupHosts: z.optional(z.array(text)),
+  setupHosts: z.optional(
+    z.array(
+      z
+        .string()
+        .check(z.refine(isEgressRule, 'a host name, or *. and a domain of two labels or more')),
+    ),
+  ),
   setupSecrets: z.optional(
     z.record(z.string().check(z.regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/, 'a file name')), text),
   ),

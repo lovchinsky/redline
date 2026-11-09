@@ -56,8 +56,8 @@ export const serveAskTool = async (asking: Asking): Promise<void> => {
           .describe('Suggested answers the requester may pick from'),
       },
     },
-    (_input, extra) => {
-      const reply = askReply(callIdOf(extra._meta), asking);
+    (input, extra) => {
+      const reply = askReply(callIdOf(extra._meta), input, asking);
       return {
         content: [{ type: 'text' as const, text: reply.text }],
         ...(reply.isError ? { isError: true } : {}),

@@ -49,7 +49,10 @@ defaults:
     setupHosts: [registry.npmjs.org]
     # Secrets of private registries, by name: files the worker reads, which the project's setup
     # finds as $REDLINE_SECRETS/<name> (e.g. `NPM_TOKEN=$(cat $REDLINE_SECRETS/npm) pnpm install`).
-    # The agent never sees them.
+    # They are mounted in the setup only, and its registry grant ends with it. The setup writes
+    # the workspace the agent then works in: an install that writes a token into it (an .npmrc
+    # with the token in it) hands the token to the agent. Use install commands that read it
+    # from the environment.
     # setupSecrets: { npm: /run/secrets/npm-token }
 
 projects:

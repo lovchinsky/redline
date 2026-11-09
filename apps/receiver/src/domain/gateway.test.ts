@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EGRESS_PORT, egressAllows, isPublicAddress } from './egress';
+import { EGRESS_PORT, egressAllows, isEgressRule, isPublicAddress } from './egress';
 import { judgeModelRequest } from './model-request';
 import { admits, costOf, countedTokens, reservationOf } from './usage';
 
@@ -119,6 +119,15 @@ describe('egress', () => {
     expect(EGRESS_PORT).toBe(443);
   });
 
+  it('takes on a list only hosts, and wildcards narrower than a top-level domain', () => {
+    for (const rule of ['registry.npmjs.org', '*.pythonhosted.org', 'npm.pkg.github.com']) {
+      expect(isEgressRule(rule)).toBe(true);
+    }
+    for (const rule of ['*.com', '*', 'com', '*.*.org', 'https://registry.npmjs.org', '']) {
+      expect(isEgressRule(rule)).toBe(false);
+    }
+  });
+
   it.each([
     ['104.16.1.35', true],
     ['10.0.0.5', false],
@@ -134,6 +143,12 @@ describe('egress', () => {
     ['fe80::1', false],
     ['::ffff:10.0.0.1', false],
     ['::ffff:104.16.1.35', true],
+    ['192.0.2.10', false],
+    ['198.51.100.7', false],
+    ['203.0.113.9', false],
+    ['2001:db8::1', false],
+    ['2002:a00:1::1', false],
+    ['2001:0:4136:e378::1', false],
     ['not-an-address', false],
   ])('%s is public: %s', (address, expected) => {
     expect(isPublicAddress(address)).toBe(expected);

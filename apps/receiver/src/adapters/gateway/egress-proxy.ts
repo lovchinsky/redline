@@ -50,6 +50,9 @@ export interface EgressProxyOptions {
  * sandbox has no resolver, and a name that resolves to any address inside the deployment is
  * refused outright.
  */
+/** How long a tunnel may carry nothing before it is closed. */
+const TUNNEL_IDLE_MS = 5 * 60_000;
+
 export const createEgressProxy = (options: EgressProxyOptions): Server => {
   const resolve =
     options.resolve ??
@@ -96,6 +99,11 @@ export const createEgressProxy = (options: EgressProxyOptions): Server => {
         return;
       }
       const upstream = open(addresses[0] ?? '', target.port);
+      // A tunnel that carries nothing for a while is over: a download that stalls ends with it.
+      upstream.setTimeout(TUNNEL_IDLE_MS, () => {
+        upstream.destroy();
+        client.destroy();
+      });
       upstream.once('connect', () => {
         client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         if (head.byteLength > 0) upstream.write(head);

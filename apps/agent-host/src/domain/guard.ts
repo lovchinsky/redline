@@ -4,12 +4,10 @@ import { firstMatch } from '@redline/path-patterns';
 export type ToolDecision =
   { readonly allow: true } | { readonly allow: false; readonly reason: string };
 
-/** Tools that write a file, and the input field naming it. */
+/** The agent's tools that write a file (`TOOLS` of its session), and the input naming it. */
 const WRITES: Readonly<Record<string, string>> = {
   Write: 'file_path',
   Edit: 'file_path',
-  MultiEdit: 'file_path',
-  NotebookEdit: 'notebook_path',
 };
 
 const allow: ToolDecision = { allow: true };

@@ -69,7 +69,15 @@ export const decideOutcome = (input: {
         : { kind: 'question', question };
     }
     case 'api-error':
-      if (gateway?.state === 'refused') return refused(gateway);
+      if (gateway === null) {
+        // Why is not known: the gateway may have refused the run in a way it waits out (the
+        // subscription's limit, a credential), so the run may go again.
+        return failed(
+          'infra',
+          `A model request failed, and the gateway could not say why: ${end.detail}`,
+        );
+      }
+      if (gateway.state === 'refused') return refused(gateway);
       // The gateway did not refuse it: the model or the network failed.
       return failed(
         end.status !== null && end.status >= 500 ? 'infra' : 'agent-failed',
