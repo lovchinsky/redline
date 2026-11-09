@@ -4,6 +4,8 @@ import { ProjectId } from '../../domain/ids';
 import { ConfiguredProjects, parseConfig } from './config';
 
 const minimal = `
+agent: { kind: scripted }
+git: { kind: scripted }
 models:
   credentials: required
 projects:
@@ -20,6 +22,7 @@ describe('parseConfig', () => {
       credentials: 'required',
       acceptRequesterSubscriptions: false,
     });
+    expect(parsed.value.agent).toEqual({ kind: 'scripted', durationMs: 5000, asks: true });
     expect(parsed.value.intake).toEqual({
       bundleBytes: 50 * 1024 * 1024,
       files: 500,
@@ -39,6 +42,8 @@ describe('parseConfig', () => {
 
   it('merges defaults under each project, and adds protections without dropping the default ones', () => {
     const parsed = parseConfig(`
+agent: { kind: scripted }
+git: { kind: scripted }
 models: { credentials: managed }
 defaults:
   policy: { maxQuestions: 1 }
@@ -57,6 +62,8 @@ projects:
     ]);
 
     const fixed = parseConfig(`
+agent: { kind: scripted }
+git: { kind: scripted }
 models: { credentials: managed }
 defaults:
   policy: { maxQuestions: 1 }
@@ -81,6 +88,8 @@ projects:
 
   it('reports every problem with where it is', () => {
     const parsed = parseConfig(`
+agent: { kind: scripted }
+git: { kind: scripted }
 models: { credentials: sometimes }
 projects:
   - id: Acme Web

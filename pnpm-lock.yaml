@@ -169,6 +169,9 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
+      '@redline/contract-conformance':
+        specifier: workspace:*
+        version: link:../../tools/contract-conformance
       '@types/node':
         specifier: 22.20.5
         version: 22.20.5
@@ -426,6 +429,25 @@ importers:
       vitest:
         specifier: 4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(@vitest/browser-playwright@4.1.12)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+
+  tools/contract-conformance:
+    dependencies:
+      '@redline/contract':
+        specifier: workspace:*
+        version: link:../../packages/contract
+      vitest:
+        specifier: 4.1.12
+        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(@vitest/browser-playwright@4.1.12)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+    devDependencies:
+      '@redline/mock-receiver':
+        specifier: workspace:*
+        version: link:../mock-receiver
+      '@types/node':
+        specifier: 22.20.5
+        version: 22.20.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 
   tools/eval:
     dependencies:

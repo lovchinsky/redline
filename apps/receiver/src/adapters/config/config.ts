@@ -59,7 +59,33 @@ const project = z.object({
   changePolicy: z.optional(changePolicy),
 });
 
+/** The agent: a scripted one (no model, no sandbox) until the sandboxed runner is configured. */
+const agent = z.object({
+  kind: z.literal('scripted'),
+  durationSeconds: z.optional(z.number().check(z.nonnegative())),
+  asks: z.optional(z.boolean()),
+});
+
+/** Where changes are published: a simulated git host until a real one is configured. */
+const git = z.object({
+  kind: z.literal('scripted'),
+  resultBaseUrl: z.optional(z.url({ protocol: /^https?$/ })),
+});
+
+const seconds = z.int().check(z.positive());
+
 const configSchema = z.object({
+  agent,
+  /** How soon the extension asks again about a task, by what the task is doing. */
+  polling: z.optional(
+    z.object({
+      queuedSeconds: z.optional(seconds),
+      workingSeconds: z.optional(seconds),
+      waitingSeconds: z.optional(seconds),
+      finishedSeconds: z.optional(seconds),
+    }),
+  ),
+  git,
   models: z.object({
     credentials: z.enum(['managed', 'required', 'optional']),
     acceptRequesterSubscriptions: z.optional(z.boolean()),
@@ -95,6 +121,18 @@ export interface IntakeLimits {
 }
 
 export interface ReceiverConfig {
+  readonly polling: {
+    readonly queued: number;
+    readonly working: number;
+    readonly waiting: number;
+    readonly finished: number;
+  };
+  readonly agent: {
+    readonly kind: 'scripted';
+    readonly durationMs: number;
+    readonly asks: boolean;
+  };
+  readonly git: { readonly kind: 'scripted'; readonly resultBaseUrl: string };
   readonly modelAccess: ModelAccessPolicy;
   readonly intake: IntakeLimits;
   readonly worker: { readonly runSlots: number; readonly runsPerProject: number };
@@ -218,6 +256,21 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
   return {
     ok: true,
     value: {
+      polling: {
+        queued: raw.polling?.queuedSeconds ?? 30,
+        working: raw.polling?.workingSeconds ?? 60,
+        waiting: raw.polling?.waitingSeconds ?? 60,
+        finished: raw.polling?.finishedSeconds ?? 3600,
+      },
+      agent: {
+        kind: raw.agent.kind,
+        durationMs: (raw.agent.durationSeconds ?? 5) * 1000,
+        asks: raw.agent.asks ?? true,
+      },
+      git: {
+        kind: raw.git.kind,
+        resultBaseUrl: raw.git.resultBaseUrl ?? 'https://git.example/redline/scripted/pull/',
+      },
       modelAccess: {
         credentials: raw.models.credentials,
         acceptRequesterSubscriptions: raw.models.acceptRequesterSubscriptions ?? false,

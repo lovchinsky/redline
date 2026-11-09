@@ -17,7 +17,7 @@ import type { BlobStore } from '../../ports/bundles';
 import type { RequestError, Requests } from '../../ports/requests';
 import type { Clock, Logger } from '../../ports/system';
 import { receiveBundle, type IntakeLimits } from './intake';
-import { present } from './presenter';
+import { present, type Polling } from './presenter';
 import { SubmissionLimiter } from './submission-limiter';
 
 export interface ApiDeps {
@@ -25,6 +25,7 @@ export interface ApiDeps {
   readonly identity: Identity;
   readonly blobs: BlobStore;
   readonly intake: IntakeLimits & { readonly submissionsPerMinute: number };
+  readonly polling: Polling;
   readonly clock: Clock;
   readonly logger: Logger;
 }
@@ -56,11 +57,12 @@ const CODE_OF: Record<RequestError['code'], string> = {
 };
 
 const respond = (
+  polling: Polling,
   reply: FastifyReply,
   result: { ok: true; value: Task } | { ok: false; error: RequestError },
 ) =>
   result.ok
-    ? reply.send(present(result.value))
+    ? reply.send(present(result.value, polling))
     : refuse(reply, STATUS_OF[result.error.code], CODE_OF[result.error.code], result.error.message);
 
 type CredentialHeader =
@@ -173,7 +175,7 @@ export const buildApi = async (deps: ApiDeps): Promise<FastifyInstance> => {
     if (existing !== null) {
       // A repeat of a submission already taken: its body is not needed, but is read off the wire.
       for await (const part of request.parts()) if (part.type === 'file') part.file.resume();
-      return reply.send(present(existing));
+      return reply.send(present(existing, deps.polling));
     }
     const retryAfter = limiter.take(user.id);
     if (retryAfter !== null) {
@@ -186,6 +188,7 @@ export const buildApi = async (deps: ApiDeps): Promise<FastifyInstance> => {
     const received = await receiveBundle(request.parts(), deps.blobs, deps.intake);
     if (!received.ok) return refuse(reply, received.status, received.code, received.message);
     return respond(
+      deps.polling,
       reply,
       await deps.requests.submit({
         requester: user,
@@ -203,6 +206,7 @@ export const buildApi = async (deps: ApiDeps): Promise<FastifyInstance> => {
       const credential = credentialOf(request);
       if (!credential.ok) return refuse(reply, 400, 'invalid-request', credential.message);
       return respond(
+        deps.polling,
         reply,
         await deps.requests.state(
           userOf(request),
@@ -222,6 +226,7 @@ export const buildApi = async (deps: ApiDeps): Promise<FastifyInstance> => {
       if (!body.success)
         return refuse(reply, 400, 'invalid-request', 'The reply needs questionId and text');
       return respond(
+        deps.polling,
         reply,
         await deps.requests.reply(
           userOf(request),

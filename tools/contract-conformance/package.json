@@ -1,0 +1,21 @@
+{
+  "name": "@redline/contract-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@redline/contract": "workspace:*",
+    "vitest": "4.1.12"
+  },
+  "devDependencies": {
+    "@redline/mock-receiver": "workspace:*",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

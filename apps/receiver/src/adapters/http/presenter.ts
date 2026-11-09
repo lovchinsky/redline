@@ -2,15 +2,30 @@ import type { RemoteStatus, TaskStateResponse } from '@redline/contract';
 import { openExchange } from '../../domain/exchange';
 import type { Task } from '../../domain/task';
 
-/** How soon the extension should ask again: often while things move, rarely once they stop. */
-const POLL_AFTER_SEC: Record<Task['state']['kind'], number> = {
-  queued: 30,
-  running: 60,
-  'awaiting-reply': 60,
-  publishing: 60,
-  published: 3600,
-  failed: 3600,
-  cancelled: 3600,
+/** How soon the extension should ask again, in seconds: often while things move, rarely after. */
+export interface Polling {
+  readonly queued: number;
+  readonly working: number;
+  readonly waiting: number;
+  readonly finished: number;
+}
+
+export const DEFAULT_POLLING: Polling = { queued: 30, working: 60, waiting: 60, finished: 3600 };
+
+const pollAfter = (task: Task, polling: Polling): number => {
+  switch (task.state.kind) {
+    case 'queued':
+      return polling.queued;
+    case 'running':
+    case 'publishing':
+      return polling.working;
+    case 'awaiting-reply':
+      return polling.waiting;
+    case 'published':
+    case 'failed':
+    case 'cancelled':
+      return polling.finished;
+  }
 };
 
 /** A task as `receiver-api.v1` reports it. The domain does not know the contract's phases. */
@@ -44,8 +59,8 @@ export const statusOf = (task: Task): RemoteStatus => {
   }
 };
 
-export const present = (task: Task): TaskStateResponse => ({
+export const present = (task: Task, polling: Polling): TaskStateResponse => ({
   remoteId: task.id,
   status: statusOf(task),
-  pollAfterSec: POLL_AFTER_SEC[task.state.kind],
+  pollAfterSec: pollAfter(task, polling),
 });

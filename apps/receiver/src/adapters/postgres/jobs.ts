@@ -150,8 +150,22 @@ export class PgBossJobs {
     private readonly logger: Logger,
   ) {}
 
-  static create(connectionString: string, limits: WorkerLimits, logger: Logger): PgBossJobs {
-    const boss = new PgBoss({ connectionString, schema: 'pgboss' });
+  /**
+   * `background`: whether this process also maintains the queues (expiry, retries, clean-up).
+   * Long-running processes do; a short command that only schedules does not.
+   */
+  static create(
+    connectionString: string,
+    limits: WorkerLimits,
+    logger: Logger,
+    background = true,
+  ): PgBossJobs {
+    const boss = new PgBoss({
+      connectionString,
+      schema: 'pgboss',
+      supervise: background,
+      schedule: background,
+    });
     boss.on('error', (error: unknown) => {
       logger.error('Job queue error', { error: String(error) });
     });
