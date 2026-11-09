@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { TaskId } from '../../domain/ids';
 import type { RepositoryRef } from '../../ports/access';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
@@ -28,7 +27,6 @@ let blobs: FsBlobStore;
 let command: string;
 let standIn: Awaited<ReturnType<typeof gitleaksStandIn>>;
 const repository: RepositoryRef = { host: 'local', name: 'origin.git', baseBranch: 'main' };
-const taskId = TaskId('task-1');
 
 const changeWith = async (base: string, content: string) => {
   const work = path.join(dir, `work-${String(Math.random()).slice(2)}`);
@@ -78,9 +76,9 @@ afterEach(async () => {
 
 describe('GitleaksScanner', () => {
   it('has gitleaks scan the change’s commit on the mirror, told nothing by the change', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
-    const base = prepared.value.baseSha;
+    const base = prepared.value;
     const change = await changeWith(base, 'export const key = "AKIAIOSFODNN7EXAMPLE";\n');
     await new GitleaksScanner({ mirrors, command }).scan(repository, base, change);
     const args = (await readFile(path.join(dir, 'arguments'), 'utf8')).trim().split('\n');
@@ -100,9 +98,9 @@ describe('GitleaksScanner', () => {
   });
 
   it('names each finding gitleaks reports, and leaves out what is not one', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
-    const base = prepared.value.baseSha;
+    const base = prepared.value;
     const scanner = new GitleaksScanner({ mirrors, command });
     const change = await changeWith(base, 'x');
     expect(await scanner.scan(repository, base, change)).toEqual({ ok: true, value: [] });
@@ -117,9 +115,9 @@ describe('GitleaksScanner', () => {
   });
 
   it('fails a scan gitleaks cannot make, and retries only one the system stopped', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
-    const base = prepared.value.baseSha;
+    const base = prepared.value;
     const change = await changeWith(base, 'x');
     const scan = (command: string) =>
       new GitleaksScanner({ mirrors, command }).scan(repository, base, change);

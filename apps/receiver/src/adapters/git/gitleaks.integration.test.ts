@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { TaskId } from '../../domain/ids';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
 import { GitleaksScanner } from './gitleaks-scanner';
@@ -77,9 +76,9 @@ beforeAll(async () => {
     identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
   });
-  const prepared = await mirrors.prepare(repository, TaskId('task-1'));
+  const prepared = await mirrors.prepare(repository, null);
   if (!prepared.ok) throw new Error(prepared.error.detail);
-  base = prepared.value.baseSha;
+  base = prepared.value;
 });
 
 afterAll(async () => {

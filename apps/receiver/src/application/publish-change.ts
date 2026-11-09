@@ -11,7 +11,8 @@ import {
 import type { ChangeRequestRef } from '../domain/work';
 import type { Identity, Project, ProjectCatalog } from '../ports/access';
 import type { BundleReader } from '../ports/bundles';
-import type { Forge, Publishing, SecretScanner, SourceRepository } from '../ports/publishing';
+import type { Forge, Publishing, SecretScanner } from '../ports/publishing';
+import type { SourceRepository } from '../ports/source';
 import type { Logger } from '../ports/system';
 import type { TaskQueries } from '../ports/tasks';
 import { branchOf, composeChangeRequest, composeCommitMessage } from './change-request';
@@ -116,7 +117,6 @@ export class PublishChange {
 
     const requester = await this.deps.identity.get(task.requester);
     const committed = await this.deps.source.commit(repository, {
-      taskId: task.id,
       baseSha,
       change,
       message: composeCommitMessage(task, requester),

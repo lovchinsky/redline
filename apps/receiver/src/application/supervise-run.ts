@@ -14,7 +14,7 @@ import type { CredentialVault, ModelAccessPolicy, Project, ProjectCatalog } from
 import type { CredentialKind } from '../domain/grant';
 import type { AgentRunner, RunSpec } from '../ports/agent';
 import type { BundleReader } from '../ports/bundles';
-import type { SourceRepository } from '../ports/publishing';
+import type { SourceRepository } from '../ports/source';
 import type { Clock, IdGenerator, Logger } from '../ports/system';
 import type { TaskQueries, UnitOfWork } from '../ports/tasks';
 import { composeBrief } from './brief';
@@ -153,7 +153,7 @@ export class SuperviseRun {
     }
   }
 
-  /** Fixes the base commit and starts the agent. */
+  /** Readies the base commit and the project's settings at it, then starts the agent. */
   private async launch(
     task: Task,
     runId: RunId,
@@ -168,19 +168,26 @@ export class SuperviseRun {
       outcome: { kind: 'failed', reason, detail, snapshot: null },
     });
 
-    let baseSha = task.baseSha;
-    if (baseSha === null) {
-      const prepared = await this.deps.source.prepare(project.repository, task.id);
-      if (!prepared.ok)
-        return ended(
-          prepared.error.transient ? 'infra' : 'repository-unavailable',
-          prepared.error.detail,
-        );
+    // The task's base, ready in the source: fixed by the first run, the same for every other.
+    const { repository } = project;
+    const prepared = await this.deps.source.prepare(repository, task.baseSha);
+    if (!prepared.ok) {
+      return ended(
+        prepared.error.transient ? 'infra' : 'repository-unavailable',
+        prepared.error.detail,
+      );
+    }
+    const baseSha = prepared.value;
+    if (task.baseSha === null) {
       const fixed = await this.deps.writer.update(task.id, (current, now) =>
-        fixBase(current, runId, prepared.value.baseSha, now),
+        fixBase(current, runId, baseSha, now),
       );
       if (!fixed.ok) return { kind: 'superseded' };
-      baseSha = fixed.value.transition.task.baseSha ?? prepared.value.baseSha;
+    }
+    // The team's settings at the base: an invalid file is theirs to fix.
+    const settings = await this.deps.source.settings(repository, baseSha);
+    if (!settings.ok) {
+      return ended(settings.error.transient ? 'infra' : 'setup-failed', settings.error.detail);
     }
 
     const bundle = await this.deps.bundles.read(task.bundle.manifest);
@@ -189,9 +196,10 @@ export class SuperviseRun {
       runId,
       taskId: task.id,
       project: project.id,
-      repository: project.repository,
+      repository,
       baseSha,
-      brief: composeBrief(task, bundle, project),
+      setup: settings.value.setup,
+      brief: composeBrief(task, bundle, project, settings.value),
       resumeFrom: task.state.kind === 'running' ? task.state.resumedFrom : null,
       grants: access.grants,
       credential: access.credential,

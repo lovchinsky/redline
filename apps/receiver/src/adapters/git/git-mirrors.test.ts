@@ -2,13 +2,13 @@ import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { TaskId } from '../../domain/ids';
 import type { RepositoryRef } from '../../ports/access';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
-import type { GitRemote } from '../../ports/publishing';
+import type { GitRemote } from '../../ports/source';
 import { LocalRemotes } from './remotes';
 import { httpGitServer } from './testing/http-git-server';
 
@@ -27,7 +27,6 @@ let origin: string;
 let mirrors: GitMirrors;
 let blobs: FsBlobStore;
 const repository: RepositoryRef = { host: 'local', name: 'origin.git', baseBranch: 'main' };
-const taskId = TaskId('task-1');
 
 const reachable = (remote: GitRemote) => Promise.resolve({ ok: true as const, value: remote });
 
@@ -81,46 +80,74 @@ afterEach(async () => {
 });
 
 describe('GitMirrors', () => {
-  it('pins the base branch for a task, and keeps it pinned as the branch moves on', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+  it('readies the base branch’s head, and refuses what the host does not have', async () => {
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
-    const base = prepared.value.baseSha;
-    expect(base).toBe(await git(origin, 'rev-parse', 'main'));
-    expect(await mirrors.fileAt(repository, base, '.redline/receiver.yaml')).toBe(
-      'setup: { run: pnpm install }',
-    );
-    expect(await mirrors.fileAt(repository, base, 'missing.txt')).toBeNull();
-    expect(await mirrors.prepare({ ...repository, host: 'elsewhere' }, taskId)).toMatchObject({
+    expect(prepared.value).toBe(await git(origin, 'rev-parse', 'main'));
+    // Ready already: the same commit again.
+    expect(await mirrors.prepare(repository, prepared.value)).toEqual(prepared);
+    expect(await mirrors.prepare({ ...repository, host: 'elsewhere' }, null)).toMatchObject({
       ok: false,
       error: { transient: false },
     });
-    // A base branch the repository does not have will not appear on a retry.
-    expect(
-      await mirrors.prepare({ ...repository, baseBranch: 'gone' }, TaskId('task-gone')),
-    ).toMatchObject({
+    // A base branch or a commit the repository does not have will not appear on a retry.
+    expect(await mirrors.prepare({ ...repository, baseBranch: 'gone' }, null)).toMatchObject({
       ok: false,
       error: { transient: false, detail: expect.stringContaining('no branch gone') as string },
     });
+    expect(await mirrors.prepare(repository, 'f'.repeat(40))).toMatchObject({
+      ok: false,
+      error: { transient: false, detail: expect.stringContaining('no longer has') as string },
+    });
+  });
+
+  it('fills a lost mirror again, with a base no branch reaches any more', async () => {
+    const prepared = await mirrors.prepare(repository, null);
+    if (!prepared.ok) throw new Error(prepared.error.detail);
+    const base = prepared.value;
+    const change = await agentChange(base, (work) => writeFile(path.join(work, 'a.txt'), 'a'));
+    // The branch is rewritten past the base, and the receiver's mirror is gone.
+    const seed = path.join(dir, 'seed');
+    await git(seed, 'checkout', '-q', '--orphan', 'rewritten');
+    await git(seed, 'commit', '-qm', 'rewritten');
+    await git(seed, 'push', '-q', '--force', origin, 'rewritten:main');
+    await rm(mirrors.mirrorOf(repository), { recursive: true, force: true });
+
+    expect(await mirrors.prepare(repository, base)).toEqual({ ok: true, value: base });
+    await rm(mirrors.mirrorOf(repository), { recursive: true, force: true });
+    expect(await mirrors.settings(repository, base)).toMatchObject({ ok: true });
+    await rm(mirrors.mirrorOf(repository), { recursive: true, force: true });
+    expect(await mirrors.describe(repository, base, change)).toMatchObject({ ok: true });
+    await rm(mirrors.mirrorOf(repository), { recursive: true, force: true });
+    const committed = await mirrors.commit(repository, {
+      baseSha: base,
+      change,
+      message: 'm',
+      at: 0,
+    });
+    expect(committed).toMatchObject({ ok: true });
   });
 
   it('gives a sandbox a working copy of the base, without a remote', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
     const target = path.join(dir, 'unpacked');
     await mkdir(target);
-    const archive = await mirrors.workingCopy(repository, taskId);
+    // From a mirror that lost it: the working copy is of the commit, wherever it was kept.
+    await rm(mirrors.mirrorOf(repository), { recursive: true, force: true });
+    const archive = Readable.fromWeb(await mirrors.workingCopy(repository, prepared.value));
     const tar = run('tar', ['-C', target, '-xf', '-']);
     archive.pipe(tar.child.stdin as NodeJS.WritableStream);
     await tar;
-    expect(await git(target, 'rev-parse', 'HEAD')).toBe(prepared.value.baseSha);
+    expect(await git(target, 'rev-parse', 'HEAD')).toBe(prepared.value);
     expect(await git(target, 'remote')).toBe('');
     expect(await git(target, 'status', '--porcelain')).toBe('');
   });
 
   it('describes a change, commits it the same way every time and pushes it once', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
-    const base = prepared.value.baseSha;
+    const base = prepared.value;
     const change = await agentChange(base, async (work) => {
       await writeFile(path.join(work, 'Card.css'), '.card { align-items: stretch; }\n.grid { }\n');
       await writeFile(
@@ -160,7 +187,6 @@ describe('GitMirrors', () => {
     ]);
 
     const commit = {
-      taskId,
       baseSha: base,
       change,
       message: 'Make the cards equal height',
@@ -188,9 +214,9 @@ describe('GitMirrors', () => {
   });
 
   it('refuses a bundle whose objects git would not accept, before any of them is stored', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
-    const base = prepared.value.baseSha;
+    const base = prepared.value;
     // A tree with a `.git` entry: what a checkout would turn into the repository's own config.
     const work = path.join(dir, 'hostile');
     await run('git', ['clone', '-q', origin, work]);
@@ -216,19 +242,39 @@ describe('GitMirrors', () => {
     await expect(git(mirrors.mirrorOf(repository), 'cat-file', '-e', head)).rejects.toThrow();
   });
 
-  it('reads a file at a commit, tells a missing one apart, and never takes a failure for one', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+  it('reads the team’s settings at a commit, and takes an invalid file as theirs to fix', async () => {
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
-    const base = prepared.value.baseSha;
-    expect(await mirrors.fileAt(repository, base, 'Card.css')).toBe('.card { }');
-    expect(await mirrors.fileAt(repository, base, 'Missing.css')).toBeNull();
-    await expect(mirrors.fileAt(repository, 'f'.repeat(40), 'Card.css')).rejects.toThrow();
+    expect(await mirrors.settings(repository, prepared.value)).toEqual({
+      ok: true,
+      value: { setup: { run: 'pnpm install', timeoutMs: null }, checks: [] },
+    });
+    const seed = path.join(dir, 'seed');
+    await writeFile(path.join(seed, '.redline/receiver.yaml'), 'setup: [not, a, setup]\n');
+    await git(seed, 'commit', '-qam', 'broken settings');
+    const broken = await git(seed, 'rev-parse', 'HEAD');
+    await git(seed, 'push', '-q', origin, 'HEAD:main');
+    expect(await mirrors.settings(repository, broken)).toMatchObject({
+      ok: false,
+      error: {
+        transient: false,
+        detail: expect.stringContaining('.redline/receiver.yaml') as string,
+      },
+    });
+    await git(seed, 'rm', '-q', '.redline/receiver.yaml');
+    await git(seed, 'commit', '-qm', 'no settings');
+    const none = await git(seed, 'rev-parse', 'HEAD');
+    await git(seed, 'push', '-q', origin, 'HEAD:main');
+    expect(await mirrors.settings(repository, none)).toEqual({
+      ok: true,
+      value: { setup: null, checks: [] },
+    });
   });
 
   it('takes only one commit on the task’s base as a change', async () => {
-    const prepared = await mirrors.prepare(repository, taskId);
+    const prepared = await mirrors.prepare(repository, null);
     if (!prepared.ok) throw new Error(prepared.error.detail);
-    const base = prepared.value.baseSha;
+    const base = prepared.value;
     const change = await agentChange(base, (work) => writeFile(path.join(work, 'a.txt'), 'a'));
     const otherBase = 'f'.repeat(40);
     expect(await mirrors.describe(repository, otherBase, change)).toMatchObject({ ok: false });
@@ -255,12 +301,12 @@ describe('GitMirrors', () => {
         identity: { name: 'Redline', email: 'bot@redline.invalid' },
         blobs,
       });
-      const prepared = await viaHttp.prepare(repository, taskId);
+      const prepared = await viaHttp.prepare(repository, null);
       if (!prepared.ok) throw new Error(prepared.error.detail);
-      const change = await agentChange(prepared.value.baseSha, (work) =>
+      const change = await agentChange(prepared.value, (work) =>
         writeFile(path.join(work, 'b.txt'), 'b'),
       );
-      const commit = { taskId, baseSha: prepared.value.baseSha, change, message: 'm', at: 0 };
+      const commit = { baseSha: prepared.value, change, message: 'm', at: 0 };
       const committed = await viaHttp.commit(repository, commit);
       if (!committed.ok) throw new Error(committed.error.detail);
       expect(
@@ -293,7 +339,7 @@ describe('GitMirrors', () => {
         identity: { name: 'Redline', email: 'bot@redline.invalid' },
         blobs,
       });
-      expect(await refused.prepare(repository, taskId)).toMatchObject({
+      expect(await refused.prepare(repository, null)).toMatchObject({
         ok: false,
         error: { transient: true },
       });

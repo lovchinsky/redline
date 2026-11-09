@@ -1,5 +1,6 @@
 import type { ModelAccessPolicy, ModelCredential, User } from '../../ports/access';
-import type { Forge, SecretScanner, SourceRepository } from '../../ports/publishing';
+import type { Forge, SecretScanner } from '../../ports/publishing';
+import type { SourceRepository } from '../../ports/source';
 import { CredentialRelay } from '../credentials';
 import { TaskOperations } from '../operations';
 import { PublishChange } from '../publish-change';

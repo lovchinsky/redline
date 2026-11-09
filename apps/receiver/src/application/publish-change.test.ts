@@ -30,14 +30,15 @@ describe('PublishChange', () => {
 
     expect(app.git.commits).toEqual([
       {
-        taskId: task.id,
         baseSha: 'base-sha',
         change: outcome.change,
         message: `Redline: ${task.bundle.title}\n\nRedline-Task: ${task.id}\nRequested-by: Ann Lee <ann@example.com>\n`,
         at: task.createdAt,
       },
     ]);
-    expect(app.git.pushes).toEqual([{ sha: `sha-of-${task.id}`, branch: `redline/${task.id}` }]);
+    expect(app.git.pushes).toEqual([
+      { sha: `sha-of-${outcome.change.blob.slice(0, 8)}`, branch: `redline/${task.id}` },
+    ]);
     const [draft] = app.git.opened;
     expect(draft).toMatchObject({
       branch: `redline/${task.id}`,

@@ -1,12 +1,7 @@
 import type { ChangeRequestRef } from '../../domain/work';
 import type { PublishingProfile, RepositoryRef } from '../../ports/access';
-import type {
-  ChangeRequestDraft,
-  Forge,
-  GitRemote,
-  GitRemotes,
-  Publishing,
-} from '../../ports/publishing';
+import type { ChangeRequestDraft, Forge, Publishing } from '../../ports/publishing';
+import type { GitRemote, GitRemotes } from '../../ports/source';
 import type { Logger } from '../../ports/system';
 import { GitHubError, type GitHubApi } from './api';
 import type { GitHubAuth } from './auth';

@@ -81,8 +81,10 @@ const runner = () =>
 
 const specFor = async (runId: RunId, title: string): Promise<RunSpec> => {
   const taskId = TaskId(`task-${runId}`);
-  const prepared = await mirrors.prepare(repository, taskId);
+  const prepared = await mirrors.prepare(repository, null);
   if (!prepared.ok) throw new Error(prepared.error.detail);
+  const settings = await mirrors.settings(repository, prepared.value);
+  if (!settings.ok) throw new Error(settings.error.detail);
   const writer = blobs.writer();
   await writer.write(new TextEncoder().encode('# Make the cards equal height\n'));
   const { digest } = await writer.commit();
@@ -91,7 +93,8 @@ const specFor = async (runId: RunId, title: string): Promise<RunSpec> => {
     taskId,
     project: ProjectId('acme-web'),
     repository,
-    baseSha: prepared.value.baseSha,
+    baseSha: prepared.value,
+    setup: settings.value.setup,
     brief: {
       title,
       bundle: {
@@ -102,6 +105,7 @@ const specFor = async (runId: RunId, title: string): Promise<RunSpec> => {
       questionsLeft: 0,
       protectedPaths: ['.github'],
       limits: { maxFiles: 50, maxChangedLines: 2000 },
+      checks: settings.value.checks,
     },
     resumeFrom: null,
     grants: { setup: 'setup-grant' as GrantToken, agent: 'agent-grant' as GrantToken },

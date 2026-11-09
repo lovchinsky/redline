@@ -6,6 +6,7 @@ import type { RunOutcome } from '../domain/run';
 import type { Snapshot } from '../domain/work';
 import type { BundleContents } from './bundles';
 import type { ExecutionProfile, RepositoryRef } from './access';
+import type { RepositorySettings } from './source';
 import type { GrantToken } from './tasks';
 
 /** Everything the agent is told about a task. Composed by the application, sent by the runner. */
@@ -18,6 +19,8 @@ export interface AgentBrief {
   /** Paths the agent must not change, so it does not try to. */
   readonly protectedPaths: readonly string[];
   readonly limits: { readonly maxFiles: number; readonly maxChangedLines: number };
+  /** The project's own checks of a change (`RepositorySettings`), for the agent to run. */
+  readonly checks: readonly string[];
 }
 
 export interface RunSpec {
@@ -25,7 +28,10 @@ export interface RunSpec {
   readonly taskId: TaskId;
   readonly project: ProjectId;
   readonly repository: RepositoryRef;
+  /** The commit the run works on, ready in the source (`SourceRepository.prepare`). */
   readonly baseSha: string;
+  /** The project's setup at the base (`RepositorySettings`), or null when it has none. */
+  readonly setup: RepositorySettings['setup'];
   readonly brief: AgentBrief;
   /** The paused session the run goes on with (`resumable` said it can), or null to start anew. */
   readonly resumeFrom: Snapshot | null;

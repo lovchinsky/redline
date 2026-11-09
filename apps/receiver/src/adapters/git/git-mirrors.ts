@@ -1,26 +1,31 @@
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 import type { ChangeDescription, DiffEntry, ScriptChange } from '../../domain/change-policy';
-import type { TaskId } from '../../domain/ids';
 import { err, ok } from '../../domain/result';
 import type { ChangeRef } from '../../domain/work';
 import type { PublishingProfile, RepositoryRef } from '../../ports/access';
 import type { BlobStore } from '../../ports/bundles';
+import type { Publishing } from '../../ports/publishing';
 import type {
   DeterministicCommit,
   GitRemote,
   GitRemotes,
-  Publishing,
+  RepositorySettings,
   SourceRepository,
-} from '../../ports/publishing';
+  SourceTrees,
+} from '../../ports/source';
 import { git, reaching, streamOf } from './git';
+import { REPOSITORY_SETTINGS, parseRepositorySettings } from './repository-settings';
 
 /** The ref a change bundle carries its commit at (`CHANGE_REF` of the agent protocol). */
 const BUNDLE_REF = 'refs/redline/change';
 /** How deep a sandbox's working copy is: enough history for blame and log, not all of it. */
 const WORKSPACE_DEPTH = 50;
+
+/** The ref that keeps a commit a task works on in the mirror, whatever its branches do. */
+const keepRef = (sha: string) => `refs/redline/keep/${sha}`;
 
 /** The pack of a git bundle (v2 or v3): what follows its header, which ends at a blank line. */
 const packOf = (bundle: Uint8Array): Uint8Array => {
@@ -93,24 +98,24 @@ export interface GitMirrorsOptions {
 }
 
 /**
- * The receiver's own mirrors of its projects' repositories: the base of every task is pinned
- * in them, sandboxes get their working copies from them, and the agent's change is imported,
- * described and committed in them. Git runs with every repository-controlled hook off.
+ * The receiver's own mirrors of its projects' repositories: sandboxes get their working copies
+ * from them, and the agent's change is imported, described and committed in them. A mirror is
+ * a cache: a commit a step needs and the mirror lacks is fetched again, and the commits tasks
+ * work on are kept from garbage collection (`refs/redline/keep/<sha>`) while the mirror lasts.
+ * Git runs with every repository-controlled hook off.
  */
-export class GitMirrors implements SourceRepository {
+export class GitMirrors implements SourceRepository, SourceTrees {
   private readonly locks = new Map<string, Promise<unknown>>();
 
   constructor(private readonly options: GitMirrorsOptions) {}
 
-  async prepare(
-    repository: RepositoryRef,
-    taskId: TaskId,
-  ): Promise<Publishing<{ readonly baseSha: string }>> {
-    return attempt(async () => {
-      const reached = await this.reached(repository, this.options.remotes.source(repository));
-      if (!reached.ok) return reached;
-      const remote = reached.value;
-      return await this.locked(repository, async (mirror) => {
+  async prepare(repository: RepositoryRef, sha: string | null): Promise<Publishing<string>> {
+    return attempt(() =>
+      this.locked(repository, async (mirror) => {
+        if (sha !== null && (await this.holds(mirror, sha))) return ok(sha);
+        const reached = await this.reached(repository, this.options.remotes.source(repository));
+        if (!reached.ok) return reached;
+        const remote = reached.value;
         const exists = await access(mirror).then(
           () => true,
           () => false,
@@ -125,17 +130,46 @@ export class GitMirrors implements SourceRepository {
           ['fetch', '--prune', '--quiet', remote.url, '+refs/heads/*:refs/heads/*'],
           reaching(remote),
         );
-        const baseSha = await git(mirror, [
-          'for-each-ref',
-          '--format=%(objectname)',
-          `refs/heads/${repository.baseBranch}`,
-        ]);
-        if (baseSha === '') {
+        const wanted =
+          sha ??
+          (await git(mirror, [
+            'for-each-ref',
+            '--format=%(objectname)',
+            `refs/heads/${repository.baseBranch}`,
+          ]));
+        if (wanted === '') {
           return fail(`${repository.name} has no branch ${repository.baseBranch}`, false);
         }
-        await git(mirror, ['update-ref', this.baseRef(taskId), baseSha]);
-        return ok({ baseSha });
-      });
+        if (!(await this.holds(mirror, wanted))) {
+          // No branch reaches it any more: the host may still give it by its name (GitHub does
+          // until it collects it). A host that just answered for its branches and does not give
+          // the commit has not got it.
+          const given = await git(
+            mirror,
+            ['-c', 'protocol.version=2', 'fetch', '--quiet', remote.url, wanted],
+            reaching(remote),
+          ).then(
+            () => true,
+            () => false,
+          );
+          if (!given || !(await this.holds(mirror, wanted))) {
+            return fail(`${repository.name} no longer has the commit ${wanted}`, false);
+          }
+        }
+        await git(mirror, ['update-ref', keepRef(wanted), wanted]);
+        return ok(wanted);
+      }),
+    );
+  }
+
+  async settings(repository: RepositoryRef, sha: string): Promise<Publishing<RepositorySettings>> {
+    const prepared = await this.prepare(repository, sha);
+    if (!prepared.ok) return prepared;
+    return attempt(async () => {
+      const parsed = parseRepositorySettings(
+        await this.fileAt(repository, sha, REPOSITORY_SETTINGS),
+      );
+      return parsed.ok ? ok(parsed.value) : fail(parsed.detail, false);
     });
   }
 
@@ -157,35 +191,42 @@ export class GitMirrors implements SourceRepository {
     });
   }
 
-  /**
-   * A working copy of the task's base as a tar archive: the tree and a shallow history, with no
-   * remote. What a sandbox starts from.
-   */
-  async workingCopy(repository: RepositoryRef, taskId: TaskId): Promise<Readable> {
+  async workingCopy(repository: RepositoryRef, sha: string): Promise<ReadableStream<Uint8Array>> {
+    const prepared = await this.prepare(repository, sha);
+    if (!prepared.ok) throw new Error(prepared.error.detail);
     const mirror = this.mirrorOf(repository);
     const scratch = await mkdtemp(path.join(tmpdir(), 'redline-copy-'));
     const copy = path.join(scratch, 'workspace');
-    await git(scratch, ['init', '--quiet', copy]);
-    await git(copy, [
-      'fetch',
-      '--quiet',
-      `--depth=${String(WORKSPACE_DEPTH)}`,
-      `file://${mirror}`,
-      this.baseRef(taskId),
-    ]);
-    await git(copy, ['checkout', '--quiet', '--detach', 'FETCH_HEAD']);
+    try {
+      await git(scratch, ['init', '--quiet', copy]);
+      await git(copy, [
+        'fetch',
+        '--quiet',
+        `--depth=${String(WORKSPACE_DEPTH)}`,
+        `file://${mirror}`,
+        keepRef(sha),
+      ]);
+      await git(copy, ['checkout', '--quiet', '--detach', 'FETCH_HEAD']);
+    } catch (error) {
+      await rm(scratch, { recursive: true, force: true });
+      throw error;
+    }
     const archive = streamOf('tar', ['-C', copy, '-cf', '-', '.'], scratch);
     archive.on('close', () => {
       void rm(scratch, { recursive: true, force: true });
     });
-    return archive;
+    return Readable.toWeb(archive) as ReadableStream<Uint8Array>;
   }
 
   /**
    * A file of the repository at `sha`, or null when the tree has none there. Failing to read
    * the mirror is an error, never taken for a missing file.
    */
-  async fileAt(repository: RepositoryRef, sha: string, file: string): Promise<string | null> {
+  private async fileAt(
+    repository: RepositoryRef,
+    sha: string,
+    file: string,
+  ): Promise<string | null> {
     const mirror = this.mirrorOf(repository);
     const listed = await git(mirror, ['ls-tree', '--object-only', sha, '--', file]);
     if (listed === '') return null;
@@ -285,7 +326,7 @@ export class GitMirrors implements SourceRepository {
           GIT_COMMITTER_DATE: date,
         },
       );
-      await git(mirror, ['update-ref', `refs/redline/commit/${commit.taskId}`, sha]);
+      await git(mirror, ['update-ref', keepRef(sha), sha]);
       return ok({ sha });
     });
   }
@@ -326,14 +367,16 @@ export class GitMirrors implements SourceRepository {
 
   /**
    * Takes a change bundle into the mirror: one commit, the one the run named, whose parent is
-   * the base. A bundle is checked and stored once (it is stored by its content's hash), and
-   * each later import of it only checks the commit again.
+   * the base, which is fetched again if the mirror lost it. A bundle is checked and stored once
+   * (it is stored by its content's hash), and each later import of it only checks the commit.
    */
   async importChange(
     repository: RepositoryRef,
     baseSha: string,
     change: ChangeRef,
   ): Promise<Publishing<string>> {
+    const base = await this.prepare(repository, baseSha);
+    if (!base.ok) return base;
     return attempt(() =>
       this.locked(repository, (mirror) => this.importInto(mirror, baseSha, change)),
     );
@@ -426,8 +469,12 @@ export class GitMirrors implements SourceRepository {
     return counts;
   }
 
-  private baseRef(taskId: TaskId) {
-    return `refs/redline/base/${taskId}`;
+  /** Whether the mirror has the commit `sha`. */
+  private async holds(mirror: string, sha: string): Promise<boolean> {
+    return git(mirror, ['cat-file', '-e', `${sha}^{commit}`]).then(
+      () => true,
+      () => false,
+    );
   }
 
   /** Where the mirror of `repository` is. */

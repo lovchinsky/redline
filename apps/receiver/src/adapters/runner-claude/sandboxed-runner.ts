@@ -1,25 +1,19 @@
 import { RUN_LAYOUT, RUN_OUTPUTS, outcomeSchema, type Pause } from '@redline/agent-protocol';
 import { readFile } from 'node:fs/promises';
-import type { Readable } from 'node:stream';
-import { BlobDigest, RunId, type TaskId } from '../../domain/ids';
+import { Readable } from 'node:stream';
+import { BlobDigest, RunId } from '../../domain/ids';
 import { err, ok, type Fault, type Result } from '../../domain/result';
 import type { RunOutcome } from '../../domain/run';
 import type { Snapshot } from '../../domain/work';
-import type { ExecutionProfile, RepositoryRef } from '../../ports/access';
+import type { ExecutionProfile } from '../../ports/access';
 import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 import type { BlobStore } from '../../ports/bundles';
+import type { SourceTrees } from '../../ports/source';
 import type { Clock, Logger } from '../../ports/system';
 import { briefOf, runOutcomeOf, type StoredOutputs } from './exchange';
-import { REPOSITORY_SETTINGS, parseRepositorySettings } from './repository-settings';
 import type { ContainerSpec, ContainerState, Mount, SandboxProvider } from './sandbox';
 import { packSnapshot, sessionFilesOf, unpackSnapshot, type PausedSession } from './snapshot';
 import { OversizedArchive, filesOf, ownedBy, tarOf, type TarFile } from './tar';
-
-/** What the runner needs of the receiver's mirrors: a task's working copy and files at its base. */
-export interface SourceTrees {
-  workingCopy(repository: RepositoryRef, taskId: TaskId): Promise<Readable>;
-  fileAt(repository: RepositoryRef, sha: string, file: string): Promise<string | null>;
-}
 
 export interface SandboxSettings {
   /** `uid:gid` the sandboxes run as, and own their files as. */
@@ -138,15 +132,6 @@ export class SandboxedClaudeRunner implements AgentRunner {
       if (unfit !== null) return err({ transient: false, detail: unfit });
       if ((await sandboxes.state(names.agent)).status !== 'missing') return ok(undefined);
 
-      const repository = await this.deps.sources.fileAt(
-        spec.repository,
-        spec.baseSha,
-        REPOSITORY_SETTINGS,
-      );
-      const repositorySettings = parseRepositorySettings(repository);
-      if (!repositorySettings.ok) {
-        return err({ transient: false, detail: repositorySettings.detail });
-      }
       // Every container of the run runs this very image, whatever its name points at later.
       const image = await sandboxes.imageId(spec.execution.image);
       if (image === null) {
@@ -162,9 +147,9 @@ export class SandboxedClaudeRunner implements AgentRunner {
       const run = volumes(spec.runId);
       for (const volume of Object.values(run)) await sandboxes.createVolume(volume, labels);
 
-      const brief = briefOf(spec, repositorySettings.value, paused?.pause ?? null);
+      const brief = briefOf(spec, paused?.pause ?? null);
       await this.load(spec, { brief, paused, image }, labels);
-      const setup = repositorySettings.value.setup;
+      const { setup } = spec;
       if (setup !== null) {
         const timeoutMs = Math.min(
           setup.timeoutMs ?? settings.setupTimeoutMs,
@@ -350,7 +335,10 @@ export class SandboxedClaudeRunner implements AgentRunner {
       await sandboxes.upload(
         loader,
         RUN_LAYOUT.workspace,
-        ownedBy(await this.deps.sources.workingCopy(spec.repository, spec.taskId), settings.user),
+        ownedBy(
+          Readable.fromWeb(await this.deps.sources.workingCopy(spec.repository, spec.baseSha)),
+          settings.user,
+        ),
       );
     } finally {
       await sandboxes.remove(loader);

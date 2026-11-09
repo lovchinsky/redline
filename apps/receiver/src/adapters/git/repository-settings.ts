@@ -1,5 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import * as z from 'zod/mini';
+import { NO_SETTINGS, type RepositorySettings } from '../../ports/source';
 
 /** Where a project's team tells the receiver how to work on its code, on the base commit. */
 export const REPOSITORY_SETTINGS = '.redline/receiver.yaml';
@@ -15,13 +16,6 @@ const schema = z.object({
   /** Commands that check a change, for the agent to run. */
   checks: z.optional(z.array(z.string().check(z.minLength(1)))),
 });
-
-export interface RepositorySettings {
-  readonly setup: { readonly run: string; readonly timeoutMs: number | null } | null;
-  readonly checks: readonly string[];
-}
-
-export const NO_SETTINGS: RepositorySettings = { setup: null, checks: [] };
 
 /** Reads the project's settings; a file that is not valid is the project's error to fix. */
 export const parseRepositorySettings = (

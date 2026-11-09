@@ -9,7 +9,6 @@ import type { BlobDigest } from '../../domain/ids';
 import type { RunOutcome } from '../../domain/run';
 import type { Snapshot } from '../../domain/work';
 import type { RunSpec } from '../../ports/agent';
-import type { RepositorySettings } from './repository-settings';
 
 const answerOf = (exchange: Exchange | null): { readonly text: string } | null =>
   exchange?.answer?.source === 'requester' ? { text: exchange.answer.text } : null;
@@ -21,11 +20,7 @@ const answerOf = (exchange: Exchange | null): { readonly text: string } | null =
  * with. The budget the agent sees is the dollars of an API key; with a subscription the gateway
  * counts tokens, and the agent has no estimate to stop at.
  */
-export const briefOf = (
-  spec: RunSpec,
-  settings: RepositorySettings,
-  pause: Pause | null,
-): Brief => {
+export const briefOf = (spec: RunSpec, pause: Pause | null): Brief => {
   const { brief, execution } = spec;
   const resume =
     pause === null
@@ -74,7 +69,7 @@ export const briefOf = (
     })),
     questionsLeft: brief.questionsLeft,
     resume,
-    checks: [...settings.checks],
+    checks: [...brief.checks],
     policy: {
       protectedPaths: [...brief.protectedPaths],
       maxFiles: brief.limits.maxFiles,

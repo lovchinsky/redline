@@ -15,7 +15,8 @@ import type { RunSpec } from '../../ports/agent';
 import type { GrantToken } from '../../ports/tasks';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import type { ContainerSpec, ContainerState, SandboxProvider } from './sandbox';
-import { SandboxedClaudeRunner, type SandboxSettings, type SourceTrees } from './sandboxed-runner';
+import type { SourceTrees } from '../../ports/source';
+import { SandboxedClaudeRunner, type SandboxSettings } from './sandboxed-runner';
 import { packSnapshot, unpackSnapshot } from './snapshot';
 import { filesOf, tarOf } from './tar';
 
@@ -155,16 +156,20 @@ class FakeSandboxes implements SandboxProvider {
   }
 }
 
-const sources = (settingsFile: string | null): SourceTrees => ({
+const sources: SourceTrees = {
   workingCopy: async () =>
-    Readable.from([
-      await tarOf([{ path: 'Card.css', content: new TextEncoder().encode('.card { }') }], {
-        uid: 0,
-        gid: 0,
-      }),
-    ]),
-  fileAt: () => Promise.resolve(settingsFile),
-});
+    Readable.toWeb(
+      Readable.from([
+        await tarOf([{ path: 'Card.css', content: new TextEncoder().encode('.card { }') }], {
+          uid: 0,
+          gid: 0,
+        }),
+      ]),
+    ) as ReadableStream<Uint8Array>,
+};
+
+/** The project's setup, as its settings at the base give it (`RunSpec.setup`). */
+const SETUP: RunSpec['setup'] = { run: 'pnpm install --frozen-lockfile', timeoutMs: null };
 
 const settings: SandboxSettings = {
   user: { uid: 1000, gid: 1000 },
@@ -182,7 +187,10 @@ let dir: string;
 let blobs: FsBlobStore;
 let sandboxes: FakeSandboxes;
 
-const spec = async (credential: 'api-key' | 'subscription' = 'api-key'): Promise<RunSpec> => {
+const spec = async (
+  credential: 'api-key' | 'subscription' = 'api-key',
+  setup: RunSpec['setup'] = SETUP,
+): Promise<RunSpec> => {
   const writer = blobs.writer();
   await writer.write(new TextEncoder().encode('# Redline task'));
   const { digest } = await writer.commit();
@@ -192,6 +200,7 @@ const spec = async (credential: 'api-key' | 'subscription' = 'api-key'): Promise
     project: ProjectId('acme-web'),
     repository: project().repository,
     baseSha: 'a'.repeat(40),
+    setup,
     brief: {
       title: 'Make the cards equal height',
       bundle: {
@@ -202,6 +211,7 @@ const spec = async (credential: 'api-key' | 'subscription' = 'api-key'): Promise
       questionsLeft: 2,
       protectedPaths: ['.github'],
       limits: { maxFiles: 50, maxChangedLines: 2000 },
+      checks: ['pnpm test'],
     },
     resumeFrom: null,
     grants: { setup: 'setup-grant' as GrantToken, agent: 'agent-grant' as GrantToken },
@@ -210,13 +220,10 @@ const spec = async (credential: 'api-key' | 'subscription' = 'api-key'): Promise
   };
 };
 
-const runner = (
-  settingsFile:
-    string | null = 'setup: { run: pnpm install --frozen-lockfile }\nchecks: [pnpm test]\n',
-) =>
+const runner = () =>
   new SandboxedClaudeRunner({
     sandboxes,
-    sources: sources(settingsFile),
+    sources,
     blobs,
     settings,
     clock,
@@ -396,7 +403,7 @@ describe('SandboxedClaudeRunner', () => {
   });
 
   it('starts the agent at once when the project has no setup', async () => {
-    await runner(null).start(await spec());
+    await runner().start(await spec('api-key', null));
     expect(sandboxes.containers.has('redline-run-1-setup')).toBe(false);
     expect(sandboxes.started).toEqual(['redline-run-1-agent']);
   });
@@ -437,13 +444,6 @@ describe('SandboxedClaudeRunner', () => {
     expect(detail.length).toBeLessThan(4200);
   });
 
-  it('refuses a project whose settings are not valid', async () => {
-    expect(await runner('setup: [not, a, map]').start(await spec())).toMatchObject({
-      ok: false,
-      error: { transient: false },
-    });
-  });
-
   it('refuses to start when sandboxes cannot be isolated as configured', async () => {
     sandboxes.unfitReason = 'Docker has no runsc runtime';
     expect(await runner().start(await spec())).toEqual({
@@ -454,8 +454,8 @@ describe('SandboxedClaudeRunner', () => {
   });
 
   it('reports an agent that left no outcome, and a sandbox that is gone', async () => {
-    const agent = runner(null);
-    await agent.start(await spec());
+    const agent = runner();
+    await agent.start(await spec('api-key', null));
     sandboxes.agentOutput = null;
     expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject({
       kind: 'failed',
@@ -496,8 +496,8 @@ describe('SandboxedClaudeRunner', () => {
     });
 
     it('stops an agent past its limit and its grace, and fails the run, keeping its output', async () => {
-      const agent = runner(null);
-      await agent.start(await spec());
+      const agent = runner();
+      await agent.start(await spec('api-key', null));
       sandboxes.hangs.add('agent');
       // A worker that attaches after the limit kills the sandbox at once.
       clock.time += 3_600_000 + settings.graceMs;
@@ -516,8 +516,8 @@ describe('SandboxedClaudeRunner', () => {
     });
 
     it('takes the outcome of an agent that ended within its limit', async () => {
-      const agent = runner(null);
-      await agent.start(await spec());
+      const agent = runner();
+      await agent.start(await spec('api-key', null));
       sandboxes.agentOutput = await outputOf(changed, 'bundle');
       clock.time += 3_600_000;
       expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject({
@@ -527,8 +527,8 @@ describe('SandboxedClaudeRunner', () => {
   });
 
   it('stops watching when the worker shuts down, leaving the run to go on', async () => {
-    const agent = runner(null);
-    await agent.start(await spec());
+    const agent = runner();
+    await agent.start(await spec('api-key', null));
     sandboxes.hangs.add('agent');
     const stopping = new AbortController();
     const watching = agent.observe(runId, stopping.signal, quiet);
@@ -562,8 +562,8 @@ describe('SandboxedClaudeRunner', () => {
 
   describe('paused sessions', () => {
     it('keeps the session a run paused with: its work, its files, its image and model', async () => {
-      const agent = runner(null);
-      await agent.start(await spec());
+      const agent = runner();
+      await agent.start(await spec('api-key', null));
       sandboxes.agentOutput = await outputOf(asked, null, 'the work bundle');
       sandboxes.sessionArchive = await tarOf(
         [...sessionFiles, { path: 'settings.json', content: text('{"hooks":{}}') }],
@@ -590,8 +590,8 @@ describe('SandboxedClaudeRunner', () => {
     });
 
     it('asks anyway when the session cannot be kept: the next run starts over', async () => {
-      const agent = runner(null);
-      await agent.start(await spec());
+      const agent = runner();
+      await agent.start(await spec('api-key', null));
       // The pause names work that agent-host did not leave.
       sandboxes.agentOutput = await outputOf(asked, null);
       sandboxes.sessionArchive = await tarOf([], { uid: 1000, gid: 1000 });
@@ -605,14 +605,14 @@ describe('SandboxedClaudeRunner', () => {
       const writer = blobs.writer();
       await writer.write(await packSnapshot({ pause, work: text('work'), session: sessionFiles }));
       const { digest } = await writer.commit();
-      const base = await spec();
+      const base = await spec('api-key', null);
       const asked = {
         question: { id: QuestionId('q-run-0'), text: 'Desktop only?', options: [] },
         askedAt: 1,
         answer: { source: 'requester' as const, text: 'Desktop only', at: 2 },
         closed: true,
       };
-      await runner(null).start({
+      await runner().start({
         ...base,
         brief: { ...base.brief, exchanges: [asked] },
         resumeFrom: {

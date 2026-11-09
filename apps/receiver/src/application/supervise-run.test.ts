@@ -234,6 +234,50 @@ describe('SuperviseRun', () => {
     expect(transient.runner.started).toEqual([]);
   });
 
+  it('readies the task’s base on every run, and fails a task whose base the host lost', async () => {
+    const app = system();
+    const task = await app.submit();
+    app.runner.outcomes.push({ kind: 'failed', reason: 'infra', detail: 'broke', snapshot: null });
+    await app.supervise.handle(task.id, never);
+    // The second run asks for the base the first one fixed; the host no longer has it.
+    app.git.failures.set('prepare', { transient: false, detail: 'no longer has the commit' });
+    await app.supervise.handle(task.id, never);
+    expect(app.git.prepared).toEqual([null, 'base-sha']);
+    expect(app.store.task(task.id).state).toMatchObject({
+      failure: { code: 'repository-unavailable' },
+    });
+  });
+
+  it('runs with the team’s settings at the base, and fails a task whose settings are invalid', async () => {
+    const app = system();
+    const task = await app.submit();
+    app.git.settingsAtBase = {
+      setup: { run: 'pnpm install', timeoutMs: 60_000 },
+      checks: ['pnpm test'],
+    };
+    app.runner.outcomes.push({ kind: 'no-change', explanation: 'Already done' });
+    await app.supervise.handle(task.id, never);
+    expect(app.runner.started[0]).toMatchObject({
+      setup: { run: 'pnpm install', timeoutMs: 60_000 },
+      brief: { checks: ['pnpm test'] },
+    });
+
+    const invalid = system();
+    const other = await invalid.submit();
+    invalid.git.failures.set('settings', {
+      transient: false,
+      detail: '.redline/receiver.yaml: setup: Invalid input',
+    });
+    await invalid.supervise.handle(other.id, never);
+    expect(invalid.store.task(other.id).state).toMatchObject({
+      failure: {
+        code: 'setup-failed',
+        message: "The project's setup failed: .redline/receiver.yaml: setup: Invalid input",
+      },
+    });
+    expect(invalid.runner.started).toEqual([]);
+  });
+
   it('keeps a cancelled task cancelled when its run reports afterwards', async () => {
     const app = system();
     const task = await app.submit();

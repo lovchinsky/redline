@@ -1,47 +1,10 @@
-import type { ChangeDescription, SecretFinding } from '../domain/change-policy';
-import type { Instant, TaskId } from '../domain/ids';
+import type { SecretFinding } from '../domain/change-policy';
 import type { Fault, Result } from '../domain/result';
 import type { ChangeRef, ChangeRequestRef } from '../domain/work';
 import type { PublishingProfile, RepositoryRef } from './access';
 
-/** A publishing step: its value, or why it did not happen (a transient fault is retried). */
+/** A step on the git side: its value, or why it did not happen (a transient fault is retried). */
 export type Publishing<T> = Result<T, Fault>;
-
-/** The one commit a task publishes. The same input always makes the same commit. */
-export interface DeterministicCommit {
-  readonly taskId: TaskId;
-  readonly baseSha: string;
-  readonly change: ChangeRef;
-  readonly message: string;
-  /** Author and committer time: the task's, so a retry commits the same SHA. */
-  readonly at: Instant;
-}
-
-/** A repository's code, as the receiver's own mirror of it. Credentials come from the git host. */
-export interface SourceRepository {
-  /** Fetches the base branch and pins its head for the task; returns the head. */
-  prepare(
-    repository: RepositoryRef,
-    taskId: TaskId,
-  ): Promise<Publishing<{ readonly baseSha: string }>>;
-  /** Describes the change against its base: what every file becomes. */
-  describe(
-    repository: RepositoryRef,
-    baseSha: string,
-    change: ChangeRef,
-  ): Promise<Publishing<Omit<ChangeDescription, 'secrets'>>>;
-  commit(
-    repository: RepositoryRef,
-    commit: DeterministicCommit,
-  ): Promise<Publishing<{ readonly sha: string }>>;
-  /** Puts `sha` on `branch` of the publishing target, if the branch is absent or already there. */
-  push(
-    repository: RepositoryRef,
-    publishing: PublishingProfile,
-    sha: string,
-    branch: string,
-  ): Promise<Publishing<void>>;
-}
 
 /** Finds secrets in the new content of a change. */
 export interface SecretScanner {
@@ -73,28 +36,4 @@ export interface Forge {
     draft: ChangeRequestDraft,
   ): Promise<Publishing<ChangeRequestRef>>;
   close(repository: RepositoryRef, change: ChangeRequestRef): Promise<Publishing<void>>;
-}
-
-/**
- * A repository as git reaches it: its URL, and the `Authorization` header git sends with each
- * request (null when the host needs none). The header is made for one call and lives only in
- * that call's environment: never in a URL, a mirror's configuration or a command line.
- */
-export interface GitRemote {
-  readonly url: string;
-  readonly authorization: string | null;
-}
-
-/**
- * Where the receiver's git calls go, by repository and purpose: null when no configured host
- * has the repository, or why the host could not be asked (e.g. its App is not installed).
- */
-export interface GitRemotes {
-  /** Where a repository's code is fetched from. */
-  source(repository: RepositoryRef): Promise<Publishing<GitRemote | null>>;
-  /** Where a task's branch is pushed, by the project's publishing target. */
-  target(
-    repository: RepositoryRef,
-    publishing: PublishingProfile,
-  ): Promise<Publishing<GitRemote | null>>;
 }

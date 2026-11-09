@@ -37,6 +37,8 @@ import { TaskWriter } from '../application/task-writer';
 import { ModelCredential, type CredentialVault } from '../ports/access';
 import type { AgentRunner } from '../ports/agent';
 import type { BlobStore } from '../ports/bundles';
+import type { Forge, SecretScanner } from '../ports/publishing';
+import type { SourceRepository, SourceTrees } from '../ports/source';
 import type { Logger } from '../ports/system';
 import type { Settings } from './settings';
 
@@ -105,6 +107,28 @@ export const secretOf = async (file: string, what: string): Promise<string> => {
 };
 
 /**
+ * The git side of a receiver: a simulated host, or real repositories in the receiver's mirrors,
+ * which also give sandboxes their working copies.
+ */
+export type GitSide =
+  | {
+      readonly kind: 'simulated';
+      readonly source: SourceRepository;
+      readonly scanner: SecretScanner;
+      readonly forge: Forge;
+    }
+  | {
+      readonly kind: 'mirrored';
+      readonly source: SourceRepository;
+      readonly trees: SourceTrees;
+      readonly scanner: SecretScanner;
+      readonly forge: Forge;
+      readonly mirrors: GitMirrors;
+      /** The GitHub host, when the repositories are on GitHub. */
+      readonly github: GitHubHost | null;
+    };
+
+/**
  * The git side: a simulated host; real repositories by path, whose change requests are
  * simulated; or GitHub, with its secrets scanned for before anything is pushed.
  */
@@ -113,11 +137,11 @@ export const gitOf = async (
   config: ReceiverConfig,
   blobs: BlobStore,
   logger: Logger,
-) => {
+): Promise<GitSide> => {
   const git = config.git;
   if (git.kind === 'scripted') {
     const simulated = new ScriptedGit(git.resultBaseUrl);
-    return { source: simulated, scanner: simulated, forge: simulated, mirrors: null, github: null };
+    return { kind: 'simulated', source: simulated, scanner: simulated, forge: simulated };
   }
   if (git.kind === 'local') {
     const simulated = new ScriptedGit(git.resultBaseUrl);
@@ -129,7 +153,15 @@ export const gitOf = async (
     });
     // A change goes only to the operator's own repository, as a branch with a simulated change
     // request; secrets are scanned for once changes leave for a git host.
-    return { source: mirrors, scanner: simulated, forge: simulated, mirrors, github: null };
+    return {
+      kind: 'mirrored',
+      source: mirrors,
+      trees: mirrors,
+      scanner: simulated,
+      forge: simulated,
+      mirrors,
+      github: null,
+    };
   }
   const api = new GitHubApi({ url: git.api });
   const auth: GitHubAuth =
@@ -155,7 +187,15 @@ export const gitOf = async (
     blobs,
   });
   const scanner = new GitleaksScanner({ mirrors, command: git.gitleaks });
-  return { source: mirrors, scanner, forge: github, mirrors, github };
+  return {
+    kind: 'mirrored',
+    source: mirrors,
+    trees: mirrors,
+    scanner,
+    forge: github,
+    mirrors,
+    github,
+  };
 };
 
 /** The Docker the sandboxes of a sandboxed agent run in. */
@@ -168,16 +208,16 @@ export const sandboxesOf = (agent: Extract<ReceiverConfig['agent'], { kind: 'cla
 const runnerOf = (
   config: ReceiverConfig,
   blobs: BlobStore,
-  mirrors: GitMirrors | null,
+  git: GitSide,
   logger: Logger,
 ): AgentRunner => {
   const agent = config.agent;
   if (agent.kind === 'scripted') return new ScriptedRunner(agent, () => systemClock.now());
-  if (mirrors === null)
-    throw new Error('The claude agent needs real repositories (git: local or github)');
+  // The configuration has no sandboxed agent on a simulated host (`parseConfig`).
+  if (git.kind === 'simulated') throw new Error('The claude agent works on real repositories');
   return new SandboxedClaudeRunner({
     sandboxes: sandboxesOf(agent),
-    sources: mirrors,
+    sources: git.trees,
     blobs,
     settings: {
       user: agent.user,
@@ -293,7 +333,7 @@ const workerOf = async (
   const { store, jobs, writer, projects, blobs, bundles, users, vault } = deps;
   // Only what runs tasks holds the git host's and Docker's credentials.
   const git = await gitOf(settings, config, blobs, logger);
-  const runner = runnerOf(config, blobs, git.mirrors, logger);
+  const runner = runnerOf(config, blobs, git, logger);
   const supervise = new SuperviseRun({
     queries: store,
     uow: store,

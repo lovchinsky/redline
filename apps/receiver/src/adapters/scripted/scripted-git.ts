@@ -2,20 +2,22 @@ import { createHash } from 'node:crypto';
 import type { ChangeDescription, SecretFinding } from '../../domain/change-policy';
 import type { ChangeRequestRef } from '../../domain/work';
 import type { RepositoryRef } from '../../ports/access';
-import type {
-  ChangeRequestDraft,
-  DeterministicCommit,
-  Forge,
-  Publishing,
-  SecretScanner,
-  SourceRepository,
-} from '../../ports/publishing';
+import type { ChangeRequestDraft, Forge, Publishing, SecretScanner } from '../../ports/publishing';
+import {
+  NO_SETTINGS,
+  type DeterministicCommit,
+  type RepositorySettings,
+  type SourceRepository,
+} from '../../ports/source';
+
+/** The one commit every simulated repository's base branch is at. */
+const SCRIPTED_BASE = '0'.repeat(40);
 
 const done = <T>(value: T): Promise<Publishing<T>> => Promise.resolve({ ok: true, value });
 
 /**
- * A git host simulated in memory, for the scripted agent: every repository has the same base,
- * every change touches one file, commits are hashes of their input, and change requests are
+ * A git host simulated in memory, for the scripted agent: every repository has the same base and
+ * no settings, every change touches one file, commits are hashes of their input, and change requests are
  * numbered per repository at `resultBaseUrl`.
  */
 export class ScriptedGit implements SourceRepository, SecretScanner, Forge {
@@ -24,8 +26,12 @@ export class ScriptedGit implements SourceRepository, SecretScanner, Forge {
 
   constructor(private readonly resultBaseUrl: string) {}
 
-  prepare() {
-    return done({ baseSha: '0'.repeat(40) });
+  prepare(_repository: RepositoryRef, sha: string | null) {
+    return done(sha ?? SCRIPTED_BASE);
+  }
+
+  settings(): Promise<Publishing<RepositorySettings>> {
+    return done(NO_SETTINGS);
   }
 
   describe(): Promise<Publishing<Omit<ChangeDescription, 'secrets'>>> {
@@ -52,15 +58,7 @@ export class ScriptedGit implements SourceRepository, SecretScanner, Forge {
 
   commit(_repository: RepositoryRef, commit: DeterministicCommit) {
     const sha = createHash('sha1')
-      .update(
-        JSON.stringify([
-          commit.taskId,
-          commit.baseSha,
-          commit.change.blob,
-          commit.message,
-          commit.at,
-        ]),
-      )
+      .update(JSON.stringify([commit.baseSha, commit.change.blob, commit.message, commit.at]))
       .digest('hex');
     return done({ sha });
   }

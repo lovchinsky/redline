@@ -1,5 +1,6 @@
 import type { RepositoryRef } from '../../ports/access';
-import type { GitRemote, GitRemotes, Publishing } from '../../ports/publishing';
+import type { Publishing } from '../../ports/publishing';
+import type { GitRemote, GitRemotes } from '../../ports/source';
 
 /**
  * Repositories by path under `root` (`repository.host: local`). They have no forks: a branch

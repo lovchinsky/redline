@@ -31,14 +31,13 @@ import {
 } from '../../ports/access';
 import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 import type { BundleContents, BundleReader } from '../../ports/bundles';
-import type {
-  ChangeRequestDraft,
-  DeterministicCommit,
-  Forge,
-  Publishing,
-  SecretScanner,
-  SourceRepository,
-} from '../../ports/publishing';
+import type { ChangeRequestDraft, Forge, Publishing, SecretScanner } from '../../ports/publishing';
+import {
+  NO_SETTINGS,
+  type DeterministicCommit,
+  type RepositorySettings,
+  type SourceRepository,
+} from '../../ports/source';
 import type { GrantBook, MeteredRequest, UsageLedger } from '../../ports/gateway';
 import type { Clock, IdGenerator, Logger } from '../../ports/system';
 import type {
@@ -514,6 +513,9 @@ export class FakeGit implements SourceRepository, Forge, SecretScanner {
     scriptChanges: [],
   };
   secrets: SecretFinding[] = [];
+  settingsAtBase: RepositorySettings = NO_SETTINGS;
+  /** The commits `prepare` was asked for, in order (null: the base branch's head). */
+  prepared: (string | null)[] = [];
   commits: DeterministicCommit[] = [];
   pushes: { sha: string; branch: string }[] = [];
   opened: ChangeRequestDraft[] = [];
@@ -531,8 +533,12 @@ export class FakeGit implements SourceRepository, Forge, SecretScanner {
     return done(value());
   }
 
-  prepare() {
-    return this.outcome('prepare', () => ({ baseSha: this.baseSha }));
+  prepare(_: unknown, sha: string | null) {
+    this.prepared.push(sha);
+    return this.outcome('prepare', () => sha ?? this.baseSha);
+  }
+  settings() {
+    return this.outcome('settings', () => this.settingsAtBase);
   }
   describe() {
     return this.outcome('describe', () => this.description);
@@ -543,7 +549,7 @@ export class FakeGit implements SourceRepository, Forge, SecretScanner {
   commit(_: unknown, commit: DeterministicCommit) {
     return this.outcome('commit', () => {
       this.commits.push(commit);
-      return { sha: `sha-of-${commit.taskId}` };
+      return { sha: `sha-of-${commit.change.blob.slice(0, 8)}` };
     });
   }
   push(_: unknown, __: unknown, sha: string, branch: string) {

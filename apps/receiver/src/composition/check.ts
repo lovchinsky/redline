@@ -59,9 +59,10 @@ export const checkDeployment = async (
       return null;
     },
   );
-  const { mirrors, github } = git ?? { mirrors: null, github: null };
+  const mirrored = git?.kind === 'mirrored' ? git : null;
   for (const project of config.projects) {
-    if (mirrors === null) break;
+    if (mirrored === null) break;
+    const { mirrors, github } = mirrored;
     checks.push(
       await attempt(`${project.id}: repository`, async () => {
         const head = unwrap(await mirrors.reach(project.repository));
