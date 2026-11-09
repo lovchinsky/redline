@@ -1,26 +1,23 @@
-import type { RunId } from '../domain/ids';
-import type { Run } from '../domain/run';
+import type { Instant, RunId } from '../domain/ids';
+import { endRun } from '../domain/run';
 import type { AgentRunner } from '../ports/agent';
 import type { Logger } from '../ports/system';
 import type { UnitOfWork, WorkScope } from '../ports/tasks';
 
 /**
- * Ends a run, however it ends: its record is closed by `close` while it is still open, and its
- * grants are revoked, so it cannot spend once it is over.
+ * Closes a run the task stopped running (`end-run`), in the unit of work that moved the task:
+ * its record says when it ended, and its grants are revoked, so it cannot spend once it is over.
  */
-export const closeRun = async (
-  scope: WorkScope,
-  runId: RunId,
-  close: (run: Run) => Run,
-): Promise<void> => {
+export const closeRun = async (scope: WorkScope, runId: RunId, at: Instant): Promise<void> => {
   const run = await scope.runs.get(runId);
-  if (run?.state.kind === 'started') await scope.runs.save(close(run));
+  if (run !== null && run.endedAt === null) await scope.runs.save(endRun(run, at));
   await scope.grants.revoke(runId);
 };
 
 /**
- * Frees what runs that are over still hold where they ran: a sandbox whose outcome was applied
- * but not released (the worker stopped in between), or one whose run never got a record.
+ * Frees what runs that are over still hold where they ran: a sandbox whose run its task stopped
+ * running but no worker released (the worker stopped in between, or the release ran on another
+ * host), or one whose run never got a record.
  */
 export class ReleaseStrays {
   constructor(
@@ -34,8 +31,8 @@ export class ReleaseStrays {
   async handle(): Promise<void> {
     for (const runId of await this.deps.runner.live()) {
       const run = await this.deps.uow.run((scope) => scope.runs.get(runId));
-      if (run?.state.kind === 'started') continue;
-      this.deps.logger.info('Releasing a stray run', { runId, state: run?.state.kind ?? 'none' });
+      if (run !== null && run.endedAt === null) continue;
+      this.deps.logger.info('Releasing a stray run', { runId, recorded: run !== null });
       await this.deps.runner.release(runId);
     }
   }

@@ -130,6 +130,32 @@ describe('PostgresStore', () => {
     expect(await queued('run', submitted.task.id)).toHaveLength(1);
   });
 
+  it('records when a run ended, in its record and its row', async () => {
+    const submitted = transition();
+    const runId = RunId('run-ended');
+    const run = {
+      id: runId,
+      taskId: submitted.task.id,
+      kind: 'start',
+      image: 'image',
+      model: 'model',
+      startedAt: 1_000,
+      endedAt: null,
+    } as const;
+    await store.run(async (scope) => {
+      await scope.tasks.insert(submitted.task, submitted.key);
+      await scope.runs.insert(run);
+    });
+    await store.run((scope) => scope.runs.save({ ...run, endedAt: 5_000 }));
+    expect(await store.run((scope) => scope.runs.get(runId))).toEqual({ ...run, endedAt: 5_000 });
+    const row = await db
+      .selectFrom('runs')
+      .select('ended_at')
+      .where('id', '=', runId)
+      .executeTakeFirstOrThrow();
+    expect(row.ended_at).toEqual(new Date(5_000));
+  });
+
   it('keeps grants as hashes with their terms, for the gateway to read, until revoked', async () => {
     const submitted = transition();
     await store.run((scope) => scope.tasks.insert(submitted.task, submitted.key));
@@ -152,7 +178,7 @@ describe('PostgresStore', () => {
         image: 'image',
         model: 'model',
         startedAt: 1_000,
-        state: { kind: 'started' },
+        endedAt: null,
       });
       return [await scope.grants.issue(agentTerms), await scope.grants.issue(setupTerms)];
     });

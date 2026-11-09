@@ -37,20 +37,6 @@ export type RunOutcome =
       readonly snapshot: Snapshot | null;
     };
 
-export type RunState =
-  | { readonly kind: 'started' }
-  /** `applied`: whether the outcome moved the task; an outcome of a superseded run does not. */
-  | {
-      readonly kind: 'finished';
-      readonly outcome: RunOutcome;
-      readonly applied: boolean;
-      readonly at: Instant;
-    }
-  /** The run's sandbox disappeared without an outcome. */
-  | { readonly kind: 'interrupted'; readonly at: Instant }
-  /** The task stopped wanting the run (it was cancelled) while it ran. */
-  | { readonly kind: 'aborted'; readonly at: Instant };
-
 /**
  * How a run begins: from scratch (`start`), with the task's paused session (`resume`), or over
  * again, told the exchanges so far because no session is there to go on with (`replay`).
@@ -58,8 +44,10 @@ export type RunState =
 export type RunKind = 'start' | 'resume' | 'replay';
 
 /**
- * One execution of the agent for a task. Recorded before its sandbox exists, so a supervisor
- * that crashed can tell a run it started from one it did not.
+ * One execution of the agent for a task: what it ran and when. Recorded before its sandbox
+ * exists, so a worker that restarts can tell a run it started from one it did not. Whether the
+ * run is still wanted is the task's to say: the run ends when the task stops running it, and
+ * how it ended is in the task's history.
  */
 export interface Run {
   readonly id: RunId;
@@ -68,28 +56,13 @@ export interface Run {
   readonly image: string;
   readonly model: string;
   readonly startedAt: Instant;
-  readonly state: RunState;
+  /** When the task stopped running it; null while it is the task's current run. */
+  readonly endedAt: Instant | null;
 }
 
-export const startRun = (input: Omit<Run, 'state'>): Run => ({
-  ...input,
-  state: { kind: 'started' },
-});
+export const startRun = (input: Omit<Run, 'endedAt'>): Run => ({ ...input, endedAt: null });
 
-export const finishRun = (run: Run, outcome: RunOutcome, applied: boolean, at: Instant): Run => ({
-  ...run,
-  state: { kind: 'finished', outcome, applied, at },
-});
-
-export const interruptRun = (run: Run, at: Instant): Run => ({
-  ...run,
-  state: { kind: 'interrupted', at },
-});
-
-export const abortRun = (run: Run, at: Instant): Run => ({
-  ...run,
-  state: { kind: 'aborted', at },
-});
+export const endRun = (run: Run, at: Instant): Run => ({ ...run, endedAt: at });
 
 /**
  * A run's outcome as far as the receiver can stand by it. The outcome is the sandbox's own

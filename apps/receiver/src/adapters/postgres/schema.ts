@@ -29,9 +29,10 @@ export interface TaskEventsTable {
 export interface RunsTable {
   id: string;
   task_id: string;
-  state: string;
   record: Json;
   started_at: Timestamp;
+  /** When the task stopped running it; null while it is the task's current run. */
+  ended_at: Timestamp | null;
 }
 
 /**
@@ -252,6 +253,13 @@ export const migrations: Record<string, Migration> = {
         .column('reservation')
         .unique()
         .execute();
+    },
+  },
+  '0005-runs-ended': {
+    async up(db: Kysely<unknown>) {
+      // Whether a run is wanted is its task's to say; the run's row records when it ended.
+      await db.schema.alterTable('runs').dropColumn('state').execute();
+      await db.schema.alterTable('runs').addColumn('ended_at', 'timestamptz').execute();
     },
   },
 };

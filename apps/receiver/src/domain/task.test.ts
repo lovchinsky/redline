@@ -180,6 +180,7 @@ describe('run outcomes', () => {
     ]);
     expect(transition.effects).toEqual([
       { kind: 'schedule-reply-timeout', questionId: q1, at: 20 + policy.replyTimeoutMs },
+      { kind: 'end-run', runId: run1 },
     ]);
   });
 
@@ -210,7 +211,10 @@ describe('run outcomes', () => {
       change: { blob: digest('c'), head: 'b'.repeat(40) },
       report,
     });
-    expect(transition.effects).toEqual([{ kind: 'schedule-publish', at: null }]);
+    expect(transition.effects).toEqual([
+      { kind: 'schedule-publish', at: null },
+      { kind: 'end-run', runId: run1 },
+    ]);
   });
 
   it('fails a change of a run that fixed no base: there is nothing it is a change of', () => {
@@ -256,7 +260,10 @@ describe('run outcomes', () => {
       awaiting: null,
     });
     expect(transition.task.runAttempts).toBe(0);
-    expect(transition.effects).toEqual([{ kind: 'schedule-run', at: 5_000 }]);
+    expect(transition.effects).toEqual([
+      { kind: 'schedule-run', at: 5_000 },
+      { kind: 'end-run', runId: run1 },
+    ]);
   });
 
   it('retries infrastructure failures with growing delays, then fails', () => {
@@ -329,7 +336,8 @@ describe('run outcomes', () => {
       resumeFrom: snapshot('e'),
       awaiting: 'credential',
     });
-    expect(transition.effects).toEqual([]);
+    // Nothing is scheduled: the credential's arrival schedules the run.
+    expect(transition.effects).toEqual([{ kind: 'end-run', runId: run1 }]);
     expect(transition.task.runAttempts).toBe(0);
   });
 
@@ -562,5 +570,42 @@ describe('cancelling', () => {
     expect(value(cancelTask(cancelled, 'x', 40)).event).toBeNull();
     const published = value(markPublished(publishing(), { id: '1', url: 'https://x' }, 30)).task;
     expect(cancelTask(published, 'x', 40).ok).toBe(false);
+  });
+});
+
+describe('a run’s end', () => {
+  const outcomes: readonly RunOutcome[] = [
+    { kind: 'question', question: question('q1'), snapshot: null },
+    {
+      kind: 'change',
+      change: { blob: digest('c'), head: 'b'.repeat(40) },
+      report: { summary: '', changes: [], verification: '', assumptions: [] },
+    },
+    { kind: 'no-change', explanation: 'Nothing to do' },
+    { kind: 'quota-exhausted', resetAt: 5_000, snapshot: null },
+    { kind: 'credential-missing', snapshot: null },
+    { kind: 'failed', reason: 'infra', detail: 'the sandbox broke', snapshot: null },
+    { kind: 'failed', reason: 'agent-failed', detail: 'it gave up', snapshot: null },
+  ];
+  const based = () => value(fixBase(running(), run1, 'base', 15)).task;
+  const endings: readonly (readonly [string, () => TransitionResult])[] = [
+    ...outcomes.map(
+      (ran) => [ran.kind, () => applyOutcome(based(), run1, ran, policy, 20)] as const,
+    ),
+    ['lost', () => loseRun(running(), run1, 'gone', policy, 20)],
+    ['cancelled', () => cancelTask(running(), 'not needed', 20)],
+  ];
+
+  it.each(endings)('follows the task out of running: %s', (_, end) => {
+    const transition = value(end());
+    expect(transition.task.state.kind).not.toBe('running');
+    expect(transition.effects.filter((effect) => effect.kind === 'end-run')).toEqual([
+      { kind: 'end-run', runId: run1 },
+    ]);
+  });
+
+  it('does not follow a transition that keeps the run', () => {
+    expect(value(fixBase(running(), run1, 'base', 15)).effects).toEqual([]);
+    expect(value(fixBase(based(), run1, 'other', 16)).effects).toEqual([]);
   });
 });

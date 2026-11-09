@@ -1,12 +1,5 @@
 import type { Instant, RunId, TaskId } from '../domain/ids';
-import {
-  corroborate,
-  finishRun,
-  interruptRun,
-  startRun,
-  type Run,
-  type RunOutcome,
-} from '../domain/run';
+import { corroborate, startRun, type RunOutcome } from '../domain/run';
 import {
   applyOutcome,
   awaitCredential,
@@ -26,7 +19,6 @@ import type { Clock, IdGenerator, Logger } from '../ports/system';
 import type { TaskQueries, UnitOfWork } from '../ports/tasks';
 import { composeBrief } from './brief';
 import { projectGone, withProject } from './projects';
-import { closeRun } from './runs';
 import type { TaskWriter } from './task-writer';
 
 /** How starting a run went. */
@@ -151,17 +143,12 @@ export class SuperviseRun {
       case 'started':
         return runId;
       case 'ended':
-        await this.settle(
-          task.id,
-          runId,
-          (current, of, now) => applyOutcome(current, runId, launch.outcome, of.policy, now),
-          (run, applied, at) => finishRun(run, launch.outcome, applied, at),
+        await this.settle(task.id, runId, (current, of, now) =>
+          applyOutcome(current, runId, launch.outcome, of.policy, now),
         );
         return null;
       case 'superseded':
-        await this.deps.uow.run((scope) =>
-          closeRun(scope, runId, (run) => interruptRun(run, this.deps.clock.now())),
-        );
+        // The task stopped running the run before its agent was started: that closed the run.
         return null;
     }
   }
@@ -217,7 +204,12 @@ export class SuperviseRun {
 
   private async supervise(taskId: TaskId, runId: RunId, signal: AbortSignal): Promise<void> {
     const run = await this.deps.uow.run((scope) => scope.runs.get(runId));
-    if (run?.state.kind !== 'started') return;
+    if (run === null || run.endedAt !== null) {
+      // The task stopped running it, e.g. it was cancelled while the run was being started:
+      // nobody waits for its outcome, and what it holds here goes.
+      await this.deps.runner.release(runId);
+      return;
+    }
     const observed = await this.deps.runner.observe(runId, signal, {
       // The agent never holds what the setup used: its registries' grant ends with the setup.
       setupDone: () => this.deps.uow.run((scope) => scope.grants.revoke(runId, 'setup')),
@@ -225,48 +217,38 @@ export class SuperviseRun {
     // Shutting down: the run goes on, and the job's next delivery attaches to it again.
     if (signal.aborted) return;
     if (observed.kind === 'lost') {
-      await this.settle(
-        taskId,
-        runId,
-        (current, project, now) => loseRun(current, runId, observed.detail, project.policy, now),
-        (lost, _applied, at) => interruptRun(lost, at),
+      await this.settle(taskId, runId, (current, project, now) =>
+        loseRun(current, runId, observed.detail, project.policy, now),
       );
-    } else {
-      // The sandbox's account, as far as the gateway's refusal of the run bears it out.
-      const refusal = await this.deps.uow.run((scope) => scope.grants.refusal(runId));
-      const outcome = corroborate(observed, refusal);
-      await this.settle(
-        taskId,
-        runId,
-        (current, project, now) => applyOutcome(current, runId, outcome, project.policy, now),
-        (finished, applied, at) => finishRun(finished, outcome, applied, at),
-      );
+      return;
     }
-    await this.deps.runner.release(runId);
+    // The sandbox's account, as far as the gateway's refusal of the run bears it out.
+    const refusal = await this.deps.uow.run((scope) => scope.grants.refusal(runId));
+    const outcome = corroborate(observed, refusal);
+    await this.settle(taskId, runId, (current, project, now) =>
+      applyOutcome(current, runId, outcome, project.policy, now),
+    );
   }
 
   /**
-   * Ends a run: the task moves when the run is still its current one, and the run is closed
-   * either way. An outcome of a superseded run is kept, marked as not applied.
+   * Ends a run with what became of it. The task moves when the run is still its current one,
+   * and stops running it (`end-run`); an outcome of a run the task stopped running before is
+   * only noted. Either way the run is over for this worker, which frees what it holds here, where
+   * the run ran.
    */
   private async settle(
     taskId: TaskId,
     runId: RunId,
     decide: (task: Task, project: Project, now: Instant) => TransitionResult,
-    record: (run: Run, applied: boolean, at: Instant) => Run,
   ): Promise<void> {
-    const settled = await this.deps.writer.update(
-      taskId,
-      withProject(this.deps.projects, decide),
-      (scope, transition) =>
-        closeRun(scope, runId, (run) =>
-          record(run, true, transition.event?.at ?? this.deps.clock.now()),
-        ),
-    );
+    const settled = await this.deps.writer.update(taskId, withProject(this.deps.projects, decide));
     if (!settled.ok) {
-      await this.deps.uow.run((scope) =>
-        closeRun(scope, runId, (run) => record(run, false, this.deps.clock.now())),
-      );
+      this.deps.logger.info('The outcome of a run its task no longer runs is not applied', {
+        taskId,
+        runId,
+        reason: settled.error.message,
+      });
     }
+    await this.deps.runner.release(runId);
   }
 }

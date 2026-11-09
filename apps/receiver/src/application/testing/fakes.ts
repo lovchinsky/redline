@@ -16,7 +16,7 @@ import {
 } from '../../domain/ids';
 import type { Budget, GatewayRefusal, GrantTerms } from '../../domain/grant';
 import type { TokenUsage } from '../../domain/usage';
-import { err, ok, type Fault } from '../../domain/result';
+import { err, ok, type Fault, type Result } from '../../domain/result';
 import type { Run, RunOutcome } from '../../domain/run';
 import { dueOf, type Task, type TaskEffect, type TaskEvent } from '../../domain/task';
 import type { ChangeRequestRef } from '../../domain/work';
@@ -466,7 +466,7 @@ export class FakeRunner implements AgentRunner {
   }
 
   /** Starts a run once: a run that exists is left as it is. */
-  start(spec: RunSpec) {
+  start(spec: RunSpec): Promise<Result<undefined, Fault>> {
     if (this.startError !== null) return Promise.resolve(err(this.startError));
     if (!this.started.some((started) => started.runId === spec.runId)) this.started.push(spec);
     return Promise.resolve(ok(undefined));

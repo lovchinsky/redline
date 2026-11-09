@@ -143,16 +143,19 @@ export class PostgresStore implements UnitOfWork, TaskQueries {
             .values({
               id: run.id,
               task_id: run.taskId,
-              state: run.state.kind,
               record: json(runToRecord(run)),
               started_at: new Date(run.startedAt),
+              ended_at: run.endedAt === null ? null : new Date(run.endedAt),
             })
             .execute();
         },
         save: async (run) => {
           await trx
             .updateTable('runs')
-            .set({ state: run.state.kind, record: json(runToRecord(run)) })
+            .set({
+              record: json(runToRecord(run)),
+              ended_at: run.endedAt === null ? null : new Date(run.endedAt),
+            })
             .where('id', '=', run.id)
             .execute();
         },

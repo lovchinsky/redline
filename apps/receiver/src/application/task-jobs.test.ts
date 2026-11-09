@@ -15,9 +15,9 @@ describe('TaskJobs', () => {
       change: { blob: 'c'.repeat(64) as never, head: 'd'.repeat(40) },
       report: { summary: 'Renamed', changes: [], verification: '', assumptions: [] },
     });
-    // The run job starts the run and applies its outcome; the publish job it schedules opens
-    // the change request.
-    expect(await app.work()).toBe(2);
+    // The run job starts the run and applies its outcome; the run's end frees its sandbox, and
+    // the publish job opens the change request.
+    expect(await app.work()).toBe(3);
     expect(app.store.task(task.id).state.kind).toBe('published');
   });
 
@@ -29,7 +29,7 @@ describe('TaskJobs', () => {
       question: { text: 'Which button?', options: [] },
       snapshot: null,
     });
-    expect(await app.work()).toBe(1);
+    expect(await app.work()).toBe(2);
     expect(app.store.task(task.id).state.kind).toBe('awaiting-reply');
     // The question's timeout waits for its time.
     expect(await app.work()).toBe(0);
@@ -37,13 +37,15 @@ describe('TaskJobs', () => {
     // Its time runs out: the agent goes on with its own judgement, in a run due at once.
     app.clock.time += 60_000;
     app.runner.outcomes.push({ kind: 'no-change', explanation: 'Nothing to do' });
-    expect(await app.work()).toBe(2);
+    expect(await app.work()).toBe(3);
     expect(app.store.task(task.id).state).toMatchObject({
       kind: 'failed',
       failure: { code: 'no-change' },
     });
-    // The task ended with the requester's credential nowhere to forget, and its runs released.
-    expect(app.runner.released).toEqual(app.runner.started.map((spec) => spec.runId));
+    // Each run was freed where it ran, and again by its end's job: releasing twice is harmless.
+    expect(new Set(app.runner.released)).toEqual(
+      new Set(app.runner.started.map((spec) => spec.runId)),
+    );
   });
 
   it('stops at the limit when jobs keep coming', async () => {

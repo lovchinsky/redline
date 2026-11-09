@@ -88,7 +88,10 @@ export type TaskEffect =
       readonly questionId: QuestionId;
       readonly at: Instant;
     }
-  /** The run is over for the task: its record closes and its grants go now, its sandbox later. */
+  /**
+   * The task stopped running its run, however that came about: the run's record closes and its
+   * grants go now, with the task; what it holds where it ran goes as soon as the worker can.
+   */
   | { readonly kind: 'end-run'; readonly runId: RunId }
   /** Close the change request a cancelled publication may already have opened. */
   | { readonly kind: 'withdraw-change' }
@@ -151,9 +154,21 @@ const conflict = (message: string): TransitionResult => err({ code: 'conflict', 
 const unchanged = (task: Task): TransitionResult => ok({ task, effects: [], event: null });
 
 /**
- * A transition that happened. A task that ends with it lets go of the requester's credential,
- * whichever way it ended.
+ * What follows from a change of state itself, whatever transition made it: a task that stops
+ * running ends its run, and a task that ends lets go of the requester's credential.
  */
+const inherent = (before: Task, after: Task): TaskEffect[] => {
+  const effects: TaskEffect[] = [];
+  if (before.state.kind === 'running' && after.state.kind !== 'running') {
+    effects.push({ kind: 'end-run', runId: before.state.runId });
+  }
+  if (!isTerminal(before) && isTerminal(after) && before.credentials === 'requester') {
+    effects.push({ kind: 'forget-credential' });
+  }
+  return effects;
+};
+
+/** A transition that happened: its own effects, and those that follow from it (`inherent`). */
 const move = (
   task: Task,
   changes: Partial<
@@ -163,12 +178,7 @@ const move = (
   effects: readonly TaskEffect[] = [],
 ): TransitionResult => {
   const moved = { ...task, ...changes, updatedAt: event.at };
-  const ends = !isTerminal(task) && isTerminal(moved) && task.credentials === 'requester';
-  return ok({
-    task: moved,
-    effects: ends ? [...effects, { kind: 'forget-credential' }] : effects,
-    event,
-  });
+  return ok({ task: moved, effects: [...effects, ...inherent(task, moved)], event });
 };
 
 const fail = (task: Task, code: FailureCode, detail: string, now: Instant): TransitionResult =>
@@ -566,9 +576,8 @@ export const cancelTask = (task: Task, reason: string, now: Instant): Transition
   switch (task.state.kind) {
     case 'queued':
     case 'awaiting-reply':
-      return move(task, cancelled, event);
     case 'running':
-      return move(task, cancelled, event, [{ kind: 'end-run', runId: task.state.runId }]);
+      return move(task, cancelled, event);
     case 'publishing':
       return move(task, cancelled, event, [{ kind: 'withdraw-change' }]);
     case 'cancelled':

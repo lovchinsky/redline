@@ -1,6 +1,5 @@
 import type { Instant, TaskId } from '../domain/ids';
 import { err, ok, type Result } from '../domain/result';
-import { abortRun } from '../domain/run';
 import type { Task, TaskConflict, Transition, TransitionResult } from '../domain/task';
 import type { Clock } from '../ports/system';
 import type { InsertResult, UnitOfWork, WorkScope } from '../ports/tasks';
@@ -23,9 +22,7 @@ const carryOut = async (scope: WorkScope, task: Task, transition: Transition): P
   const { event } = transition;
   if (event !== null) await scope.history.append(task.id, event);
   for (const effect of transition.effects) {
-    if (effect.kind === 'end-run') {
-      await closeRun(scope, effect.runId, (run) => abortRun(run, task.updatedAt));
-    }
+    if (effect.kind === 'end-run') await closeRun(scope, effect.runId, task.updatedAt);
     await scope.jobs.schedule({ taskId: task.id, projectId: task.projectId, effect });
   }
 };

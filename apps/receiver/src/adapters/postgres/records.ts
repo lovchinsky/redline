@@ -21,8 +21,7 @@ const digest = z.pipe(z.string().check(z.regex(/^[a-f0-9]{64}$/)), z.transform(B
 
 const snapshot = z.object({ blob: digest, image: text, model: text });
 
-const askedQuestion = z.object({ text: text, options: z.array(text) });
-const question = z.extend(askedQuestion, { id: id(QuestionId) });
+const question = z.object({ id: id(QuestionId), text: text, options: z.array(text) });
 
 const answer = z.discriminatedUnion('source', [
   z.object({ source: z.literal('requester'), text: z.string(), at: instant }),
@@ -97,37 +96,6 @@ const taskRecord = z.object({
   updatedAt: instant,
 });
 
-const runFailureReason = z.enum([
-  'infra',
-  'setup-failed',
-  'repository-unavailable',
-  'budget-exhausted',
-  'agent-failed',
-  'model-access-failed',
-]);
-
-const outcome = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('question'),
-    question: askedQuestion,
-    snapshot: z.nullable(snapshot),
-  }),
-  z.object({ kind: z.literal('change'), change: z.object({ blob: digest, head: sha }), report }),
-  z.object({ kind: z.literal('no-change'), explanation: z.string() }),
-  z.object({
-    kind: z.literal('quota-exhausted'),
-    resetAt: instant,
-    snapshot: z.nullable(snapshot),
-  }),
-  z.object({ kind: z.literal('credential-missing'), snapshot: z.nullable(snapshot) }),
-  z.object({
-    kind: z.literal('failed'),
-    reason: runFailureReason,
-    detail: z.string(),
-    snapshot: z.nullable(snapshot),
-  }),
-]);
-
 const runRecord = z.object({
   format: z.literal(RECORD_FORMAT),
   id: id(RunId),
@@ -136,12 +104,7 @@ const runRecord = z.object({
   image: text,
   model: text,
   startedAt: instant,
-  state: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('started') }),
-    z.object({ kind: z.literal('finished'), outcome, applied: z.boolean(), at: instant }),
-    z.object({ kind: z.literal('interrupted'), at: instant }),
-    z.object({ kind: z.literal('aborted'), at: instant }),
-  ]),
+  endedAt: z.nullable(instant),
 });
 
 /** A stored record that does not read as its format: storage is corrupt, never silently fixed. */
@@ -197,7 +160,7 @@ export const runToRecord = (run: Run): unknown => ({
   image: run.image,
   model: run.model,
   startedAt: run.startedAt,
-  state: run.state,
+  endedAt: run.endedAt,
 });
 
 export const runFromRecord = (record: unknown, id: string): Run => {
@@ -211,7 +174,7 @@ export const runFromRecord = (record: unknown, id: string): Run => {
     image: stored.image,
     model: stored.model,
     startedAt: stored.startedAt,
-    state: stored.state,
+    endedAt: stored.endedAt,
   };
 };
 
