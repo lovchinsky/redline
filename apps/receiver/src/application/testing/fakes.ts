@@ -16,6 +16,7 @@ import {
 } from '../../domain/ids';
 import type { Budget, GatewayRefusal, GrantTerms } from '../../domain/grant';
 import type { TokenUsage } from '../../domain/usage';
+import { err, ok, type Fault } from '../../domain/result';
 import type { Run, RunOutcome } from '../../domain/run';
 import type { Task, TaskEvent } from '../../domain/task';
 import type { ChangeRequestRef } from '../../domain/work';
@@ -28,13 +29,12 @@ import {
   type ProjectCatalog,
   type User,
 } from '../../ports/access';
-import type { AgentRunner, RunPhases, RunSpec, RunnerError } from '../../ports/agent';
+import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 import type { BundleContents, BundleReader } from '../../ports/bundles';
 import type {
   ChangeRequestDraft,
   DeterministicCommit,
   Forge,
-  PublishError,
   Publishing,
   SecretScanner,
   SourceRepository,
@@ -402,7 +402,7 @@ export class MemoryGrantBook implements GrantBook {
 export class FakeRunner implements AgentRunner {
   readonly started: RunSpec[] = [];
   readonly released: string[] = [];
-  startError: RunnerError | null = null;
+  startError: Fault | null = null;
   /** Whether the paused sessions it is asked about can be resumed. */
   resumes = true;
   /** Called as each run starts, e.g. for the gateway to refuse it. */
@@ -414,11 +414,10 @@ export class FakeRunner implements AgentRunner {
   }
 
   start(spec: RunSpec) {
-    if (this.startError !== null)
-      return Promise.resolve({ ok: false as const, error: this.startError });
+    if (this.startError !== null) return Promise.resolve(err(this.startError));
     this.started.push(spec);
     this.onStart(spec);
-    return Promise.resolve({ ok: true as const });
+    return Promise.resolve(ok(undefined));
   }
   observe(_runId: RunId, _signal: AbortSignal, phases: RunPhases) {
     void phases.setupDone();
@@ -464,7 +463,7 @@ export class FakeGit implements SourceRepository, Forge, SecretScanner {
   closed: ChangeRequestRef[] = [];
   open_: Map<string, ChangeRequestRef> = new Map();
   /** Fails the next call of the named operation. */
-  failures = new Map<string, PublishError>();
+  failures = new Map<string, Fault>();
 
   private outcome<T>(operation: string, value: () => T): Promise<Publishing<T>> {
     const failure = this.failures.get(operation);

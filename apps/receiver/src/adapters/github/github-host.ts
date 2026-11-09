@@ -37,7 +37,7 @@ const caught = async <T>(work: () => Promise<T>): Promise<Publishing<T>> => {
   try {
     return { ok: true, value: await work() };
   } catch (error) {
-    if (error instanceof GitHubError) return { ok: false, error: error.toPublishError() };
+    if (error instanceof GitHubError) return { ok: false, error: error.toFault() };
     return { ok: false, error: { transient: true, detail: String(error) } };
   }
 };

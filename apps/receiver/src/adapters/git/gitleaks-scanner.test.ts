@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -110,12 +110,32 @@ describe('GitleaksScanner', () => {
     );
   });
 
-  it('fails a scan it could not make, for publishing to try again', async () => {
+  it('fails a scan gitleaks cannot make, and retries only one the system stopped', async () => {
     const prepared = await mirrors.prepare(repository, taskId);
     if (!prepared.ok) throw new Error(prepared.error.detail);
     const base = prepared.value.baseSha;
-    const scanner = new GitleaksScanner({ mirrors, command: path.join(dir, 'missing-gitleaks') });
-    expect(await scanner.scan(repository, base, await changeWith(base, 'x'))).toMatchObject({
+    const change = await changeWith(base, 'x');
+    const scan = (command: string) =>
+      new GitleaksScanner({ mirrors, command }).scan(repository, base, change);
+    expect(await scan(path.join(dir, 'missing-gitleaks'))).toMatchObject({
+      ok: false,
+      error: { transient: false },
+    });
+    const script = async (name: string, body: string) => {
+      const file = path.join(dir, name);
+      await writeFile(file, `#!/bin/sh\n${body}\n`);
+      await chmod(file, 0o755);
+      return file;
+    };
+    expect(await scan(await script('failing-gitleaks', 'exit 1'))).toMatchObject({
+      ok: false,
+      error: { transient: false },
+    });
+    expect(await scan(await script('silent-gitleaks', 'exit 0'))).toMatchObject({
+      ok: false,
+      error: { transient: false, detail: 'gitleaks wrote no report' },
+    });
+    expect(await scan(await script('killed-gitleaks', 'kill -KILL $$'))).toMatchObject({
       ok: false,
       error: { transient: true },
     });

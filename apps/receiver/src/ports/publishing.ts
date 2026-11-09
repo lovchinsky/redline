@@ -1,16 +1,11 @@
 import type { ChangeDescription, SecretFinding } from '../domain/change-policy';
 import type { Instant, TaskId } from '../domain/ids';
+import type { Fault, Result } from '../domain/result';
 import type { ChangeRef, ChangeRequestRef } from '../domain/work';
 import type { PublishingProfile, RepositoryRef } from './access';
 
-/** Why publishing did not happen; `transient` failures are retried. */
-export interface PublishError {
-  readonly transient: boolean;
-  readonly detail: string;
-}
-
-export type Publishing<T> =
-  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: PublishError };
+/** A publishing step: its value, or why it did not happen (a transient fault is retried). */
+export type Publishing<T> = Result<T, Fault>;
 
 /** The one commit a task publishes. The same input always makes the same commit. */
 export interface DeterministicCommit {

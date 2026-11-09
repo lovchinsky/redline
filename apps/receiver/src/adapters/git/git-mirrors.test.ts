@@ -93,6 +93,13 @@ describe('GitMirrors', () => {
       ok: false,
       error: { transient: false },
     });
+    // A base branch the repository does not have will not appear on a retry.
+    expect(
+      await mirrors.prepare({ ...repository, baseBranch: 'gone' }, TaskId('task-gone')),
+    ).toMatchObject({
+      ok: false,
+      error: { transient: false, detail: expect.stringContaining('no branch gone') as string },
+    });
   });
 
   it('gives a sandbox a working copy of the base, without a remote', async () => {

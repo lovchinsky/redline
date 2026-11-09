@@ -1,5 +1,6 @@
 import { describeViolation, evaluateChange, type Flag } from '../domain/change-policy';
 import type { TaskId } from '../domain/ids';
+import { err, ok } from '../domain/result';
 import {
   markPublished,
   recordPublishFailure,
@@ -10,13 +11,7 @@ import {
 import type { ChangeRequestRef } from '../domain/work';
 import type { Identity, Project, ProjectCatalog } from '../ports/access';
 import type { BundleReader } from '../ports/bundles';
-import type {
-  Forge,
-  PublishError,
-  Publishing,
-  SecretScanner,
-  SourceRepository,
-} from '../ports/publishing';
+import type { Forge, Publishing, SecretScanner, SourceRepository } from '../ports/publishing';
 import type { Logger } from '../ports/system';
 import type { TaskQueries } from '../ports/tasks';
 import { branchOf, composeChangeRequest, composeCommitMessage } from './change-request';
@@ -96,7 +91,7 @@ export class PublishChange {
 
     const judged = await this.judge(publication, project);
     if (!judged.ok) return judged;
-    if (judged.value.kind === 'reject') return { ok: true, value: judged.value };
+    if (judged.value.kind === 'reject') return ok(judged.value);
 
     const requester = await this.deps.identity.get(task.requester);
     const committed = await this.deps.source.commit(repository, {
@@ -114,21 +109,17 @@ export class PublishChange {
 
     const existing = await this.deps.forge.findOpen(repository, publishing, branch);
     if (!existing.ok) return existing;
-    if (existing.value !== null)
-      return { ok: true, value: { kind: 'opened', changeRequest: existing.value } };
+    if (existing.value !== null) return ok({ kind: 'opened', changeRequest: existing.value });
 
     const bundle = await this.deps.bundles.read(task.bundle.manifest);
-    if (bundle === null)
-      return fail({ transient: false, detail: 'the bundle is no longer stored' });
+    if (bundle === null) return err({ transient: false, detail: 'the bundle is no longer stored' });
     const flags = judged.value.flags;
     const opened = await this.deps.forge.open(
       repository,
       publishing,
       composeChangeRequest({ task, report, flags, bundle, requester, publishing }),
     );
-    return opened.ok
-      ? { ok: true, value: { kind: 'opened', changeRequest: opened.value } }
-      : opened;
+    return opened.ok ? ok({ kind: 'opened', changeRequest: opened.value }) : opened;
   }
 
   private async judge(
@@ -153,8 +144,3 @@ export class PublishChange {
     };
   }
 }
-
-const fail = (error: PublishError): { readonly ok: false; readonly error: PublishError } => ({
-  ok: false,
-  error,
-});

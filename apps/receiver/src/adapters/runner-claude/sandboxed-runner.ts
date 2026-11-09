@@ -2,10 +2,11 @@ import { RUN_LAYOUT, RUN_OUTPUTS, outcomeSchema, type Pause } from '@redline/age
 import { readFile } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import { BlobDigest, RunId, type TaskId } from '../../domain/ids';
+import { err, ok, type Fault, type Result } from '../../domain/result';
 import type { RunOutcome } from '../../domain/run';
 import type { Snapshot } from '../../domain/work';
 import type { ExecutionProfile, RepositoryRef } from '../../ports/access';
-import type { AgentRunner, RunPhases, RunnerError, RunSpec } from '../../ports/agent';
+import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 import type { BlobStore } from '../../ports/bundles';
 import type { Logger } from '../../ports/system';
 import { briefOf, runOutcomeOf, type StoredOutputs } from './exchange';
@@ -107,15 +108,13 @@ export class SandboxedClaudeRunner implements AgentRunner {
     },
   ) {}
 
-  async start(
-    spec: RunSpec,
-  ): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: RunnerError }> {
+  async start(spec: RunSpec): Promise<Result<undefined, Fault>> {
     const { sandboxes, settings } = this.deps;
     const names = containers(spec.runId);
     try {
       const unfit = await sandboxes.unfit([settings.networks.setup, settings.networks.agent]);
-      if (unfit !== null) return { ok: false, error: { transient: false, detail: unfit } };
-      if ((await sandboxes.state(names.agent)).status !== 'missing') return { ok: true };
+      if (unfit !== null) return err({ transient: false, detail: unfit });
+      if ((await sandboxes.state(names.agent)).status !== 'missing') return ok(undefined);
 
       const repository = await this.deps.sources.fileAt(
         spec.repository,
@@ -124,15 +123,12 @@ export class SandboxedClaudeRunner implements AgentRunner {
       );
       const repositorySettings = parseRepositorySettings(repository);
       if (!repositorySettings.ok) {
-        return { ok: false, error: { transient: false, detail: repositorySettings.detail } };
+        return err({ transient: false, detail: repositorySettings.detail });
       }
       // Every container of the run runs this very image, whatever its name points at later.
       const image = await sandboxes.imageId(spec.execution.image);
       if (image === null) {
-        return {
-          ok: false,
-          error: { transient: false, detail: `Docker has no image ${spec.execution.image}` },
-        };
+        return err({ transient: false, detail: `Docker has no image ${spec.execution.image}` });
       }
       const paused = spec.resumeFrom === null ? null : await this.pausedSession(spec.resumeFrom);
       const labels = {
@@ -165,13 +161,13 @@ export class SandboxedClaudeRunner implements AgentRunner {
         this.agentSpec(spec, image, { ...labels, [TIMEOUT_LABEL]: String(agentTimeout) }),
       );
       await sandboxes.start(setup === null ? names.agent : names.setup);
-      return { ok: true };
+      return ok(undefined);
     } catch (error) {
       this.deps.logger.error('A run could not be started', {
         runId: spec.runId,
         error: String(error),
       });
-      return { ok: false, error: { transient: true, detail: String(error) } };
+      return err({ transient: true, detail: String(error) });
     }
   }
 

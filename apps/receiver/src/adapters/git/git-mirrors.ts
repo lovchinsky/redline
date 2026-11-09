@@ -2,8 +2,9 @@ import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
-import type { DiffEntry, ScriptChange } from '../../domain/change-policy';
+import type { ChangeDescription, DiffEntry, ScriptChange } from '../../domain/change-policy';
 import type { TaskId } from '../../domain/ids';
+import { err, ok } from '../../domain/result';
 import type { ChangeRef } from '../../domain/work';
 import type { PublishingProfile, RepositoryRef } from '../../ports/access';
 import type { BlobStore } from '../../ports/bundles';
@@ -27,11 +28,20 @@ const packOf = (bundle: Uint8Array): Uint8Array => {
   return bytes.subarray(end + 2);
 };
 
-const ok = <T>(value: T): Publishing<T> => ({ ok: true, value });
-const fail = (detail: string, transient: boolean): Publishing<never> => ({
-  ok: false,
-  error: { detail, transient },
-});
+const fail = (detail: string, transient: boolean): Publishing<never> => err({ detail, transient });
+
+/**
+ * The step's result, or its failure as transient: every cause a repository, a remote or a change
+ * can give is checked for, and named permanent, before a command depends on it; a command that
+ * fails anyway fails for the machine's sake (its disk, its network), and may not next time.
+ */
+const attempt = async <T>(step: () => Promise<Publishing<T>>): Promise<Publishing<T>> => {
+  try {
+    return await step();
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error), true);
+  }
+};
 
 const MODES: Readonly<Record<string, DiffEntry['mode']>> = {
   '100644': 'file',
@@ -91,7 +101,7 @@ export class GitMirrors implements SourceRepository {
     repository: RepositoryRef,
     taskId: TaskId,
   ): Promise<Publishing<{ readonly baseSha: string }>> {
-    try {
+    return attempt(async () => {
       const reached = await this.reached(repository, this.options.remotes.source(repository));
       if (!reached.ok) return reached;
       const remote = reached.value;
@@ -111,21 +121,22 @@ export class GitMirrors implements SourceRepository {
           reaching(remote),
         );
         const baseSha = await git(mirror, [
-          'rev-parse',
-          '--verify',
-          `refs/heads/${repository.baseBranch}^{commit}`,
+          'for-each-ref',
+          '--format=%(objectname)',
+          `refs/heads/${repository.baseBranch}`,
         ]);
+        if (baseSha === '') {
+          return fail(`${repository.name} has no branch ${repository.baseBranch}`, false);
+        }
         await git(mirror, ['update-ref', this.baseRef(taskId), baseSha]);
         return ok({ baseSha });
       });
-    } catch (error) {
-      return fail(error instanceof Error ? error.message : String(error), true);
-    }
+    });
   }
 
   /** The head of the repository's base branch, read from its host: whether the mirrors reach it. */
   async reach(repository: RepositoryRef): Promise<Publishing<string>> {
-    try {
+    return attempt(async () => {
       const reached = await this.reached(repository, this.options.remotes.source(repository));
       if (!reached.ok) return reached;
       const remote = reached.value;
@@ -138,9 +149,7 @@ export class GitMirrors implements SourceRepository {
       return sha === ''
         ? fail(`${repository.name} has no branch ${repository.baseBranch}`, false)
         : ok(sha);
-    } catch (error) {
-      return fail(error instanceof Error ? error.message : String(error), true);
-    }
+    });
   }
 
   /**
@@ -190,79 +199,90 @@ export class GitMirrors implements SourceRepository {
       : ok(remote.value);
   }
 
-  async describe(repository: RepositoryRef, baseSha: string, change: ChangeRef) {
-    const imported = await this.importChange(repository, baseSha, change);
-    if (!imported.ok) return imported;
-    const mirror = this.mirrorOf(repository);
-    const head = imported.value;
-    const raw = await git(mirror, ['diff', '--raw', '-z', '-M', '--no-abbrev', baseSha, head]);
-    const numstat = await git(mirror, ['diff', '--numstat', '-z', '-M', baseSha, head]);
-    const lines = this.numstatOf(numstat);
-    const entries: DiffEntry[] = [];
-    const fields = raw.split('\0');
-    for (let i = 0; i < fields.length - 1;) {
-      const meta = fields[i] ?? '';
-      i += 1;
-      const [, newMode = '', , newObject = '', statusField = ''] = meta.slice(1).split(' ');
-      const status = statusField.charAt(0);
-      const first = fields[i] ?? '';
-      i += 1;
-      const second = status === 'R' || status === 'C' ? (fields[i++] ?? '') : null;
-      const file = second ?? first;
-      const counted = lines.get(file);
-      const deleted = status === 'D';
-      entries.push({
-        path: file,
-        previousPath: second === null ? null : first,
-        status: STATUS[status] ?? 'modified',
-        mode: deleted ? 'file' : (MODES[newMode] ?? 'file'),
-        binary: counted?.binary ?? false,
-        bytes:
-          deleted || MODES[newMode] === 'submodule'
-            ? 0
-            : Number(await git(mirror, ['cat-file', '-s', newObject])),
-        addedLines: counted?.added ?? 0,
-        removedLines: counted?.removed ?? 0,
-      });
-    }
-    const scriptChanges: ScriptChange[] = [];
-    for (const entry of entries) {
-      if (path.posix.basename(entry.path) !== 'package.json') continue;
-      const before = scriptsOf(
-        await this.fileAt(repository, baseSha, entry.previousPath ?? entry.path),
-      );
-      const after = scriptsOf(
-        entry.status === 'deleted' ? null : await this.fileAt(repository, head, entry.path),
-      );
-      const names = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
-        (name) => before[name] !== after[name],
-      );
-      if (names.length > 0) scriptChanges.push({ path: entry.path, scripts: names.sort() });
-    }
-    return ok({ entries, scriptChanges });
+  async describe(
+    repository: RepositoryRef,
+    baseSha: string,
+    change: ChangeRef,
+  ): Promise<Publishing<Omit<ChangeDescription, 'secrets'>>> {
+    return attempt(async () => {
+      const imported = await this.importChange(repository, baseSha, change);
+      if (!imported.ok) return imported;
+      const mirror = this.mirrorOf(repository);
+      const head = imported.value;
+      const raw = await git(mirror, ['diff', '--raw', '-z', '-M', '--no-abbrev', baseSha, head]);
+      const numstat = await git(mirror, ['diff', '--numstat', '-z', '-M', baseSha, head]);
+      const lines = this.numstatOf(numstat);
+      const entries: DiffEntry[] = [];
+      const fields = raw.split('\0');
+      for (let i = 0; i < fields.length - 1;) {
+        const meta = fields[i] ?? '';
+        i += 1;
+        const [, newMode = '', , newObject = '', statusField = ''] = meta.slice(1).split(' ');
+        const status = statusField.charAt(0);
+        const first = fields[i] ?? '';
+        i += 1;
+        const second = status === 'R' || status === 'C' ? (fields[i++] ?? '') : null;
+        const file = second ?? first;
+        const counted = lines.get(file);
+        const deleted = status === 'D';
+        entries.push({
+          path: file,
+          previousPath: second === null ? null : first,
+          status: STATUS[status] ?? 'modified',
+          mode: deleted ? 'file' : (MODES[newMode] ?? 'file'),
+          binary: counted?.binary ?? false,
+          bytes:
+            deleted || MODES[newMode] === 'submodule'
+              ? 0
+              : Number(await git(mirror, ['cat-file', '-s', newObject])),
+          addedLines: counted?.added ?? 0,
+          removedLines: counted?.removed ?? 0,
+        });
+      }
+      const scriptChanges: ScriptChange[] = [];
+      for (const entry of entries) {
+        if (path.posix.basename(entry.path) !== 'package.json') continue;
+        const before = scriptsOf(
+          await this.fileAt(repository, baseSha, entry.previousPath ?? entry.path),
+        );
+        const after = scriptsOf(
+          entry.status === 'deleted' ? null : await this.fileAt(repository, head, entry.path),
+        );
+        const names = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+          (name) => before[name] !== after[name],
+        );
+        if (names.length > 0) scriptChanges.push({ path: entry.path, scripts: names.sort() });
+      }
+      return ok({ entries, scriptChanges });
+    });
   }
 
-  async commit(repository: RepositoryRef, commit: DeterministicCommit) {
-    const imported = await this.importChange(repository, commit.baseSha, commit.change);
-    if (!imported.ok) return imported;
-    const mirror = this.mirrorOf(repository);
-    const tree = await git(mirror, ['rev-parse', `${imported.value}^{tree}`]);
-    const date = `@${String(Math.floor(commit.at / 1000))} +0000`;
-    const { name, email } = this.options.identity;
-    const sha = await git(
-      mirror,
-      ['commit-tree', tree, '-p', commit.baseSha, '-m', commit.message],
-      {
-        GIT_AUTHOR_NAME: name,
-        GIT_AUTHOR_EMAIL: email,
-        GIT_AUTHOR_DATE: date,
-        GIT_COMMITTER_NAME: name,
-        GIT_COMMITTER_EMAIL: email,
-        GIT_COMMITTER_DATE: date,
-      },
-    );
-    await git(mirror, ['update-ref', `refs/redline/commit/${commit.taskId}`, sha]);
-    return ok({ sha });
+  async commit(
+    repository: RepositoryRef,
+    commit: DeterministicCommit,
+  ): Promise<Publishing<{ readonly sha: string }>> {
+    return attempt(async () => {
+      const imported = await this.importChange(repository, commit.baseSha, commit.change);
+      if (!imported.ok) return imported;
+      const mirror = this.mirrorOf(repository);
+      const tree = await git(mirror, ['rev-parse', `${imported.value}^{tree}`]);
+      const date = `@${String(Math.floor(commit.at / 1000))} +0000`;
+      const { name, email } = this.options.identity;
+      const sha = await git(
+        mirror,
+        ['commit-tree', tree, '-p', commit.baseSha, '-m', commit.message],
+        {
+          GIT_AUTHOR_NAME: name,
+          GIT_AUTHOR_EMAIL: email,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_NAME: name,
+          GIT_COMMITTER_EMAIL: email,
+          GIT_COMMITTER_DATE: date,
+        },
+      );
+      await git(mirror, ['update-ref', `refs/redline/commit/${commit.taskId}`, sha]);
+      return ok({ sha });
+    });
   }
 
   async push(
@@ -272,7 +292,7 @@ export class GitMirrors implements SourceRepository {
     branch: string,
   ) {
     const mirror = this.mirrorOf(repository);
-    try {
+    return attempt(async () => {
       const reached = await this.reached(
         repository,
         this.options.remotes.target(repository, publishing),
@@ -296,9 +316,7 @@ export class GitMirrors implements SourceRepository {
         env,
       );
       return ok(undefined);
-    } catch (error) {
-      return fail(error instanceof Error ? error.message : String(error), true);
-    }
+    });
   }
 
   /**
@@ -311,24 +329,32 @@ export class GitMirrors implements SourceRepository {
     baseSha: string,
     change: ChangeRef,
   ): Promise<Publishing<string>> {
-    return this.locked(repository, async (mirror) => {
-      const ref = `refs/redline/changes/${change.blob}`;
-      if ((await git(mirror, ['for-each-ref', '--format=%(objectname)', ref])) === '') {
-        const stored = await this.storeChange(mirror, ref, change);
-        if (!stored.ok) return stored;
-      }
-      const head = await git(mirror, ['rev-parse', ref]);
-      if (head !== change.head) {
-        return fail(`The change bundle carries ${head}, not the commit the run named`, false);
-      }
-      const parents = (await git(mirror, ['rev-list', '--parents', '-n', '1', head]))
-        .split(' ')
-        .slice(1);
-      if (parents.length !== 1 || parents[0] !== baseSha) {
-        return fail('The change is not one commit on the task’s base', false);
-      }
-      return ok(head);
-    });
+    return attempt(() =>
+      this.locked(repository, (mirror) => this.importInto(mirror, baseSha, change)),
+    );
+  }
+
+  private async importInto(
+    mirror: string,
+    baseSha: string,
+    change: ChangeRef,
+  ): Promise<Publishing<string>> {
+    const ref = `refs/redline/changes/${change.blob}`;
+    if ((await git(mirror, ['for-each-ref', '--format=%(objectname)', ref])) === '') {
+      const stored = await this.storeChange(mirror, ref, change);
+      if (!stored.ok) return stored;
+    }
+    const head = await git(mirror, ['rev-parse', ref]);
+    if (head !== change.head) {
+      return fail(`The change bundle carries ${head}, not the commit the run named`, false);
+    }
+    const parents = (await git(mirror, ['rev-list', '--parents', '-n', '1', head]))
+      .split(' ')
+      .slice(1);
+    if (parents.length !== 1 || parents[0] !== baseSha) {
+      return fail('The change is not one commit on the task’s base', false);
+    }
+    return ok(head);
   }
 
   /** Checks a change bundle's objects and fetches it into the mirror at `ref`. */

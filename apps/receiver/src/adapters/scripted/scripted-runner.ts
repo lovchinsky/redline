@@ -1,4 +1,5 @@
 import type { BlobDigest, RunId } from '../../domain/ids';
+import { ok } from '../../domain/result';
 import type { RunOutcome } from '../../domain/run';
 import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 
@@ -35,7 +36,7 @@ export class ScriptedRunner implements AgentRunner {
         endsAt: this.now() + this.options.durationMs,
       });
     }
-    return Promise.resolve({ ok: true as const });
+    return Promise.resolve(ok(undefined));
   }
 
   async observe(

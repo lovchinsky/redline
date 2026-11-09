@@ -4,12 +4,25 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { SecretFinding } from '../../domain/change-policy';
+import { err, ok, type Fault } from '../../domain/result';
 import type { ChangeRef } from '../../domain/work';
 import type { RepositoryRef } from '../../ports/access';
 import type { Publishing, SecretScanner } from '../../ports/publishing';
 import type { GitMirrors } from './git-mirrors';
 
 const run = promisify(execFile);
+
+/**
+ * Why gitleaks did not report. It exits with 0 whatever it finds, so it failed: as it will again
+ * (it is missing, or cannot read the mirror), unless the system stopped it (e.g. out of memory).
+ */
+const faultOf = (error: unknown): Fault => {
+  const signal =
+    typeof error === 'object' && error !== null && 'signal' in error ? error.signal : null;
+  return typeof signal === 'string'
+    ? { transient: true, detail: `gitleaks was stopped (${signal})` }
+    : { transient: false, detail: `gitleaks failed: ${String(error)}` };
+};
 
 const findingOf = (value: unknown): SecretFinding | null => {
   if (typeof value !== 'object' || value === null) return null;
@@ -63,14 +76,22 @@ export class GitleaksScanner implements SecretScanner {
           maxBuffer: 16 * 1024 * 1024,
         },
       );
-      const parsed: unknown = JSON.parse(await readFile(report, 'utf8'));
-      if (!Array.isArray(parsed))
-        return { ok: false, error: { transient: false, detail: 'gitleaks wrote no report' } };
-      return { ok: true, value: parsed.map(findingOf).filter((finding) => finding !== null) };
+      return await findingsIn(report);
     } catch (error) {
-      return { ok: false, error: { transient: true, detail: `gitleaks failed: ${String(error)}` } };
+      return err(faultOf(error));
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
   }
 }
+
+/** The findings of a report gitleaks wrote; a report that does not read as one is a fault. */
+const findingsIn = async (report: string): Promise<Publishing<readonly SecretFinding[]>> => {
+  const parsed: unknown = await readFile(report, 'utf8').then(
+    (text) => JSON.parse(text) as unknown,
+    () => null,
+  );
+  return Array.isArray(parsed)
+    ? ok(parsed.map(findingOf).filter((finding) => finding !== null))
+    : err({ transient: false, detail: 'gitleaks wrote no report' });
+};

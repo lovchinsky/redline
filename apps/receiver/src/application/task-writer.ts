@@ -1,14 +1,18 @@
 import type { Instant, TaskId } from '../domain/ids';
 import { err, ok, type Result } from '../domain/result';
 import { abortRun } from '../domain/run';
-import type { Task, TaskEffect, Transition, TransitionResult } from '../domain/task';
+import type { Task, TaskConflict, TaskEffect, Transition, TransitionResult } from '../domain/task';
 import type { Clock } from '../ports/system';
 import type { InsertResult, Job, UnitOfWork, WorkScope } from '../ports/tasks';
-import { conflictError, notFound, type RequestError } from './errors';
 import { closeRun } from './runs';
 
 /** Optimistic writes that keep losing to concurrent ones: something is wrong, not just busy. */
 const MAX_ATTEMPTS = 5;
+
+/** Why a task did not move: it is not stored, or its state does not allow the transition. */
+export type WriteRefusal = TaskConflict | { readonly code: 'not-found'; readonly message: string };
+
+const TASK_GONE: WriteRefusal = { code: 'not-found', message: 'Unknown task' };
 
 const jobOf = (task: Task, effect: TaskEffect): Job => {
   const taskId = task.id;
@@ -98,15 +102,15 @@ export class TaskWriter {
     decide: Decision,
     alongside?: (scope: WorkScope, transition: Transition) => Promise<T>,
   ): Promise<
-    Result<{ readonly transition: Transition; readonly extra: T | undefined }, RequestError>
+    Result<{ readonly transition: Transition; readonly extra: T | undefined }, WriteRefusal>
   > {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       try {
         return await this.deps.uow.run(async (scope) => {
           const task = await scope.tasks.get(taskId);
-          if (task === null) return err(notFound());
+          if (task === null) return err(TASK_GONE);
           const decided = decide(task, this.deps.clock.now());
-          if (!decided.ok) return err(conflictError(decided.error.message));
+          if (!decided.ok) return err(decided.error);
           const saved = await commitTransition(scope, decided.value);
           if (saved === null) throw new StaleTask();
           const transition = { ...decided.value, task: saved };

@@ -1,4 +1,4 @@
-import type { PublishError } from '../../ports/publishing';
+import type { Fault } from '../../domain/result';
 
 export interface GitHubAnswer {
   readonly status: number;
@@ -18,7 +18,7 @@ export class GitHubError extends Error {
     super(message);
   }
 
-  toPublishError(): PublishError {
+  toFault(): Fault {
     return { transient: this.transient, detail: this.message };
   }
 }

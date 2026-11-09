@@ -1,6 +1,7 @@
 import type { CredentialKind } from '../domain/grant';
 import type { Exchange } from '../domain/exchange';
 import type { ProjectId, RunId, TaskId } from '../domain/ids';
+import type { Fault, Result } from '../domain/result';
 import type { RunOutcome } from '../domain/run';
 import type { Snapshot } from '../domain/work';
 import type { BundleContents } from './bundles';
@@ -44,17 +45,13 @@ export interface RunPhases {
   setupDone(): Promise<void>;
 }
 
-export type RunnerError = { readonly transient: boolean; readonly detail: string };
-
 /**
  * Runs the agent somewhere it holds no secrets. A run outlives the process that started it:
  * `observe` attaches to a run started earlier, possibly by a process that is gone.
  */
 export interface AgentRunner {
   /** Starts a run; does nothing when the run already exists. */
-  start(
-    spec: RunSpec,
-  ): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: RunnerError }>;
+  start(spec: RunSpec): Promise<Result<undefined, Fault>>;
   /**
    * Waits for the run's outcome, telling `phases` how far the run got. A run that no longer
    * exists and left no outcome is `lost`. Aborting `signal` stops waiting; the run goes on.

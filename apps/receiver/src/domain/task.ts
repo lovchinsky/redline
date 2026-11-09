@@ -10,7 +10,7 @@ import {
 import { failure, type Failure, type FailureCode } from './failure';
 import type { BlobDigest, Instant, ProjectId, QuestionId, RunId, TaskId, UserId } from './ids';
 import { retryDelay, type TaskPolicy } from './policy';
-import { err, ok, type Result } from './result';
+import { err, ok, type Fault, type Result } from './result';
 import type { RunFailureReason, RunKind, RunOutcome } from './run';
 import type { AgentReport, ChangeRef, ChangeRequestRef, Snapshot } from './work';
 
@@ -527,7 +527,7 @@ export const markPublished = (
 /** Publishing failed: a transient failure is retried until the attempts run out. */
 export const recordPublishFailure = (
   task: Task,
-  failureOf: { readonly transient: boolean; readonly detail: string },
+  failureOf: Fault,
   policy: TaskPolicy,
   now: Instant,
 ): TransitionResult => {
