@@ -38,6 +38,27 @@ const argument = (positionals: readonly string[], index: number, name: string): 
 
 const ROLES: readonly Role[] = ['api', 'worker', 'gateway', 'egress', 'all'];
 
+/** How long a stopping gateway lets the answers and tunnels in flight finish. */
+const DRAIN_MS = 60_000;
+
+/**
+ * Stops taking connections and waits for those open to end, for at most `DRAIN_MS`: a model
+ * answer still streaming is metered before the database goes. Past that, they are cut; their
+ * reservations stay counted.
+ */
+const drain = (server: Server | null) =>
+  server === null
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        const cut = setTimeout(() => {
+          server.closeAllConnections();
+        }, DRAIN_MS);
+        server.close(() => {
+          clearTimeout(cut);
+          resolve();
+        });
+      });
+
 const listen = (server: Server, host: string, port: number) =>
   new Promise<string>((resolve, reject) => {
     server.once('error', reject);
@@ -104,8 +125,7 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
         process.once('SIGTERM', stop);
         process.once('SIGINT', stop);
       });
-      receiver.gateway?.close();
-      receiver.egress?.close();
+      await Promise.all([drain(receiver.gateway), drain(receiver.egress)]);
       await receiver.stop();
       return 0;
     }

@@ -1,7 +1,10 @@
 import { sql, type Kysely } from 'kysely';
 import type { Budget, GatewayRefusal, GrantTerms } from '../../domain/grant';
 import type { RunId, TaskId } from '../../domain/ids';
-import type { GrantBook, UsageEntry, UsageLedger } from '../../ports/gateway';
+import { randomUUID } from 'node:crypto';
+import type { Instant } from '../../domain/ids';
+import type { TokenUsage } from '../../domain/usage';
+import type { GrantBook, MeteredRequest, UsageLedger } from '../../ports/gateway';
 import { grantTermsFromRecord, refusalToRecord } from './records';
 import type { Database } from './schema';
 import { refusalOf, sha256 } from './store';
@@ -41,34 +44,77 @@ export class PostgresGateway implements GrantBook, UsageLedger {
       .execute();
   }
 
-  async record(entry: UsageEntry): Promise<void> {
+  /**
+   * Under a lock of the task's own, for the transaction: two requests of a task are judged one
+   * after the other, each with what the other holds.
+   */
+  async reserve(
+    request: MeteredRequest,
+    amount: Budget,
+    admits: (spent: Budget) => boolean,
+  ): Promise<string | null> {
+    return this.db.transaction().execute(async (trx) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${request.taskId}, 0))`.execute(trx);
+      if (!admits(await spentBy(trx, request.taskId))) return null;
+      const reservation = randomUUID();
+      await trx
+        .insertInto('run_usage')
+        .values({
+          reservation,
+          run_id: request.runId,
+          task_id: request.taskId,
+          model: request.model,
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_write_tokens: 0,
+          cache_read_tokens: 0,
+          cost_usd: amount.usd,
+          counted_tokens: amount.tokens,
+          settled: false,
+          at: new Date(),
+        })
+        .execute();
+      return reservation;
+    });
+  }
+
+  async settle(
+    reservation: string,
+    usage: TokenUsage,
+    spending: Budget,
+    at: Instant,
+  ): Promise<void> {
     await this.db
-      .insertInto('run_usage')
-      .values({
-        run_id: entry.runId,
-        task_id: entry.taskId,
-        model: entry.model,
-        input_tokens: entry.usage.input,
-        output_tokens: entry.usage.output,
-        cache_write_tokens: entry.usage.cacheWrite,
-        cache_read_tokens: entry.usage.cacheRead,
-        cost_usd: entry.costUsd,
-        at: new Date(entry.at),
+      .updateTable('run_usage')
+      .set({
+        input_tokens: usage.input,
+        output_tokens: usage.output,
+        cache_write_tokens: usage.cacheWrite,
+        cache_read_tokens: usage.cacheRead,
+        cost_usd: spending.usd,
+        counted_tokens: spending.tokens,
+        settled: true,
+        at: new Date(at),
       })
+      .where('reservation', '=', reservation)
+      .where('settled', '=', false)
       .execute();
   }
 
-  async spent(taskId: TaskId): Promise<Budget> {
-    const row = await this.db
-      .selectFrom('run_usage')
-      .select([
-        sql<string>`coalesce(sum(cost_usd), 0)`.as('usd'),
-        sql<string>`coalesce(sum(input_tokens + output_tokens + cache_write_tokens), 0)`.as(
-          'tokens',
-        ),
-      ])
-      .where('task_id', '=', taskId)
-      .executeTakeFirstOrThrow();
-    return { usd: Number(row.usd), tokens: Number(row.tokens) };
+  /** All a task has spent and holds, over every run. */
+  spent(taskId: TaskId): Promise<Budget> {
+    return spentBy(this.db, taskId);
   }
 }
+
+const spentBy = async (db: Kysely<Database>, taskId: TaskId): Promise<Budget> => {
+  const row = await db
+    .selectFrom('run_usage')
+    .select([
+      sql<string>`coalesce(sum(cost_usd), 0)`.as('usd'),
+      sql<string>`coalesce(sum(counted_tokens), 0)`.as('tokens'),
+    ])
+    .where('task_id', '=', taskId)
+    .executeTakeFirstOrThrow();
+  return { usd: Number(row.usd), tokens: Number(row.tokens) };
+};

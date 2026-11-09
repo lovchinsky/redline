@@ -70,6 +70,8 @@ services:
   gateway:
     <<: *receiver
     command: [serve, gateway]
+    # Answers still streaming are metered before it stops (the gateway drains for a minute).
+    stop_grace_period: 75s
     environment:
       <<: *environment
       REDLINE_GATEWAY_PORT: '8788'

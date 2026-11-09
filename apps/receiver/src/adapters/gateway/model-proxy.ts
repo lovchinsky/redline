@@ -2,6 +2,7 @@ import { GATEWAY_REFUSALS, GRANT_STATUS_PATH, type GrantStatus } from '@redline/
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { GatewayRefusal } from '../../domain/grant';
 import type { Instant } from '../../domain/ids';
+import type { TokenUsage } from '../../domain/usage';
 import type { ModelAccess, ModelEndpoint } from '../../ports/gateway';
 import type { Logger } from '../../ports/system';
 import { UsageMeter } from './usage-meter';
@@ -14,23 +15,23 @@ const ENDPOINTS: Readonly<Record<string, ModelEndpoint>> = {
   '/v1/messages/count_tokens': 'count-tokens',
 };
 
-/** Request headers that are the gateway's own business, never the provider's. */
-const DROPPED_REQUEST = new Set([
-  'authorization',
-  'x-api-key',
-  'host',
-  'connection',
-  'keep-alive',
-  'content-length',
-  'transfer-encoding',
-  'te',
-  'trailer',
-  'upgrade',
-  'cookie',
-  'accept-encoding',
-  'proxy-authorization',
-  'proxy-connection',
+/**
+ * Request headers passed to the provider, as Claude Code and its SDK send them: the API's own,
+ * and the SDK's description of itself. Any other header is dropped, a credential above all.
+ */
+const FORWARDED_REQUEST = new Set([
+  'content-type',
+  'accept',
+  'anthropic-version',
+  'anthropic-beta',
+  'user-agent',
+  'x-app',
+  'x-claude-code-session-id',
 ]);
+const FORWARDED_PREFIX = 'x-stainless-';
+
+const forwarded = (name: string) =>
+  FORWARDED_REQUEST.has(name) || name.startsWith(FORWARDED_PREFIX);
 
 /** Response headers that describe the provider's connection, not the answer. */
 const DROPPED_RESPONSE = new Set([
@@ -155,12 +156,17 @@ export const createModelProxy = (options: ModelProxyOptions): Server => {
     endpoint: ModelEndpoint,
     url: URL,
   ) => {
-    const body = await readBody(request);
-    if (body === null) {
+    const raw = await readBody(request);
+    if (raw === null) {
       sendRefusal(response, { kind: 'request-refused', detail: 'The request is too large' });
       return;
     }
-    const admitted = await options.access.admit(grantOf(request), parseJson(body), endpoint);
+    const body = parseJson(raw);
+    const admitted = await options.access.admit(
+      grantOf(request),
+      { body, bytes: raw.byteLength },
+      endpoint,
+    );
     if (!admitted.ok) {
       sendRefusal(response, admitted.refusal);
       return;
@@ -168,73 +174,81 @@ export const createModelProxy = (options: ModelProxyOptions): Server => {
     const { admission } = admitted;
     const headers = new Headers();
     for (const [name, value] of Object.entries(request.headers)) {
-      if (DROPPED_REQUEST.has(name) || value === undefined) continue;
+      if (!forwarded(name) || value === undefined) continue;
       headers.set(name, Array.isArray(value) ? value.join(', ') : value);
     }
     if (admission.credential.kind === 'api-key')
       headers.set('x-api-key', admission.credential.reveal());
     else headers.set('authorization', `Bearer ${admission.credential.reveal()}`);
 
-    const aborted = new AbortController();
-    response.on('close', () => {
-      if (!response.writableFinished) aborted.abort();
-    });
-    let answer: Response;
+    // The answer is read to its end whatever the sandbox does: the provider bills for all it
+    // generates, and only the end of an answer says how much that was.
+    const metered = endpoint === 'messages';
+    let usage: TokenUsage | null = null;
     try {
-      answer = await call(`${upstream}${url.pathname}${url.search}`, {
-        method: 'POST',
-        headers,
-        body,
-        signal: aborted.signal,
-      });
-    } catch (error) {
-      options.logger.warn('The model provider is unreachable', { error: String(error) });
-      sendJson(response, 502, {
-        type: 'error',
-        error: { type: 'api_error', message: 'The model provider is unreachable' },
-      });
-      return;
-    }
-    const refusal = await options.access.inspect(admission, {
-      status: answer.status,
-      quotaResetAt: quotaResetOf(answer.headers),
-    });
-    if (refusal !== null) {
-      await answer.body?.cancel();
-      sendRefusal(response, refusal);
-      return;
-    }
-
-    const outgoing: Record<string, string> = {};
-    answer.headers.forEach((value, name) => {
-      if (!DROPPED_RESPONSE.has(name)) outgoing[name] = value;
-    });
-    response.writeHead(answer.status, outgoing);
-    const metered = answer.ok && endpoint === 'messages';
-    const meter = new UsageMeter(
-      (answer.headers.get('content-type') ?? '').includes('event-stream') ? 'stream' : 'json',
-    );
-    try {
-      const reader = answer.body?.getReader();
-      for (;;) {
-        const read = await reader?.read();
-        if (read === undefined || read.done) break;
-        const chunk: unknown = read.value;
-        if (!(chunk instanceof Uint8Array))
-          throw new Error('The provider sent a body that is not bytes');
-        if (metered) meter.push(chunk);
-        if (!response.write(chunk)) {
-          await new Promise((resolve) => response.once('drain', resolve));
-        }
+      let answer: Response;
+      try {
+        // The request as judged, not as sent: what the provider reads is what was allowed.
+        answer = await call(`${upstream}${url.pathname}${url.search}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        });
+      } catch (error) {
+        options.logger.warn('The model provider is unreachable', { error: String(error) });
+        sendJson(response, 502, {
+          type: 'error',
+          error: { type: 'api_error', message: 'The model provider is unreachable' },
+        });
+        return;
       }
-      response.end();
-    } catch (error) {
-      // The sandbox went away, or the provider broke off: what was used is still metered.
-      options.logger.info('A model answer was cut off', { error: String(error) });
-      response.destroy();
+      const refusal = await options.access.inspect(admission, {
+        status: answer.status,
+        quotaResetAt: quotaResetOf(answer.headers),
+      });
+      if (refusal !== null) {
+        await answer.body?.cancel();
+        sendRefusal(response, refusal);
+        return;
+      }
+      const outgoing: Record<string, string> = {};
+      answer.headers.forEach((value, name) => {
+        if (!DROPPED_RESPONSE.has(name)) outgoing[name] = value;
+      });
+      response.writeHead(answer.status, outgoing);
+      const meter = new UsageMeter(
+        (answer.headers.get('content-type') ?? '').includes('event-stream') ? 'stream' : 'json',
+      );
+      try {
+        const reader = answer.body?.getReader();
+        for (;;) {
+          const read = await reader?.read();
+          if (read === undefined || read.done) break;
+          const chunk: unknown = read.value;
+          if (!(chunk instanceof Uint8Array))
+            throw new Error('The provider sent a body that is not bytes');
+          if (metered && answer.ok) meter.push(chunk);
+          if (!response.destroyed && !response.write(chunk)) {
+            await new Promise((resolve) => {
+              response.once('drain', resolve);
+              response.once('close', resolve);
+            });
+          }
+        }
+        response.end();
+      } catch (error) {
+        // The provider broke off: what was used is still metered.
+        options.logger.info('A model answer was cut off', { error: String(error) });
+        response.destroy();
+      } finally {
+        if (metered && answer.ok) usage = meter.finish();
+      }
     } finally {
-      const usage = metered ? meter.finish() : null;
-      if (usage !== null) await options.access.meter(admission, usage);
+      // What the request used, or that it used nothing: its reservation is settled either way.
+      await options.access.meter(admission, usage).catch((error: unknown) => {
+        // Its reservation stays counted: the task is never thought to have spent less.
+        options.logger.error('A model answer could not be metered', { error: String(error) });
+      });
     }
   };
 

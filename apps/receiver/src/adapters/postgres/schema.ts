@@ -53,9 +53,14 @@ export interface RunRefusalsTable {
   at: Timestamp;
 }
 
-/** What each model response of a run cost, as the gateway metered it. */
+/**
+ * What each model request of a run takes from its task's budget, as the gateway metered it:
+ * its reservation while it is in flight (`settled` false), its usage once answered.
+ * `cost_usd` and `counted_tokens` are what it takes either way.
+ */
 export interface RunUsageTable {
   seq: Generated<string>;
+  reservation: string | null;
   run_id: string;
   task_id: string;
   model: string;
@@ -64,6 +69,8 @@ export interface RunUsageTable {
   cache_write_tokens: number;
   cache_read_tokens: number;
   cost_usd: number;
+  counted_tokens: number;
+  settled: boolean;
   at: Timestamp;
 }
 
@@ -220,6 +227,30 @@ export const migrations: Record<string, Migration> = {
         .addColumn('run_id', 'text', (column) => column.primaryKey())
         .addColumn('refusal', 'jsonb', (column) => column.notNull())
         .addColumn('at', 'timestamptz', (column) => column.notNull())
+        .execute();
+    },
+  },
+  '0004-usage-reservations': {
+    async up(db: Kysely<unknown>) {
+      // Each request is recorded as it is let through, with what it may cost at most, and
+      // settled with what it did cost: what a task holds counts against its budget too.
+      await db.schema.alterTable('run_usage').addColumn('reservation', 'text').execute();
+      await db.schema
+        .alterTable('run_usage')
+        .addColumn('counted_tokens', 'bigint', (column) => column.notNull().defaultTo(0))
+        .execute();
+      await db.schema
+        .alterTable('run_usage')
+        .addColumn('settled', 'boolean', (column) => column.notNull().defaultTo(true))
+        .execute();
+      await sql`update run_usage set counted_tokens = input_tokens + output_tokens + cache_write_tokens`.execute(
+        db,
+      );
+      await db.schema
+        .createIndex('run_usage_reservation')
+        .on('run_usage')
+        .column('reservation')
+        .unique()
         .execute();
     },
   },

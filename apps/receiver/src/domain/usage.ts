@@ -33,6 +33,45 @@ export const costOf = (usage: TokenUsage, price: ModelPrice): number =>
 export const countedTokens = (usage: TokenUsage): number =>
   usage.input + usage.output + usage.cacheWrite;
 
-/** Whether a task that spent `spent` may make another model request. */
-export const withinBudget = (spent: Budget, budget: Budget, kind: CredentialKind): boolean =>
-  kind === 'api-key' ? spent.usd < budget.usd : spent.tokens < budget.tokens;
+/** What one model response takes out of a budget: dollars and counted tokens. */
+export const spendingOf = (usage: TokenUsage, price: ModelPrice | null): Budget => ({
+  usd: price === null ? 0 : costOf(usage, price),
+  tokens: countedTokens(usage),
+});
+
+/** Bytes of a request per token of its input, as a reservation reckons them: on the high side. */
+const BYTES_PER_TOKEN = 3;
+
+/**
+ * The most a request is reckoned to cost before it is sent: its input from its size, and all
+ * the output it may ask for. Requests in flight hold this much of the task's budget, so that
+ * requests sent together cannot together spend more than the task has.
+ */
+export const reservationOf = (
+  request: { readonly bytes: number; readonly maxTokens: number },
+  price: ModelPrice | null,
+): Budget =>
+  spendingOf(
+    {
+      input: Math.ceil(request.bytes / BYTES_PER_TOKEN),
+      output: request.maxTokens,
+      cacheWrite: 0,
+      cacheRead: 0,
+    },
+    price,
+  );
+
+/**
+ * Whether a request reserving `reservation` may go, with `spent` already taken from `budget`
+ * (the reservations of requests in flight included): never past the budget. An API key's budget
+ * is dollars; a subscription's, tokens.
+ */
+export const admits = (
+  spent: Budget,
+  reservation: Budget,
+  budget: Budget,
+  kind: CredentialKind,
+): boolean =>
+  kind === 'api-key'
+    ? spent.usd + reservation.usd <= budget.usd
+    : spent.tokens + reservation.tokens <= budget.tokens;

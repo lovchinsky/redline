@@ -3,11 +3,15 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { connect, createServer as createTcpServer, type AddressInfo, type Socket } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EgressGate, ModelGateway } from '../../application/gateway';
-import { FixedClock, MemoryGrantBook, silentLogger } from '../../application/testing/fakes';
-import type { Budget, GrantTerms } from '../../domain/grant';
+import {
+  FixedClock,
+  MemoryGrantBook,
+  MemoryLedger,
+  silentLogger,
+} from '../../application/testing/fakes';
+import type { GrantTerms } from '../../domain/grant';
 import { RunId, TaskId } from '../../domain/ids';
 import { ModelCredential } from '../../ports/access';
-import type { UsageEntry, UsageLedger } from '../../ports/gateway';
 import { createEgressProxy } from './egress-proxy';
 import { createModelProxy } from './model-proxy';
 
@@ -50,27 +54,14 @@ const terms = new Map<string, GrantTerms>([
 
 const grants = new MemoryGrantBook(terms);
 
-class Ledger implements UsageLedger {
-  readonly entries: UsageEntry[] = [];
-  record(entry: UsageEntry) {
-    this.entries.push(entry);
-    return Promise.resolve();
-  }
-  spent(id: TaskId): Promise<Budget> {
-    const own = this.entries.filter((entry) => entry.taskId === id);
-    return Promise.resolve({
-      usd: own.reduce((sum, entry) => sum + entry.costUsd, 0),
-      tokens: own.reduce((sum, entry) => sum + entry.usage.input + entry.usage.output, 0),
-    });
-  }
-}
-
 /** The provider: answers with `reply` and keeps every request it saw. */
 const provider = (
   reply: (request: IncomingMessage) => {
     status: number;
     headers?: Record<string, string>;
     body: string;
+    /** Sent after `body`, each after its delay: an answer that takes its time. */
+    later?: readonly { readonly afterMs: number; readonly body: string }[];
   },
 ) => {
   const seen: { path: string; headers: IncomingMessage['headers']; body: string }[] = [];
@@ -85,7 +76,14 @@ const provider = (
       });
       const answer = reply(request);
       response.writeHead(answer.status, answer.headers ?? { 'content-type': 'application/json' });
-      response.end(answer.body);
+      void (async () => {
+        response.write(answer.body);
+        for (const part of answer.later ?? []) {
+          await new Promise((resolve) => setTimeout(resolve, part.afterMs));
+          response.write(part.body);
+        }
+        response.end();
+      })();
     });
   });
   return { server, seen };
@@ -133,7 +131,7 @@ const harness = async (
 ) => {
   const upstream = provider(reply);
   const upstreamPort = await listen(upstream.server);
-  const ledger = new Ledger();
+  const ledger = new MemoryLedger();
   const access = new ModelGateway({
     grants,
     ledger,
@@ -157,26 +155,32 @@ const harness = async (
     init: {
       grant?: string | null;
       body?: unknown;
+      /** The body as written, in place of `body`. */
+      raw?: string;
       headers?: Record<string, string>;
       method?: string;
+      signal?: AbortSignal;
     } = {},
   ) =>
     fetch(`${base}${path}`, {
       method: init.method ?? 'POST',
+      ...(init.signal === undefined ? {} : { signal: init.signal }),
       headers: {
         'content-type': 'application/json',
         'anthropic-version': '2023-06-01',
         ...(init.grant === null ? {} : { 'x-api-key': init.grant ?? AGENT }),
         ...init.headers,
       },
-      ...(init.method === 'GET' ? {} : { body: JSON.stringify(init.body ?? request()) }),
+      ...(init.method === 'GET'
+        ? {}
+        : { body: init.raw ?? JSON.stringify(init.body ?? request()) }),
     });
   return { ask, seen: upstream.seen, ledger };
 };
 
 const request = (extra: Record<string, unknown> = {}) => ({
   model: 'claude-opus-5-5',
-  max_tokens: 32_000,
+  max_tokens: 1024,
   stream: true,
   messages: [{ role: 'user', content: 'Make the cards equal height' }],
   tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object' } }],
@@ -203,13 +207,16 @@ describe('the model proxy, from a sandbox', () => {
     expect(seen[0]?.headers['x-api-key']).toBe('sk-ant-operator-key');
     expect(seen[0]?.headers['anthropic-beta']).toBe('claude-code-20250219,oauth-2025-04-20');
     expect(JSON.stringify(seen[0]?.headers)).not.toContain(AGENT);
+    expect(ledger.entries[0]?.settled).toBe(true);
     expect(ledger.entries[0]?.usage).toEqual({
       input: 5000,
       output: 1200,
       cacheWrite: 0,
       cacheRead: 20_000,
     });
-    expect(ledger.entries[0]?.costUsd).toBeCloseTo((5000 * 4 + 1200 * 20 + 20_000 * 0.2) / 1e6);
+    expect(ledger.entries[0]?.spending.usd).toBeCloseTo(
+      (5000 * 4 + 1200 * 20 + 20_000 * 0.2) / 1e6,
+    );
   });
 
   it('sends a subscription token as a bearer token, never as an API key', async () => {
@@ -279,15 +286,64 @@ describe('the model proxy, from a sandbox', () => {
     expect(seen).toHaveLength(0);
   });
 
-  it('stops a task at its budget, and tells the run why', async () => {
+  it('lets no two requests in flight together spend past the budget', async () => {
+    const slow = () => ({ ...ok(), body: '', later: [{ afterMs: 200, body: streamed }] });
+    const { ask, seen } = await harness(slow);
+    // Each may cost $0.03 at most: either fits in the $0.05 budget, both together do not.
+    const body = request({ max_tokens: 1500 });
+    const answers = await Promise.all([
+      ask('/v1/messages', { body }),
+      ask('/v1/messages', { body }),
+    ]);
+    expect(answers.map((answer) => answer.status).sort()).toEqual([200, 403]);
+    await Promise.all(answers.map((answer) => answer.text()));
+    expect(seen).toHaveLength(1);
+  });
+
+  it('meters the whole answer even when the sandbox hangs up in the middle of it', async () => {
+    const [start = '', ...rest] = streamed.split('\n\n').map((event) => `${event}\n\n`);
+    const halting = () => ({
+      ...ok(),
+      body: start,
+      later: [{ afterMs: 300, body: rest.join('') }],
+    });
+    const { ask, ledger } = await harness(halting);
+    const aborting = new AbortController();
+    const answer = await ask('/v1/messages', { signal: aborting.signal });
+    const reader = answer.body?.getReader();
+    await reader?.read();
+    aborting.abort();
+    await expect.poll(() => ledger.entries[0]?.settled, { timeout: 3000 }).toBe(true);
+    // The output tokens came after the sandbox left: they are counted all the same.
+    expect(ledger.entries[0]?.usage).toMatchObject({ output: 1200 });
+  });
+
+  it('forwards the request as it was judged, with the provider’s headers only', async () => {
+    const { ask, seen } = await harness(ok);
+    const raw = JSON.stringify(request()).replace(
+      '"model":"claude-opus-5-5"',
+      '"model":"claude-fable-5-1","model":"claude-opus-5-5"',
+    );
+    const answer = await ask('/v1/messages', {
+      raw,
+      headers: { 'x-forwarded-for': '10.0.0.1', 'x-unknown': 'what' },
+    });
+    expect(answer.status).toBe(200);
+    expect(seen[0]?.body).not.toContain('claude-fable');
+    expect(JSON.parse(seen[0]?.body ?? '{}')).toMatchObject({ model: 'claude-opus-5-5' });
+    expect(seen[0]?.headers).not.toHaveProperty('x-forwarded-for');
+    expect(seen[0]?.headers).not.toHaveProperty('x-unknown');
+    expect(seen[0]?.headers['anthropic-version']).toBe('2023-06-01');
+  });
+
+  it('stops a task before it can spend past its budget, and tells the run why', async () => {
     const { ask, seen } = await harness(ok);
     expect((await ask('/v1/messages')).status).toBe(200);
-    expect((await ask('/v1/messages')).status).toBe(200);
-    // Spent 2 × $0.048: over the $0.05 budget.
+    // Spent $0.048 of the $0.05 budget: the next request may cost more than is left.
     const refused = await ask('/v1/messages');
     expect(refused.status).toBe(403);
     expect(await errorType(refused)).toBe(GATEWAY_REFUSALS.budgetExhausted);
-    expect(seen).toHaveLength(2);
+    expect(seen).toHaveLength(1);
     const status = await ask(GRANT_STATUS_PATH, { method: 'GET' });
     expect(await status.json()).toEqual({
       state: 'refused',

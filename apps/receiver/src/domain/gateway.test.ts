@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EGRESS_PORT, egressAllows, isPublicAddress } from './egress';
 import { judgeModelRequest } from './model-request';
-import { costOf, countedTokens, withinBudget } from './usage';
+import { admits, costOf, countedTokens, reservationOf } from './usage';
 
 const rules = { models: ['claude-opus-5-5'], maxTokens: 64_000 };
 const request = (extra: Record<string, unknown> = {}) => ({
@@ -20,6 +20,11 @@ describe('judgeModelRequest', () => {
       admitted: true,
       model: 'claude-opus-5-5',
       stream: true,
+      maxTokens: 32_000,
+    });
+    // A request that sets no limit may ask for all the rules allow.
+    expect(judgeModelRequest(request({ max_tokens: undefined }), rules)).toMatchObject({
+      maxTokens: rules.maxTokens,
     });
     expect(
       judgeModelRequest(request({ tools: [{ type: 'bash_20250124', name: 'bash' }] }), rules),
@@ -83,12 +88,22 @@ describe('usage and budget', () => {
     expect(countedTokens(usage)).toBe(1_300_000);
   });
 
-  it('holds an API key to dollars and a subscription to tokens', () => {
+  it('holds an API key to dollars and a subscription to tokens, never past the budget', () => {
     const budget = { usd: 5, tokens: 1_000_000 };
-    expect(withinBudget({ usd: 4.99, tokens: 2_000_000 }, budget, 'api-key')).toBe(true);
-    expect(withinBudget({ usd: 5, tokens: 0 }, budget, 'api-key')).toBe(false);
-    expect(withinBudget({ usd: 100, tokens: 999_999 }, budget, 'subscription')).toBe(true);
-    expect(withinBudget({ usd: 0, tokens: 1_000_000 }, budget, 'subscription')).toBe(false);
+    const request = { usd: 1, tokens: 100_000 };
+    expect(admits({ usd: 4, tokens: 2_000_000 }, request, budget, 'api-key')).toBe(true);
+    expect(admits({ usd: 4.01, tokens: 0 }, request, budget, 'api-key')).toBe(false);
+    expect(admits({ usd: 100, tokens: 900_000 }, request, budget, 'subscription')).toBe(true);
+    expect(admits({ usd: 0, tokens: 900_001 }, request, budget, 'subscription')).toBe(false);
+  });
+
+  it('reckons a request at its size and all the output it may ask for', () => {
+    const price = { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 };
+    expect(reservationOf({ bytes: 3_000, maxTokens: 10_000 }, price)).toEqual({
+      usd: (1_000 * 4 + 10_000 * 20) / 1e6,
+      tokens: 11_000,
+    });
+    expect(reservationOf({ bytes: 3_000, maxTokens: 10_000 }, null).usd).toBe(0);
   });
 });
 

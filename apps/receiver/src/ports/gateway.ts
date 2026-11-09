@@ -13,20 +13,31 @@ export interface GrantBook {
   setRefusal(runId: RunId, refusal: GatewayRefusal | null): Promise<void>;
 }
 
-export interface UsageEntry {
+/** A model request let through, as its task's spending is kept. */
+export interface MeteredRequest {
   readonly runId: RunId;
   readonly taskId: TaskId;
   readonly model: string;
-  readonly usage: TokenUsage;
-  readonly costUsd: number;
-  readonly at: Instant;
 }
 
-/** What tasks spent on the model, response by response. */
+/**
+ * What tasks spend on the model, request by request. A request holds a reservation while it is
+ * in flight, and its usage once answered: a reservation never settled stays counted, so what the
+ * ledger shows is never less than what was spent.
+ */
 export interface UsageLedger {
-  record(entry: UsageEntry): Promise<void>;
-  /** All a task has spent, over every run. */
-  spent(taskId: TaskId): Promise<Budget>;
+  /**
+   * Takes `amount` out of the task's budget for one request, if `admits` allows it given all the
+   * task has spent and holds for requests in flight: judged and recorded at once, against every
+   * other request of the task. Returns the reservation's id, or null when it is refused.
+   */
+  reserve(
+    request: MeteredRequest,
+    amount: Budget,
+    admits: (spent: Budget) => boolean,
+  ): Promise<string | null>;
+  /** What the request used, in place of its reservation. Settling it again changes nothing. */
+  settle(reservation: string, usage: TokenUsage, spending: Budget, at: Instant): Promise<void>;
 }
 
 /** Prices of the models runs may use: what turns tokens into dollars of a budget. */
@@ -42,6 +53,14 @@ export interface Admission {
   readonly credential: ModelCredential;
   readonly model: string;
   readonly stream: boolean;
+  /** What the request holds of its task's budget; null for requests that cost nothing. */
+  readonly reservation: string | null;
+}
+
+/** A model request as the sandbox sent it: its parsed body, and its size. */
+export interface ModelRequest {
+  readonly body: unknown;
+  readonly bytes: number;
 }
 
 export type Admitted =
@@ -64,11 +83,11 @@ export type ModelEndpoint = 'messages' | 'count-tokens';
 /** The gateway's model side, as its HTTP adapter drives it. */
 export interface ModelAccess {
   /** Judges a request of the sandbox holding `token`, before anything is forwarded. */
-  admit(token: string | null, body: unknown, endpoint: ModelEndpoint): Promise<Admitted>;
+  admit(token: string | null, request: ModelRequest, endpoint: ModelEndpoint): Promise<Admitted>;
   /** Judges the provider's answer before it reaches the sandbox; null lets it through. */
   inspect(admission: Admission, answer: ProviderAnswer): Promise<GatewayRefusal | null>;
-  /** Records what an answer used. */
-  meter(admission: Admission, usage: TokenUsage): Promise<void>;
+  /** Records what an answer used; null when the request used nothing. */
+  meter(admission: Admission, usage: TokenUsage | null): Promise<void>;
   /** Why the gateway last refused the run whose grant `token` is. */
   status(token: string | null): Promise<GrantStatusView>;
 }

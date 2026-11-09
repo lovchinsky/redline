@@ -192,20 +192,27 @@ describe('PostgresStore', () => {
     expect(await read()).toBeNull();
   });
 
-  it('adds up what a task spent over all its runs', async () => {
+  it('holds a task’s requests to its budget, one after another, and counts what they spent', async () => {
     const gateway = new PostgresGateway(db);
     const taskId = TaskId('task-spending');
+    const request = (runId: string) => ({ runId: RunId(runId), taskId, model: 'm' });
+    const within = (spent: { usd: number }) => spent.usd + 0.5 <= 1;
     expect(await gateway.spent(taskId)).toEqual({ usd: 0, tokens: 0 });
+    // Three requests at once, each holding $0.5 of a $1 budget: two go.
+    const reserved = await Promise.all(
+      ['run-a', 'run-a', 'run-b'].map((runId) =>
+        gateway.reserve(request(runId), { usd: 0.5, tokens: 1000 }, within),
+      ),
+    );
+    expect(reserved.filter((reservation) => reservation !== null)).toHaveLength(2);
+    expect(await gateway.spent(taskId)).toEqual({ usd: 1, tokens: 2000 });
+
     const usage = { input: 1000, output: 200, cacheWrite: 300, cacheRead: 50_000 };
-    for (const runId of ['run-a', 'run-b']) {
-      await gateway.record({
-        runId: RunId(runId),
-        taskId,
-        model: 'm',
-        usage,
-        costUsd: 0.25,
-        at: 1_000,
-      });
+    for (const reservation of reserved) {
+      if (reservation === null) continue;
+      await gateway.settle(reservation, usage, { usd: 0.25, tokens: 1500 }, 1_000);
+      // Settling again changes nothing.
+      await gateway.settle(reservation, usage, { usd: 9, tokens: 9 }, 2_000);
     }
     expect(await gateway.spent(taskId)).toEqual({ usd: 0.5, tokens: 3000 });
   });

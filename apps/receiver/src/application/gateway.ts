@@ -1,7 +1,7 @@
 import type { GatewayRefusal } from '../domain/grant';
 import { EGRESS_PORT, egressAllows } from '../domain/egress';
 import { judgeModelRequest } from '../domain/model-request';
-import { costOf, withinBudget, type TokenUsage } from '../domain/usage';
+import { NO_USAGE, admits, reservationOf, spendingOf, type TokenUsage } from '../domain/usage';
 import type { HeldCredentials, ModelCredential } from '../ports/access';
 import type {
   Admission,
@@ -13,6 +13,7 @@ import type {
   GrantStatusView,
   ModelAccess,
   ModelEndpoint,
+  ModelRequest,
   PriceList,
   ProviderAnswer,
   UsageLedger,
@@ -41,7 +42,11 @@ export class ModelGateway implements ModelAccess {
     },
   ) {}
 
-  async admit(token: string | null, body: unknown, endpoint: ModelEndpoint): Promise<Admitted> {
+  async admit(
+    token: string | null,
+    request: ModelRequest,
+    endpoint: ModelEndpoint,
+  ): Promise<Admitted> {
     const terms = token === null ? null : await this.deps.grants.terms(token);
     if (terms?.phase !== 'agent') return { ok: false, refusal: { kind: 'grant-revoked' } };
     const refuse = async (refusal: GatewayRefusal): Promise<Admitted> => {
@@ -49,7 +54,7 @@ export class ModelGateway implements ModelAccess {
       return { ok: false, refusal };
     };
 
-    const verdict = judgeModelRequest(body, {
+    const verdict = judgeModelRequest(request.body, {
       models: [terms.model],
       maxTokens: this.deps.maxTokens,
     });
@@ -59,19 +64,31 @@ export class ModelGateway implements ModelAccess {
         ? this.deps.operator
         : this.deps.requesters.credentialOf(terms.taskId);
     if (credential === null) return refuse({ kind: 'credential-missing' });
-    if (credential.kind === 'api-key' && this.deps.prices.priceOf(verdict.model) === null) {
+    const price = this.deps.prices.priceOf(verdict.model);
+    if (credential.kind === 'api-key' && price === null) {
       return refuse({ kind: 'request-refused', detail: `No price is set for ${verdict.model}` });
     }
+    let reservation: string | null = null;
     if (endpoint === 'messages') {
-      const spent = await this.deps.ledger.spent(terms.taskId);
-      if (!withinBudget(spent, terms.budget, credential.kind)) {
-        return refuse({ kind: 'budget-exhausted' });
-      }
+      // The request holds the most it can cost until its answer says what it did cost.
+      const amount = reservationOf({ bytes: request.bytes, maxTokens: verdict.maxTokens }, price);
+      reservation = await this.deps.ledger.reserve(
+        { runId: terms.runId, taskId: terms.taskId, model: verdict.model },
+        amount,
+        (spent) => admits(spent, amount, terms.budget, credential.kind),
+      );
+      if (reservation === null) return refuse({ kind: 'budget-exhausted' });
     }
     await this.deps.grants.setRefusal(terms.runId, null);
     return {
       ok: true,
-      admission: { terms, credential, model: verdict.model, stream: verdict.stream },
+      admission: {
+        terms,
+        credential,
+        model: verdict.model,
+        stream: verdict.stream,
+        reservation,
+      },
     };
   }
 
@@ -92,17 +109,19 @@ export class ModelGateway implements ModelAccess {
     return refusal;
   }
 
-  /** Records what an answer used. */
-  async meter(admission: Admission, usage: TokenUsage): Promise<void> {
-    const price = this.deps.prices.priceOf(admission.model);
-    await this.deps.ledger.record({
-      runId: admission.terms.runId,
-      taskId: admission.terms.taskId,
-      model: admission.model,
-      usage,
-      costUsd: price === null ? 0 : costOf(usage, price),
-      at: this.deps.clock.now(),
-    });
+  /**
+   * Records what an answer used in place of the request's reservation; null when the request
+   * used nothing (it never reached the model, or the gateway refused the answer).
+   */
+  async meter(admission: Admission, usage: TokenUsage | null): Promise<void> {
+    if (admission.reservation === null) return;
+    const used = usage ?? NO_USAGE;
+    await this.deps.ledger.settle(
+      admission.reservation,
+      used,
+      spendingOf(used, this.deps.prices.priceOf(admission.model)),
+      this.deps.clock.now(),
+    );
   }
 
   /** Why the gateway last refused the run whose grant this is. */

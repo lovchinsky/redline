@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Budget, GrantTerms } from '../domain/grant';
+import type { GrantTerms } from '../domain/grant';
 import { RunId, TaskId } from '../domain/ids';
 import { ModelCredential } from '../ports/access';
-import type { UsageEntry, UsageLedger } from '../ports/gateway';
 import { EgressGate, ModelGateway } from './gateway';
-import { FixedClock, MemoryGrantBook, silentLogger } from './testing/fakes';
+import { FixedClock, MemoryGrantBook, MemoryLedger, silentLogger } from './testing/fakes';
 
 const runId = RunId('run-1');
 const taskId = TaskId('task-1');
@@ -17,26 +16,13 @@ const agentTerms = (credentials: 'operator' | 'requester' = 'operator'): GrantTe
   budget: { usd: 1, tokens: 100_000 },
 });
 
-class Ledger implements UsageLedger {
-  readonly entries: UsageEntry[] = [];
-  record(entry: UsageEntry) {
-    this.entries.push(entry);
-    return Promise.resolve();
-  }
-  spent(): Promise<Budget> {
-    return Promise.resolve({
-      usd: this.entries.reduce((sum, entry) => sum + entry.costUsd, 0),
-      tokens: this.entries.reduce((sum, entry) => sum + entry.usage.input + entry.usage.output, 0),
-    });
-  }
-}
-
-const body = { model: 'claude-opus-5-5', max_tokens: 1000, messages: [], stream: true };
+const sent = { model: 'claude-opus-5-5', max_tokens: 1000, messages: [], stream: true };
+const body = { body: sent, bytes: 300 };
 const operatorKey = new ModelCredential('api-key', 'sk-operator');
 const requesterToken = new ModelCredential('subscription', 'sk-ant-oat-requester');
 
 const gateway = (terms: GrantTerms, held: ModelCredential | null = null) => {
-  const ledger = new Ledger();
+  const ledger = new MemoryLedger();
   const app = new ModelGateway({
     grants: new MemoryGrantBook(new Map([['grant', terms]])),
     ledger,
@@ -70,12 +56,11 @@ describe('ModelGateway', () => {
     });
     expect(ledger.entries).toEqual([
       {
-        runId,
-        taskId,
-        model: 'claude-opus-5-5',
+        reservation: 'reservation-1',
+        request: { runId, taskId, model: 'claude-opus-5-5' },
         usage: { input: 100_000, output: 10_000, cacheWrite: 0, cacheRead: 0 },
-        costUsd: 0.6,
-        at: 5_000,
+        spending: { usd: 0.6, tokens: 110_000 },
+        settled: true,
       },
     ]);
     expect(await app.status('grant')).toEqual({ state: 'active' });
@@ -96,7 +81,11 @@ describe('ModelGateway', () => {
 
   it('refuses what the rules forbid, and remembers it for the run to ask', async () => {
     const { app } = gateway(agentTerms());
-    const refused = await app.admit('grant', { ...body, model: 'claude-fable-5-1' }, 'messages');
+    const refused = await app.admit(
+      'grant',
+      { ...body, body: { ...sent, model: 'claude-fable-5-1' } },
+      'messages',
+    );
     expect(refused).toMatchObject({ ok: false, refusal: { kind: 'request-refused' } });
     expect(await app.status('grant')).toMatchObject({
       state: 'refused',
@@ -104,16 +93,27 @@ describe('ModelGateway', () => {
     });
   });
 
+  it('holds the most a request can cost while it is in flight, and lets it go once answered', async () => {
+    const { app, ledger } = gateway(agentTerms());
+    // $1 of budget: 1000 tokens of output and 300 bytes of input at $20 and $4 a million.
+    const first = await app.admit('grant', body, 'messages');
+    expect(ledger.spentBy(taskId).usd).toBeCloseTo(0.0204);
+    expect(first.ok).toBe(true);
+    // A request that may cost more than what is left does not go, while the first is in flight.
+    const large = { body: { ...sent, max_tokens: 49_500 }, bytes: 300 };
+    expect(await app.admit('grant', large, 'messages')).toMatchObject({
+      refusal: { kind: 'budget-exhausted' },
+    });
+    if (!first.ok) throw new Error('refused');
+    await app.meter(first.admission, null);
+    // A request that used nothing frees what it held, and the large one fits alone.
+    expect(ledger.spentBy(taskId).usd).toBe(0);
+    expect(await app.admit('grant', large, 'messages')).toMatchObject({ ok: true });
+  });
+
   it('stops a task that spent its budget, but still counts its tokens', async () => {
     const { app, ledger } = gateway(agentTerms());
-    ledger.entries.push({
-      runId,
-      taskId,
-      model: 'claude-opus-5-5',
-      usage: { input: 1, output: 1, cacheWrite: 0, cacheRead: 0 },
-      costUsd: 1,
-      at: 0,
-    });
+    ledger.spend({ runId, taskId, model: 'claude-opus-5-5' }, { usd: 1, tokens: 2 });
     expect(await app.admit('grant', body, 'messages')).toEqual({
       ok: false,
       refusal: { kind: 'budget-exhausted' },

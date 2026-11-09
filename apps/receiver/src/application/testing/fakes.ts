@@ -13,7 +13,8 @@ import {
   type TaskId as TaskIdType,
   type UserId as UserIdType,
 } from '../../domain/ids';
-import type { GatewayRefusal, GrantTerms } from '../../domain/grant';
+import type { Budget, GatewayRefusal, GrantTerms } from '../../domain/grant';
+import type { TokenUsage } from '../../domain/usage';
 import type { Run, RunOutcome } from '../../domain/run';
 import type { Task, TaskEvent } from '../../domain/task';
 import type { ChangeRequestRef } from '../../domain/work';
@@ -37,7 +38,7 @@ import type {
   SecretScanner,
   SourceRepository,
 } from '../../ports/publishing';
-import type { GrantBook } from '../../ports/gateway';
+import type { GrantBook, MeteredRequest, UsageLedger } from '../../ports/gateway';
 import type { Clock, IdGenerator, Logger } from '../../ports/system';
 import type {
   GrantToken,
@@ -328,6 +329,49 @@ export const managed: ModelAccessPolicy = {
   operator: 'api-key',
   acceptRequesterSubscriptions: false,
 };
+
+/** The ledger in memory: a request reserves at once, the way the database does under its lock. */
+export class MemoryLedger implements UsageLedger {
+  readonly entries: {
+    readonly reservation: string;
+    readonly request: MeteredRequest;
+    usage: TokenUsage | null;
+    spending: Budget;
+    settled: boolean;
+  }[] = [];
+
+  reserve(request: MeteredRequest, amount: Budget, admits: (spent: Budget) => boolean) {
+    if (!admits(this.spentBy(request.taskId))) return Promise.resolve(null);
+    const reservation = `reservation-${String(this.entries.length + 1)}`;
+    this.entries.push({ reservation, request, usage: null, spending: amount, settled: false });
+    return Promise.resolve(reservation);
+  }
+
+  settle(reservation: string, usage: TokenUsage, spending: Budget) {
+    const entry = this.entries.find((each) => each.reservation === reservation && !each.settled);
+    if (entry !== undefined) Object.assign(entry, { usage, spending, settled: true });
+    return Promise.resolve();
+  }
+
+  /** Spending of an earlier request of the task, already settled. */
+  spend(request: MeteredRequest, spending: Budget): void {
+    this.entries.push({
+      reservation: `earlier-${String(this.entries.length + 1)}`,
+      request,
+      usage: null,
+      spending,
+      settled: true,
+    });
+  }
+
+  spentBy(taskId: string): Budget {
+    const own = this.entries.filter((entry) => entry.request.taskId === taskId);
+    return {
+      usd: own.reduce((sum, entry) => sum + entry.spending.usd, 0),
+      tokens: own.reduce((sum, entry) => sum + entry.spending.tokens, 0),
+    };
+  }
+}
 
 /** The gateway's grants in memory: their terms by token, and its refusals of runs. */
 export class MemoryGrantBook implements GrantBook {

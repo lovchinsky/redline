@@ -10,7 +10,13 @@ export interface ModelRequestRules {
 }
 
 export type ModelRequestVerdict =
-  | { readonly admitted: true; readonly model: string; readonly stream: boolean }
+  | {
+      readonly admitted: true;
+      readonly model: string;
+      readonly stream: boolean;
+      /** The most output the request may ask for: its own limit, or the rules' when it sets none. */
+      readonly maxTokens: number;
+    }
   | { readonly admitted: false; readonly detail: string };
 
 /** Fields of a Messages request that make the provider act beyond the conversation. */
@@ -84,5 +90,10 @@ export const judgeModelRequest = (body: unknown, rules: ModelRequestRules): Mode
     const found = remoteSource(body[field], field);
     if (found !== null) return refuse(`The request may not have the provider fetch ${found}`);
   }
-  return { admitted: true, model, stream: body['stream'] === true };
+  return {
+    admitted: true,
+    model,
+    stream: body['stream'] === true,
+    maxTokens: typeof maxTokens === 'number' ? maxTokens : rules.maxTokens,
+  };
 };
