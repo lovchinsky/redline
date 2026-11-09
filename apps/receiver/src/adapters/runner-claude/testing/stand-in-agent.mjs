@@ -1,6 +1,6 @@
 // A stand-in for agent-host inside a test sandbox: it speaks the agent protocol and reports
 // what it sees of its sandbox, so a test can tell what the runner gave it and what it did not.
-import { appendFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 
 const brief = JSON.parse(readFileSync('/redline/input/brief.json', 'utf8'));
@@ -45,27 +45,58 @@ const seen = {
   internet: await reach('1.1.1.1', 443),
 };
 
-const change = brief.task.title.includes('change');
-if (change) writeFileSync('/redline/out/change.bundle', 'stand-in bundle');
-const outcome = {
-  protocol: 1,
-  runId: brief.runId,
-  result: change
-    ? {
-        kind: 'change',
-        head: 'c'.repeat(40),
-        report: {
-          outcome: 'change',
-          summary: JSON.stringify(seen),
-          changes: [],
-          verification: '',
-          assumptions: [],
-          explanation: '',
-        },
-      }
-    : { kind: 'no-change', explanation: JSON.stringify(seen) },
-  usage: { turns: 1, durationMs: 1, costUsd: 0 },
+const conclude = (result, pause = null) => {
+  const outcome = {
+    protocol: 1,
+    runId: brief.runId,
+    result,
+    pause,
+    usage: { turns: 1, durationMs: 1, costUsd: 0 },
+  };
+  writeFileSync('/redline/out/.outcome.json.partial', JSON.stringify(outcome));
+  renameSync('/redline/out/.outcome.json.partial', '/redline/out/outcome.json');
+  event({ kind: 'ended', result: result.kind });
 };
-writeFileSync('/redline/out/.outcome.json.partial', JSON.stringify(outcome));
-renameSync('/redline/out/.outcome.json.partial', '/redline/out/outcome.json');
-event({ kind: 'ended', result: outcome.result.kind });
+
+// A task "with a question": the first run asks and leaves its session and work; the run that
+// goes on with them says what it found of them.
+const transcript = (sessionId) => `/redline/session/projects/-workspace/${sessionId}.jsonl`;
+if (brief.task.title.includes('question') && brief.resume === null) {
+  mkdirSync('/redline/session/projects/-workspace', { recursive: true });
+  writeFileSync(transcript('session-1'), '{"asked":"Desktop only?"}\n');
+  writeFileSync('/redline/out/work.bundle', 'stand-in work');
+  conclude(
+    { kind: 'question', question: { text: 'Desktop only?', options: ['Yes', 'No'] } },
+    { sessionId: 'session-1', deferredCall: 'toolu_1', workHead: 'd'.repeat(40) },
+  );
+} else {
+  if (brief.resume !== null) {
+    const file = transcript(brief.resume.sessionId);
+    seen.resumed = {
+      pause: brief.resume,
+      transcript: readFileSync(file, 'utf8'),
+      work: readFileSync('/redline/input/work.bundle', 'utf8'),
+      answer: brief.exchanges.at(-1)?.answer?.text ?? null,
+      // Claude Code goes on writing to the session.
+      appendSession: attempt(() => appendFileSync(file, '{"answered":true}\n')),
+    };
+  }
+  const change = brief.task.title.includes('change');
+  if (change) writeFileSync('/redline/out/change.bundle', 'stand-in bundle');
+  conclude(
+    change
+      ? {
+          kind: 'change',
+          head: 'c'.repeat(40),
+          report: {
+            outcome: 'change',
+            summary: JSON.stringify(seen),
+            changes: [],
+            verification: '',
+            assumptions: [],
+            explanation: '',
+          },
+        }
+      : { kind: 'no-change', explanation: JSON.stringify(seen) },
+  );
+}

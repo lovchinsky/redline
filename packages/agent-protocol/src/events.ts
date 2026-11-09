@@ -5,7 +5,13 @@ import * as z from 'zod/mini';
  * secrets and of the agent's full output (the session transcript has that).
  */
 export const runEventSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('started'), at: z.iso.datetime(), model: z.string() }),
+  /** `resumed`: the session goes on with a paused one; otherwise it is new. */
+  z.object({
+    kind: z.literal('started'),
+    at: z.iso.datetime(),
+    model: z.string(),
+    resumed: z.boolean(),
+  }),
   z.object({ kind: z.literal('turn'), at: z.iso.datetime(), text: z.string() }),
   z.object({ kind: z.literal('tool'), at: z.iso.datetime(), tool: z.string(), target: z.string() }),
   z.object({

@@ -120,7 +120,7 @@ const runRecord = z.object({
   format: z.literal(RECORD_FORMAT),
   id: id(RunId),
   taskId: id(TaskId),
-  kind: z.enum(['start', 'resume']),
+  kind: z.enum(['start', 'resume', 'replay']),
   image: text,
   model: text,
   startedAt: instant,

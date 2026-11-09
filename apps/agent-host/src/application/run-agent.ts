@@ -3,14 +3,16 @@ import {
   EVENT_TEXT_LIMIT,
   type Brief,
   type OutcomeResult,
+  type Pause,
   type RunEvent,
   type RunUsage,
 } from '@redline/agent-protocol';
+import { answerText } from '../domain/asking';
 import { judgeToolUse } from '../domain/guard';
-import { decideOutcome } from '../domain/outcome';
+import { decideOutcome, pauses } from '../domain/outcome';
 import { composePrompt, workingRules } from '../domain/prompt';
-import type { SessionResult } from '../domain/session';
-import type { AgentSession, SessionActivity } from '../ports/agent';
+import type { SessionEnd, SessionResult } from '../domain/session';
+import type { AgentSession, SessionActivity, SessionStart } from '../ports/agent';
 import type { Gateway, RunFiles, Workspace } from '../ports/run';
 import type { Clock, Timers } from '../ports/system';
 
@@ -19,10 +21,18 @@ const clip = (text: string) =>
 
 const NO_USAGE: RunUsage = { turns: 0, durationMs: 0, costUsd: 0 };
 
+interface Concluded {
+  readonly result: OutcomeResult;
+  readonly pause: Pause | null;
+  readonly usage: RunUsage;
+}
+
 /**
  * One run, start to end: reads the brief, runs the agent under the run's limits, takes its
- * change from the workspace and leaves the outcome for the receiver. Every way the run can end
- * ends with an outcome written, the run's own failures included.
+ * change from the workspace and leaves the outcome for the receiver. A run that pauses (on a
+ * question, the subscription's limit, a missing credential) leaves its work and session for a
+ * later run to go on with. Every way the run can end ends with an outcome written, the run's
+ * own failures included.
  */
 export class RunAgent {
   constructor(
@@ -38,12 +48,13 @@ export class RunAgent {
 
   async execute(): Promise<OutcomeResult> {
     const brief = await this.deps.files.brief();
-    let concluded: { result: OutcomeResult; usage: RunUsage };
+    let concluded: Concluded;
     try {
       concluded = await this.attempt(brief);
     } catch (error) {
       concluded = {
         result: { kind: 'failed', reason: 'infra', detail: String(error) },
+        pause: null,
         usage: NO_USAGE,
       };
     }
@@ -52,23 +63,67 @@ export class RunAgent {
       protocol: AGENT_PROTOCOL_VERSION,
       runId: brief.runId,
       result: concluded.result,
+      pause: concluded.pause,
       usage: concluded.usage,
     });
     return concluded.result;
   }
 
-  private async attempt(brief: Brief): Promise<{ result: OutcomeResult; usage: RunUsage }> {
-    const { end, usage } = await this.supervised(brief);
+  private async attempt(brief: Brief): Promise<Concluded> {
+    const { end, usage, sessionId } = await this.supervised(brief, await this.startOf(brief));
     const change =
       end.kind === 'completed' && end.report?.outcome === 'change'
         ? await this.deps.workspace.exportChange(brief.baseSha)
         : null;
     const gateway = end.kind === 'api-error' ? await this.deps.gateway.grantStatus() : null;
-    return { result: decideOutcome({ end, change, gateway }), usage };
+    const result = decideOutcome({ end, change, gateway });
+    const pause =
+      pauses(result) && sessionId !== null ? await this.pauseOf(brief, end, sessionId) : null;
+    return { result, pause, usage };
+  }
+
+  /**
+   * Goes on with the paused session when the brief resumes one and its files are here; otherwise
+   * starts a new session, told the exchanges so far.
+   */
+  private async startOf(brief: Brief): Promise<SessionStart> {
+    const { resume } = brief;
+    if (resume === null || !(await this.deps.session.stored(resume.sessionId))) {
+      return { kind: 'new', prompt: composePrompt(brief) };
+    }
+    if (resume.workHead !== null) {
+      await this.deps.workspace.restoreWork(brief.baseSha, resume.workHead);
+    }
+    const asked = brief.exchanges.at(-1);
+    return {
+      kind: 'resume',
+      sessionId: resume.sessionId,
+      answer:
+        resume.deferredCall === null || asked === undefined
+          ? null
+          : { call: resume.deferredCall, text: answerText(asked) },
+    };
+  }
+
+  /**
+   * Keeps the work so far for the run that goes on with this session. Without it the session
+   * cannot go on, and a later run starts over instead.
+   */
+  private async pauseOf(brief: Brief, end: SessionEnd, sessionId: string): Promise<Pause | null> {
+    try {
+      const work = await this.deps.workspace.exportWork(brief.baseSha);
+      return {
+        sessionId,
+        deferredCall: end.kind === 'asked' ? end.call : null,
+        workHead: work?.head ?? null,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /** Runs the session, stopping it when the run takes too long or the agent goes quiet. */
-  private async supervised(brief: Brief): Promise<SessionResult> {
+  private async supervised(brief: Brief, start: SessionStart): Promise<SessionResult> {
     const controller = new AbortController();
     const stopped: { why: 'timeout' | 'stalled' | null } = { why: null };
     const stop = (why: 'timeout' | 'stalled') => () => {
@@ -87,7 +142,8 @@ export class RunAgent {
         {
           model: brief.model,
           rules: workingRules(brief),
-          prompt: composePrompt(brief),
+          start,
+          questionsLeft: brief.questionsLeft,
           maxTurns: brief.limits.maxTurns,
           budgetUsd: brief.limits.budgetUsd,
           judge: (tool, input) => judgeToolUse(tool, input, brief.policy.protectedPaths),
@@ -108,7 +164,7 @@ export class RunAgent {
     const at = this.deps.clock.iso();
     switch (activity.kind) {
       case 'started':
-        return { kind: 'started', at, model: activity.model };
+        return { kind: 'started', at, model: activity.model, resumed: activity.resumed };
       case 'turn':
         return { kind: 'turn', at, text: clip(activity.text) };
       case 'tool':

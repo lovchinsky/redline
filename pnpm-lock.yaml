@@ -53,6 +53,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: 0.3.319
         version: 0.3.319(@anthropic-ai/sdk@1.6.0(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(zod@4.6.7)
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.2
+        version: 1.32.2(zod@4.6.7)
       '@redline/agent-protocol':
         specifier: workspace:*
         version: link:../../packages/agent-protocol
@@ -66,9 +69,6 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 1.6.0
         version: 1.6.0(zod@4.6.7)
-      '@modelcontextprotocol/sdk':
-        specifier: 1.32.2
-        version: 1.32.2(zod@4.6.7)
       '@types/node':
         specifier: 22.20.5
         version: 22.20.5

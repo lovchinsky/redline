@@ -89,11 +89,36 @@ describe('SuperviseRun', () => {
       null,
     );
     await app.supervise.handle(task.id, never);
-    expect(app.runner.started[1]).toMatchObject({
+    const resumed = app.runner.started[1];
+    expect(resumed).toMatchObject({
       resumeFrom: pausedAt,
       baseSha: 'base-sha',
       brief: { questionsLeft: 1 },
     });
+    expect(app.store.state.runs.get(resumed?.runId ?? RunId(''))?.kind).toBe('resume');
+    expect(app.store.task(task.id).state.kind).toBe('publishing');
+  });
+
+  it('starts over, told the exchanges, when the paused session cannot be resumed', async () => {
+    const app = system();
+    const task = await app.submit();
+    app.runner.outcomes.push(question, change);
+    await app.supervise.handle(task.id, never);
+    await app.requests.reply(
+      { id: task.requester, name: 'Ann', email: null },
+      task.id,
+      { questionId: QuestionId('q1'), text: 'Desktop only' },
+      null,
+    );
+    // The image was updated while the task waited for the answer.
+    app.runner.resumes = false;
+    await app.supervise.handle(task.id, never);
+    const replayed = app.runner.started[1];
+    expect(replayed?.resumeFrom).toBeNull();
+    expect(replayed?.brief.exchanges).toMatchObject([
+      { question: { id: 'q1' }, answer: { source: 'requester', text: 'Desktop only' } },
+    ]);
+    expect(app.store.state.runs.get(replayed?.runId ?? RunId(''))?.kind).toBe('replay');
     expect(app.store.task(task.id).state.kind).toBe('publishing');
   });
 

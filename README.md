@@ -89,7 +89,10 @@ receiver and against the receiver in this repository.
 
 A run is two sandboxes on the run's own volumes: the project's install
 (`.redline/receiver.yaml` on the base commit) and `agent-host` (`apps/agent-host`), which runs
-Claude Code through the Agent SDK and leaves its outcome and change for the worker.
+Claude Code through the Agent SDK and leaves its outcome and change for the worker. A question
+to the requester pauses the run: the worker keeps the session and the work so far, and after the
+answer the next run goes on with them in new sandboxes. A session resumes only on the image and
+model that wrote it; after either changes, the run starts over, told the questions and answers.
 
 ```bash
 docker build -f apps/agent-host/Dockerfile -t redline-agent .   # the sandbox image
@@ -150,8 +153,8 @@ secret URL parameters. There is no telemetry. See
 | `apps/extension/src/ui`          | Preact UI: overlay, side panel, options                                                 |
 | `apps/extension/src/entrypoints` | WXT entry points; they only start a composition root                                    |
 | `apps/receiver`                  | The receiver: domain, use cases, ports and adapters, like the extension                 |
-| `apps/agent-host`                | The program in a run's sandbox: one brief, Claude Code, an outcome and a change         |
-| `packages/agent-protocol`        | What the receiver and agent-host exchange: the run's files, brief, outcome, refusals    |
+| `apps/agent-host`                | The program in a run's sandbox: one brief, Claude Code, an outcome, a change or a pause |
+| `packages/agent-protocol`        | What the receiver and agent-host exchange: the run's files, brief, outcome, pause       |
 | `packages/path-patterns`         | Path globs read the same way by the change policy and the agent's write guard           |
 | `tools/mock-receiver`            | In-memory receiver implementing `receiver-api.v1`, for e2e tests and trying things out  |
 | `tools/contract-conformance`     | What the extension relies on in `receiver-api.v1`, run against any receiver             |

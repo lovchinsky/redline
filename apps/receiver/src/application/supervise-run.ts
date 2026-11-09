@@ -85,10 +85,23 @@ export class SuperviseRun {
       return null;
     }
 
+    // A paused session goes on only where the runner can resume it as it was left.
+    const paused = task.state.kind === 'queued' ? task.state.resumeFrom : null;
+    const resumable =
+      paused !== null && (await this.deps.runner.resumable(paused, project.execution))
+        ? paused
+        : null;
+    if (paused !== null && resumable === null) {
+      log.info('The paused session cannot be resumed: the run starts over', {
+        image: paused.image,
+        model: paused.model,
+      });
+    }
+
     const runId = this.deps.ids.run();
     const begun = await this.deps.writer.update(
       task.id,
-      (current, now) => beginRun(current, runId, now),
+      (current, now) => beginRun(current, runId, resumable, now),
       async (scope, transition) => {
         const resumed =
           transition.task.state.kind === 'running' && transition.task.state.resumedFrom !== null;
@@ -96,7 +109,7 @@ export class SuperviseRun {
           startRun({
             id: runId,
             taskId: task.id,
-            kind: resumed ? 'resume' : 'start',
+            kind: resumed ? 'resume' : paused === null ? 'start' : 'replay',
             image: project.execution.image,
             model: project.execution.model,
             startedAt: transition.event?.at ?? this.deps.clock.now(),

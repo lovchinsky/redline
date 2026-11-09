@@ -1,6 +1,6 @@
-import { CHANGE_REF } from '@redline/agent-protocol';
+import { CHANGE_REF, WORK_REF } from '@redline/agent-protocol';
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -38,6 +38,14 @@ beforeEach(async () => {
   base = await git(repo, 'rev-parse', 'HEAD');
 });
 
+const workspaceAt = (root: string) =>
+  new GitWorkspace({
+    root,
+    changeBundle: path.join(dir, 'change.bundle'),
+    workBundle: path.join(dir, 'work.bundle'),
+    pausedWork: path.join(dir, 'work.bundle'),
+  });
+
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
@@ -46,8 +54,8 @@ describe('GitWorkspace', () => {
   it('finds no change in an untouched tree, or one with only ignored files', async () => {
     await mkdir(path.join(repo, 'dist'));
     await writeFile(path.join(repo, 'dist/app.js'), 'built');
-    const workspace = new GitWorkspace({ root: repo, bundlePath: path.join(dir, 'change.bundle') });
-    expect(await workspace.exportChange(base)).toBeNull();
+    expect(await workspaceAt(repo).exportChange(base)).toBeNull();
+    expect(await workspaceAt(repo).exportWork(base)).toBeNull();
   });
 
   it('exports every change, staged or not and committed or not, as one commit on the base', async () => {
@@ -62,7 +70,7 @@ describe('GitWorkspace', () => {
     });
 
     const bundlePath = path.join(dir, 'change.bundle');
-    const change = await new GitWorkspace({ root: repo, bundlePath }).exportChange(base);
+    const change = await workspaceAt(repo).exportChange(base);
     expect(change?.head).toMatch(/^[0-9a-f]{40}$/);
 
     // The receiver's side: a mirror at the base imports the bundle.
@@ -72,5 +80,36 @@ describe('GitWorkspace', () => {
     await git(mirror, 'fetch', '-q', bundlePath, `${CHANGE_REF}:${CHANGE_REF}`);
     expect(await git(mirror, 'rev-parse', `${CHANGE_REF}^`)).toBe(base);
     expect(await git(mirror, 'diff', '--name-only', base, CHANGE_REF)).toBe('Card.css\nNew.ts');
+  });
+
+  it('carries the work of a paused run into the workspace of the run that goes on with it', async () => {
+    await rm(path.join(repo, 'Card.css'));
+    await writeFile(path.join(repo, 'New.ts'), 'export {};\n');
+    const work = await workspaceAt(repo).exportWork(base);
+    expect(work?.head).toMatch(/^[0-9a-f]{40}$/);
+
+    // The next run's workspace: the base, with what its setup installed.
+    const next = path.join(dir, 'next');
+    await run('git', ['clone', '-q', repo, next]);
+    await git(next, 'checkout', '-q', '--detach', base);
+    await mkdir(path.join(next, 'dist'));
+    await writeFile(path.join(next, 'dist/app.js'), 'built');
+    await workspaceAt(next).restoreWork(base, work?.head ?? '');
+
+    await expect(readFile(path.join(next, 'Card.css'))).rejects.toThrow();
+    expect(await readFile(path.join(next, 'New.ts'), 'utf8')).toBe('export {};\n');
+    expect(await readFile(path.join(next, 'dist/app.js'), 'utf8')).toBe('built');
+    expect(await git(next, 'rev-parse', 'HEAD')).toBe(base);
+    // The run ends with a change made of the same tree as the paused one.
+    const change = await workspaceAt(next).exportChange(base);
+    expect(await git(next, 'rev-parse', `${change?.head ?? ''}^{tree}`)).toBe(
+      await git(next, 'rev-parse', `${WORK_REF}^{tree}`),
+    );
+  });
+
+  it('refuses work that is not the one the brief names', async () => {
+    await writeFile(path.join(repo, 'New.ts'), 'export {};\n');
+    await workspaceAt(repo).exportWork(base);
+    await expect(workspaceAt(repo).restoreWork(base, 'd'.repeat(40))).rejects.toThrow(/not d/);
   });
 });

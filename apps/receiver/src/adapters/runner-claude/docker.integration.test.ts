@@ -5,7 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bundle, project, silentLogger } from '../../application/testing/fakes';
-import { BlobDigest, ProjectId, RunId, TaskId } from '../../domain/ids';
+import { BlobDigest, ProjectId, QuestionId, RunId, TaskId } from '../../domain/ids';
 import type { RunSpec } from '../../ports/agent';
 import type { GrantToken } from '../../ports/tasks';
 import { FsBlobStore } from '../blobs/fs-blob-store';
@@ -194,6 +194,59 @@ describe('the sandboxed runner on Docker', () => {
       new TextDecoder().decode((await blobs.read(outcome.change.blob)) ?? new Uint8Array()),
     ).toBe('stand-in bundle');
     await runner().release(runId);
+  });
+
+  it('pauses on a question, and goes on in new sandboxes with the session and work it left', async () => {
+    const first = RunId(`it-${String(Date.now())}-q`);
+    started.push(first);
+    const asking = await specFor(first, 'Make the cards equal height, after a question');
+    await runner().start({ ...asking, brief: { ...asking.brief, questionsLeft: 1 } });
+    const asked = await runner().observe(first, new AbortController().signal);
+    if (asked.kind !== 'question') throw new Error(`Expected a question, got ${asked.kind}`);
+    const { snapshot } = asked;
+    expect(snapshot).toMatchObject({
+      model: asking.execution.model,
+      questionId: asked.question.id,
+    });
+    expect(snapshot?.image).toMatch(/^sha256:/);
+    await runner().release(first);
+    if (snapshot === null) throw new Error('The run left no snapshot');
+    expect(await runner().resumable(snapshot, asking.execution)).toBe(true);
+    expect(await runner().resumable(snapshot, { ...asking.execution, model: 'claude-other' })).toBe(
+      false,
+    );
+
+    const second = RunId(`it-${String(Date.now())}-r`);
+    started.push(second);
+    const resuming = await specFor(second, 'Make the cards equal height, after a question');
+    await runner().start({
+      ...resuming,
+      taskId: asking.taskId,
+      baseSha: asking.baseSha,
+      brief: {
+        ...resuming.brief,
+        exchanges: [
+          {
+            question: asked.question,
+            askedAt: 0,
+            answer: { source: 'requester', text: 'Desktop only', at: 1 },
+          },
+        ],
+      },
+      resumeFrom: snapshot,
+    });
+    const seen = report(await runner().observe(second, new AbortController().signal));
+    expect(seen['resumed']).toEqual({
+      pause: { sessionId: 'session-1', deferredCall: 'toolu_1', workHead: 'd'.repeat(40) },
+      transcript: '{"asked":"Desktop only?"}\n',
+      work: 'stand-in work',
+      answer: 'Desktop only',
+      appendSession: 'allowed',
+    });
+    // The setup worked on the base again before the agent went on.
+    expect(seen).toMatchObject({ setup: 'installed', card: '.card { }\n' });
+    expect(asked.question.id).toBe(QuestionId(`q-${first}`));
+    await runner().release(second);
   });
 
   it('refuses to run without the configured isolation, or on a network that is not internal', async () => {

@@ -45,13 +45,19 @@ export type RunState =
   | { readonly kind: 'interrupted'; readonly at: Instant };
 
 /**
- * One execution of the agent for a task: the first one, or one that resumes it. Recorded before
- * its sandbox exists, so a supervisor that crashed can tell a run it started from one it did not.
+ * How a run begins: the task's first, one that goes on with a paused session, or one that
+ * starts over, told the exchanges so far, because the paused session cannot be resumed.
+ */
+export type RunKind = 'start' | 'resume' | 'replay';
+
+/**
+ * One execution of the agent for a task. Recorded before its sandbox exists, so a supervisor
+ * that crashed can tell a run it started from one it did not.
  */
 export interface Run {
   readonly id: RunId;
   readonly taskId: TaskId;
-  readonly kind: 'start' | 'resume';
+  readonly kind: RunKind;
   readonly image: string;
   readonly model: string;
   readonly startedAt: Instant;

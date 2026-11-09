@@ -1,4 +1,5 @@
 import { RUN_LAYOUT, type Brief, type BriefExchange } from '@redline/agent-protocol';
+import { ASK_TOOL } from './asking';
 
 /** Images the model takes inline; other material it reads with its tools. */
 const INLINE_IMAGES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
@@ -21,9 +22,22 @@ const exchangeText = (exchange: BriefExchange, index: number): string => {
     : `${asked}\n   The requester answered: ${exchange.answer.text}`;
 };
 
+const questionRules = (left: number): readonly string[] =>
+  left === 0
+    ? [
+        'Questions: you cannot ask the requester in this task. Where the task is ambiguous, choose',
+        'what the requester most likely meant and record the choice as an assumption.',
+      ]
+    : [
+        `Questions: you may ask the requester ${String(left)} more question(s) with ${ASK_TOOL.name}.`,
+        'Ask only when the answer changes what you would do, and ask alone, in a turn of its own:',
+        'the run pauses until the requester answers. Otherwise choose what the requester most',
+        'likely meant and record the choice as an assumption.',
+      ];
+
 /**
- * How the agent works, appended to Claude Code's own system prompt. It does not depend on the
- * task, so it reads the same for every run of every project.
+ * How the agent works, appended to Claude Code's own system prompt. Besides the project's
+ * checks and policy, only the questions left differ between runs.
  */
 export const workingRules = (brief: Brief): string =>
   [
@@ -52,8 +66,7 @@ export const workingRules = (brief: Brief): string =>
     `- Change at most ${String(brief.policy.maxFiles)} files and ${String(brief.policy.maxChangedLines)} lines.`,
     '- No symlinks, submodules, executable bits or secrets.',
     '',
-    'Questions: you cannot ask the requester in this run. Where the task is ambiguous, choose',
-    'what the requester most likely meant and record the choice as an assumption.',
+    ...questionRules(brief.questionsLeft),
     '',
     'When you are done, report: whether you made a change, a short summary, each changed file',
     'and why, how you checked it, your assumptions, and if you made no change, why.',

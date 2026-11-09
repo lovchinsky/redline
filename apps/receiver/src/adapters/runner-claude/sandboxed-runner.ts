@@ -1,15 +1,17 @@
-import { RUN_LAYOUT, RUN_OUTPUTS, outcomeSchema } from '@redline/agent-protocol';
+import { RUN_LAYOUT, RUN_OUTPUTS, outcomeSchema, type Pause } from '@redline/agent-protocol';
 import { readFile } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import { BlobDigest, RunId, type TaskId } from '../../domain/ids';
 import type { RunOutcome } from '../../domain/run';
-import type { RepositoryRef } from '../../ports/access';
+import type { Snapshot } from '../../domain/work';
+import type { ExecutionProfile, RepositoryRef } from '../../ports/access';
 import type { AgentRunner, RunnerError, RunSpec } from '../../ports/agent';
 import type { BlobStore } from '../../ports/bundles';
 import type { Logger } from '../../ports/system';
-import { briefOf, runOutcomeOf } from './exchange';
+import { briefOf, runOutcomeOf, type StoredOutputs } from './exchange';
 import { REPOSITORY_SETTINGS, parseRepositorySettings } from './repository-settings';
 import type { ContainerSpec, Mount, SandboxProvider } from './sandbox';
+import { packSnapshot, sessionFilesOf, unpackSnapshot, type PausedSession } from './snapshot';
 import { filesOf, tarOf, type TarFile } from './tar';
 
 /** What the runner needs of the receiver's mirrors: a task's working copy and files at its base. */
@@ -36,6 +38,9 @@ export interface SandboxSettings {
 export const RUN_LABEL = 'redline.run';
 /** How long a phase's container may run before the worker stops it, in milliseconds. */
 const TIMEOUT_LABEL = 'redline.timeout-ms';
+/** The id of the image the run's containers run, and the model its agent uses. */
+const IMAGE_LABEL = 'redline.image';
+const MODEL_LABEL = 'redline.model';
 
 /** How much longer a container may run, by its start and the time limit it was created with. */
 const remaining = (container: { labels: Readonly<Record<string, string>>; startedAt: number }) =>
@@ -44,6 +49,8 @@ const OUTPUT_LIMIT = 256 * 1024 * 1024;
 /** Where the setup phase finds the project's registry secrets; the agent has no such directory. */
 export const SETUP_SECRETS = '/redline/secrets';
 const OUT_DIRECTORY = RUN_LAYOUT.out.split('/').at(-1) ?? 'out';
+/** A path of the run's input, as it stands in the input volume. */
+const inInput = (path: string) => path.slice(RUN_LAYOUT.input.length + 1);
 
 const containers = (runId: RunId) => ({
   loader: `redline-${runId}-loader`,
@@ -71,6 +78,10 @@ const infra = (detail: string): RunOutcome => ({
  * the model through the gateway and nothing else). Everything about a run is decided when it
  * starts and kept in Docker, so a worker that restarts attaches to the run where it is: the
  * agent is never started twice.
+ *
+ * A run that pauses leaves a snapshot: its work, Claude Code's files of the session, and the
+ * image and model that wrote them. A run that goes on with it gets the same files back in new
+ * sandboxes, whose setup works on the base as the first run's did.
  */
 export class SandboxedClaudeRunner implements AgentRunner {
   constructor(
@@ -102,11 +113,26 @@ export class SandboxedClaudeRunner implements AgentRunner {
       if (!repositorySettings.ok) {
         return { ok: false, error: { transient: false, detail: repositorySettings.detail } };
       }
-      const labels = { [RUN_LABEL]: spec.runId, 'redline.task': spec.taskId };
+      // Every container of the run runs this very image, whatever its name points at later.
+      const image = await sandboxes.imageId(spec.execution.image);
+      if (image === null) {
+        return {
+          ok: false,
+          error: { transient: false, detail: `Docker has no image ${spec.execution.image}` },
+        };
+      }
+      const paused = spec.resumeFrom === null ? null : await this.pausedSession(spec.resumeFrom);
+      const labels = {
+        [RUN_LABEL]: spec.runId,
+        'redline.task': spec.taskId,
+        [IMAGE_LABEL]: image,
+        [MODEL_LABEL]: spec.execution.model,
+      };
       const run = volumes(spec.runId);
       for (const volume of Object.values(run)) await sandboxes.createVolume(volume, labels);
 
-      await this.load(spec, briefOf(spec, repositorySettings.value), labels);
+      const brief = briefOf(spec, repositorySettings.value, paused?.pause ?? null);
+      await this.load(spec, { brief, paused, image }, labels);
       const setup = repositorySettings.value.setup;
       if (setup !== null) {
         const timeoutMs = Math.min(
@@ -114,13 +140,16 @@ export class SandboxedClaudeRunner implements AgentRunner {
           settings.setupTimeoutMs,
         );
         await sandboxes.create(
-          this.setupSpec(spec, setup.run, { ...labels, [TIMEOUT_LABEL]: String(timeoutMs) }),
+          this.setupSpec(spec, image, setup.run, {
+            ...labels,
+            [TIMEOUT_LABEL]: String(timeoutMs),
+          }),
         );
       }
       // agent-host keeps to the run's time limit; past it and the grace, the worker stops it.
       const agentTimeout = spec.execution.timeoutMs + settings.graceMs;
       await sandboxes.create(
-        this.agentSpec(spec, { ...labels, [TIMEOUT_LABEL]: String(agentTimeout) }),
+        this.agentSpec(spec, image, { ...labels, [TIMEOUT_LABEL]: String(agentTimeout) }),
       );
       await sandboxes.start(setup === null ? names.agent : names.setup);
       return { ok: true };
@@ -192,7 +221,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
         }
         continue;
       }
-      return this.collect(runId, agent.exitCode);
+      return this.collect(runId, agent.exitCode, agent.labels);
     }
   }
 
@@ -213,33 +242,58 @@ export class SandboxedClaudeRunner implements AgentRunner {
     return [...new Set(labelled.map((entry) => entry.value))].map(RunId);
   }
 
-  /** Puts the working copy and the run's input on its volumes, through a container that never runs. */
+  async resumable(snapshot: Snapshot, execution: ExecutionProfile): Promise<boolean> {
+    if (snapshot.model !== execution.model) return false;
+    if ((await this.deps.sandboxes.imageId(execution.image)) !== snapshot.image) return false;
+    return this.deps.blobs.has(snapshot.blob);
+  }
+
+  private async pausedSession(snapshot: Snapshot): Promise<PausedSession> {
+    const bytes = await this.deps.blobs.read(snapshot.blob);
+    if (bytes === null) throw new Error('The paused session is no longer stored');
+    return unpackSnapshot(bytes);
+  }
+
+  /**
+   * Puts the working copy, the run's input and the paused session it goes on with on its
+   * volumes, through a container that never runs.
+   */
   private async load(
     spec: RunSpec,
-    brief: ReturnType<typeof briefOf>,
+    input: {
+      readonly brief: ReturnType<typeof briefOf>;
+      readonly paused: PausedSession | null;
+      readonly image: string;
+    },
     labels: Record<string, string>,
   ) {
     const { sandboxes, settings } = this.deps;
+    const { brief, paused } = input;
     const run = volumes(spec.runId);
     const loader = containers(spec.runId).loader;
     const files: TarFile[] = [
-      { path: 'brief.json', content: new TextEncoder().encode(JSON.stringify(brief)) },
+      {
+        path: inInput(RUN_LAYOUT.brief),
+        content: new TextEncoder().encode(JSON.stringify(brief)),
+      },
     ];
+    if (paused?.work != null) files.push({ path: inInput(RUN_LAYOUT.work), content: paused.work });
     for (const file of spec.brief.bundle.files) {
       const content = await this.deps.blobs.read(file.digest);
       if (content === null) throw new Error(`The bundle file ${file.path} is no longer stored`);
-      files.push({ path: `bundle/${file.path}`, content });
+      files.push({ path: `${inInput(RUN_LAYOUT.bundle)}/${file.path}`, content });
     }
     await sandboxes.remove(loader);
     await sandboxes.create({
       name: loader,
-      image: spec.execution.image,
+      image: input.image,
       command: ['true'],
       env: {},
       workdir: '/',
       mounts: [
         { volume: run.workspace, target: RUN_LAYOUT.workspace, readOnly: false },
         { volume: run.input, target: RUN_LAYOUT.input, readOnly: false },
+        { volume: run.session, target: RUN_LAYOUT.session, readOnly: false },
         { volume: run.secrets, target: SETUP_SECRETS, readOnly: false },
       ],
       network: 'none',
@@ -253,7 +307,19 @@ export class SandboxedClaudeRunner implements AgentRunner {
         secrets.push({ path: name, content: await readFile(file) });
       }
       if (secrets.length > 0) {
-        await sandboxes.upload(loader, SETUP_SECRETS, await tarOf(secrets, settings.user, 0o400));
+        await sandboxes.upload(
+          loader,
+          SETUP_SECRETS,
+          await tarOf(secrets, settings.user, { file: 0o400 }),
+        );
+      }
+      if (paused !== null && paused.session.length > 0) {
+        // Claude Code goes on writing to the session's files: they stay the agent's own.
+        await sandboxes.upload(
+          loader,
+          RUN_LAYOUT.session,
+          await tarOf(paused.session, settings.user, { file: 0o600, directory: 0o700 }),
+        );
       }
       await sandboxes.upload(
         loader,
@@ -265,13 +331,18 @@ export class SandboxedClaudeRunner implements AgentRunner {
     }
   }
 
-  private setupSpec(spec: RunSpec, command: string, labels: Record<string, string>): ContainerSpec {
+  private setupSpec(
+    spec: RunSpec,
+    image: string,
+    command: string,
+    labels: Record<string, string>,
+  ): ContainerSpec {
     const { settings } = this.deps;
     const egress = new URL(settings.gateway.egress);
     const proxy = `http://redline:${encodeURIComponent(spec.grants.setup)}@${egress.host}`;
     return {
       name: containers(spec.runId).setup,
-      image: spec.execution.image,
+      image,
       command: ['sh', '-c', command],
       env: {
         HOME: '/tmp',
@@ -295,7 +366,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
     };
   }
 
-  private agentSpec(spec: RunSpec, labels: Record<string, string>): ContainerSpec {
+  private agentSpec(spec: RunSpec, image: string, labels: Record<string, string>): ContainerSpec {
     const { settings } = this.deps;
     const run = volumes(spec.runId);
     const mounts: Mount[] = [
@@ -311,7 +382,7 @@ export class SandboxedClaudeRunner implements AgentRunner {
         : { CLAUDE_CODE_OAUTH_TOKEN: spec.grants.agent };
     return {
       name: containers(spec.runId).agent,
-      image: spec.execution.image,
+      image,
       command: null,
       env: {
         HOME: '/tmp',
@@ -331,7 +402,11 @@ export class SandboxedClaudeRunner implements AgentRunner {
   }
 
   /** Reads what agent-host left and stores what the receiver keeps. */
-  private async collect(runId: RunId, exitCode: number): Promise<RunOutcome> {
+  private async collect(
+    runId: RunId,
+    exitCode: number,
+    labels: Readonly<Record<string, string>>,
+  ): Promise<RunOutcome> {
     const { sandboxes } = this.deps;
     const agent = containers(runId).agent;
     const archive = await sandboxes.download(agent, RUN_LAYOUT.out);
@@ -341,12 +416,11 @@ export class SandboxedClaudeRunner implements AgentRunner {
         ? new Map<string, Buffer>()
         : await filesOf(
             archive,
-            new Set([
-              path(RUN_OUTPUTS.outcome),
-              path(RUN_OUTPUTS.change),
-              path(RUN_OUTPUTS.events),
-            ]),
-            OUTPUT_LIMIT,
+            (name) =>
+              [RUN_OUTPUTS.outcome, RUN_OUTPUTS.change, RUN_OUTPUTS.work, RUN_OUTPUTS.events]
+                .map(path)
+                .includes(name),
+            { file: OUTPUT_LIMIT },
           );
     const events = files.get(path(RUN_OUTPUTS.events));
     if (events !== undefined) {
@@ -370,11 +444,59 @@ export class SandboxedClaudeRunner implements AgentRunner {
     if (!parsed.success || parsed.data.runId !== runId)
       return infra('agent-host left an outcome the receiver cannot read');
     const bundle = files.get(path(RUN_OUTPUTS.change));
-    const change =
-      parsed.data.result.kind === 'change' && bundle !== undefined
-        ? await this.store(bundle)
-        : null;
-    return runOutcomeOf(parsed.data, change);
+    const stored: StoredOutputs = {
+      change:
+        parsed.data.result.kind === 'change' && bundle !== undefined
+          ? await this.store(bundle)
+          : null,
+      session:
+        parsed.data.pause === null
+          ? null
+          : await this.keepSession(
+              runId,
+              labels,
+              parsed.data.pause,
+              files.get(path(RUN_OUTPUTS.work)),
+            ),
+    };
+    return runOutcomeOf(runId, parsed.data, stored);
+  }
+
+  /**
+   * Stores a paused session for the run that goes on with it. A session that cannot be kept is
+   * not an error of the run: the next run starts over, told the exchanges so far.
+   */
+  private async keepSession(
+    runId: RunId,
+    labels: Readonly<Record<string, string>>,
+    pause: Pause,
+    work: Uint8Array | undefined,
+  ): Promise<StoredOutputs['session']> {
+    const image = labels[IMAGE_LABEL];
+    const model = labels[MODEL_LABEL];
+    try {
+      if (image === undefined || model === undefined) throw new Error('The run is not labelled');
+      if (pause.workHead !== null && work === undefined) throw new Error('The work is missing');
+      const archive = await this.deps.sandboxes.download(
+        containers(runId).agent,
+        RUN_LAYOUT.session,
+      );
+      if (archive === null) throw new Error('The session left no files');
+      const blob = await this.store(
+        await packSnapshot({
+          pause,
+          work: pause.workHead === null ? null : (work ?? null),
+          session: await sessionFilesOf(archive),
+        }),
+      );
+      return { blob, image, model };
+    } catch (error) {
+      this.deps.logger.warn('The paused session could not be kept', {
+        runId,
+        error: String(error),
+      });
+      return null;
+    }
   }
 
   private async store(bytes: Uint8Array): Promise<BlobDigest> {

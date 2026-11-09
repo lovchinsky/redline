@@ -38,6 +38,9 @@ const snapshot = (char: string, questionId: QuestionId | null = null): Snapshot 
   model: 'claude-opus-5-5',
   questionId,
 });
+/** The paused session of a queued task, as a runner that can resume any session sees it. */
+const pausedOf = (task: Task): Snapshot | null =>
+  task.state.kind === 'queued' ? task.state.resumeFrom : null;
 const question = (id: string): Question => ({
   id: QuestionId(id),
   text: `Question ${id}?`,
@@ -65,7 +68,7 @@ const value = (result: TransitionResult) => {
 };
 
 const running = (task = submitted(), runId = run1, now = 10) =>
-  value(fixBase(value(beginRun(task, runId, now)).task, runId, 'base', now)).task;
+  value(fixBase(value(beginRun(task, runId, pausedOf(task), now)).task, runId, 'base', now)).task;
 
 const outcome = (task: Task, result: RunOutcome, runId = run1, now = 20) =>
   value(applyOutcome(task, runId, result, policy, now));
@@ -103,7 +106,7 @@ describe('submitting and starting', () => {
       detail: 'oom',
       snapshot: null,
     }).task;
-    const second = value(beginRun(requeued, run2, 30)).task;
+    const second = value(beginRun(requeued, run2, pausedOf(requeued), 30)).task;
     const kept = value(fixBase(second, run2, 'moved-on', 30));
     expect(kept.event).toBeNull();
     expect(kept.task.baseSha).toBe('base');
@@ -111,7 +114,7 @@ describe('submitting and starting', () => {
   });
 
   it('fixes the base only for the current run', () => {
-    const started = value(beginRun(submitted(), run1, 10)).task;
+    const started = value(beginRun(submitted(), run1, pausedOf(submitted()), 10)).task;
     expect(fixBase(started, run2, 'base', 10).ok).toBe(false);
     expect(value(fixBase(started, run1, 'base', 10)).event).toEqual({
       type: 'base-fixed',
@@ -122,7 +125,7 @@ describe('submitting and starting', () => {
   });
 
   it('starts runs only on queued tasks', () => {
-    expect(beginRun(running(), run2, 20).ok).toBe(false);
+    expect(beginRun(running(), run2, pausedOf(running()), 20).ok).toBe(false);
   });
 });
 
@@ -145,10 +148,10 @@ describe('run outcomes', () => {
   it('fails a task whose agent asks more questions than the project allows', () => {
     let task = asked('q1');
     task = value(answerQuestion(task, QuestionId('q1'), 'yes', 30)).task;
-    task = value(beginRun(task, run2, 40)).task;
+    task = value(beginRun(task, run2, pausedOf(task), 40)).task;
     task = outcome(task, { kind: 'question', question: question('q2'), snapshot: null }, run2).task;
     task = value(answerQuestion(task, QuestionId('q2'), 'no', 50)).task;
-    task = value(beginRun(task, RunId('run-3'), 60)).task;
+    task = value(beginRun(task, RunId('run-3'), pausedOf(task), 60)).task;
     const third = outcome(
       task,
       { kind: 'question', question: question('q3'), snapshot: null },
@@ -208,7 +211,14 @@ describe('run outcomes', () => {
       );
       const effect = transition.effects[0];
       delays.push(effect?.kind === 'schedule-run' && effect.at !== null ? effect.at - 100 : null);
-      task = value(beginRun(transition.task, RunId(`run-${String(attempt + 1)}`), 200)).task;
+      task = value(
+        beginRun(
+          transition.task,
+          RunId(`run-${String(attempt + 1)}`),
+          pausedOf(transition.task),
+          200,
+        ),
+      ).task;
     }
     expect(delays).toEqual([100, 200]);
     const last = outcome(
@@ -219,9 +229,26 @@ describe('run outcomes', () => {
     expect(last.task.state).toMatchObject({ kind: 'failed', failure: { code: 'agent-failed' } });
   });
 
+  it('starts over, told the exchanges, when the paused session cannot be resumed', () => {
+    const answered = value(answerQuestion(asked(), QuestionId('q1'), 'yes', 30)).task;
+    const replayed = value(beginRun(answered, run2, null, 40));
+    expect(replayed.task.state).toEqual({ kind: 'running', runId: run2, resumedFrom: null });
+    expect(replayed.event).toMatchObject({ type: 'run-started', resumed: false });
+    expect(replayed.task.exchanges).toHaveLength(1);
+    // Only the task's own paused session is resumed.
+    expect(value(beginRun(answered, run2, snapshot('z'), 40)).task.state).toMatchObject({
+      resumedFrom: null,
+    });
+  });
+
   it('resumes a run that failed before its own snapshot from the one it started from', () => {
     const resumed = value(
-      beginRun(value(answerQuestion(asked(), QuestionId('q1'), 'yes', 30)).task, run2, 40),
+      beginRun(
+        value(answerQuestion(asked(), QuestionId('q1'), 'yes', 30)).task,
+        run2,
+        pausedOf(value(answerQuestion(asked(), QuestionId('q1'), 'yes', 30)).task),
+        40,
+      ),
     ).task;
     const failed = outcome(
       resumed,
@@ -338,7 +365,7 @@ describe('questions and answers', () => {
     });
     expect(late.effects).toEqual([]);
 
-    const started = value(beginRun(expired, run2, 1_150)).task;
+    const started = value(beginRun(expired, run2, pausedOf(expired), 1_150)).task;
     expect(answerQuestion(started, QuestionId('q1'), 'Desktop only', 1_200).ok).toBe(false);
   });
 });

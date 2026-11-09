@@ -1,5 +1,6 @@
-// Bundles agent-host for production: its code and the workspace packages it uses (shipped as
-// TypeScript) into one ES module; third-party packages stay external and are installed beside it.
+// Bundles agent-host for production: agent-host itself and the server of its ask_requester tool,
+// each with the workspace packages it uses (shipped as TypeScript) in one ES module; third-party
+// packages stay external and are installed beside them.
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,8 +12,12 @@ const external = Object.keys(manifest.dependencies ?? {}).filter(
 );
 
 await build({
-  entryPoints: [path.join(root, 'src/entrypoints/main.ts')],
-  outfile: path.join(root, 'dist/agent-host.mjs'),
+  entryPoints: {
+    'agent-host': path.join(root, 'src/entrypoints/main.ts'),
+    'ask-tool': path.join(root, 'src/entrypoints/ask-tool.ts'),
+  },
+  outdir: path.join(root, 'dist'),
+  outExtension: { '.js': '.mjs' },
   bundle: true,
   platform: 'node',
   format: 'esm',

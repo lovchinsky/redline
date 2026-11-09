@@ -1,5 +1,7 @@
 import * as z from 'zod/mini';
-import { AGENT_PROTOCOL_VERSION, shaSchema } from './brief';
+import { pauseSchema } from './pause';
+import { askedQuestionSchema } from './question';
+import { AGENT_PROTOCOL_VERSION, shaSchema } from './values';
 
 const text = z.string();
 
@@ -50,10 +52,18 @@ export const outcomeSchema = z.object({
     /** `RUN_OUTPUTS.change` holds one commit at `CHANGE_REF`, whose parent is the base. */
     z.object({ kind: z.literal('change'), head: shaSchema, report: agentReportSchema }),
     z.object({ kind: z.literal('no-change'), explanation: text }),
+    /** The agent asks the requester; the run waits for the answer in `pause`. */
+    z.object({ kind: z.literal('question'), question: askedQuestionSchema }),
     /** The subscription's limit ran out; the task waits until it resets. */
     z.object({ kind: z.literal('quota-exhausted'), resetAt: z.iso.datetime() }),
     z.object({ kind: z.literal('failed'), reason: z.enum(RUN_FAILURES), detail: text }),
   ]),
+  /**
+   * How a later run goes on with this run's session: set when the run paused (a question, the
+   * subscription's limit, a missing credential) and its session can be resumed; null otherwise,
+   * and then a later run starts over, told the exchanges so far.
+   */
+  pause: z.nullable(pauseSchema),
   usage: usageSchema,
 });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENT_PROTOCOL_VERSION,
   GATEWAY_REFUSALS,
+  QUESTION_LIMITS,
   briefSchema,
   grantStatusSchema,
   outcomeSchema,
@@ -39,6 +40,7 @@ const brief = (): Brief => ({
     { question: { id: 'q1', text: 'Desktop only?', options: ['Yes', 'No'] }, answer: null },
   ],
   questionsLeft: 2,
+  resume: null,
   checks: ['pnpm test'],
   policy: { protectedPaths: ['.github', 'CLAUDE.md'], maxFiles: 50, maxChangedLines: 2000 },
 });
@@ -68,19 +70,64 @@ describe('agent-protocol', () => {
       { kind: 'no-change', explanation: 'Already equal' },
       { kind: 'quota-exhausted', resetAt: '2026-11-09T12:00:00.000Z' },
       { kind: 'failed', reason: 'budget-exhausted', detail: 'Spent' },
+      { kind: 'question', question: { text: 'Desktop only?', options: ['Yes', 'No'] } },
     ]) {
-      expect(outcomeSchema.safeParse({ protocol: 1, runId: 'r', result, usage }).success).toBe(
-        true,
-      );
+      expect(
+        outcomeSchema.safeParse({ protocol: 1, runId: 'r', result, pause: null, usage }).success,
+      ).toBe(true);
     }
     expect(
       outcomeSchema.safeParse({
         protocol: 1,
         runId: 'r',
         result: { kind: 'failed', reason: 'whatever', detail: '' },
+        pause: null,
         usage,
       }).success,
     ).toBe(false);
+  });
+
+  it('keeps a question to what the extension shows', () => {
+    const usage = { turns: 1, durationMs: 10, costUsd: 0 };
+    const asking = (question: { text: string; options: string[] }) =>
+      outcomeSchema.safeParse({
+        protocol: 1,
+        runId: 'r',
+        result: { kind: 'question', question },
+        pause: null,
+        usage,
+      }).success;
+    expect(asking({ text: 'Which?', options: [] })).toBe(true);
+    expect(asking({ text: '', options: [] })).toBe(false);
+    expect(asking({ text: 'x'.repeat(QUESTION_LIMITS.text + 1), options: [] })).toBe(false);
+    expect(asking({ text: 'Which?', options: [''] })).toBe(false);
+    expect(
+      asking({
+        text: 'Which?',
+        options: Array.from({ length: QUESTION_LIMITS.options + 1 }, String),
+      }),
+    ).toBe(false);
+  });
+
+  it('carries a paused session from the outcome that paused it to the brief that resumes it', () => {
+    const pause = { sessionId: 'session-1', deferredCall: 'toolu_1', workHead: 'c'.repeat(40) };
+    const outcome = outcomeSchema.parse({
+      protocol: 1,
+      runId: 'r',
+      result: { kind: 'question', question: { text: 'Which?', options: [] } },
+      pause,
+      usage: { turns: 1, durationMs: 10, costUsd: 0 },
+    });
+    expect(briefSchema.parse({ ...brief(), resume: outcome.pause }).resume).toEqual(pause);
+    expect(
+      briefSchema.safeParse({ ...brief(), resume: { ...pause, workHead: 'main' } }).success,
+    ).toBe(false);
+    expect(
+      briefSchema.safeParse({
+        ...brief(),
+        resume: { sessionId: 's', deferredCall: null, workHead: null },
+      }).success,
+    ).toBe(true);
   });
 
   it('reads the gateway’s account of a refused grant and the run’s events', () => {

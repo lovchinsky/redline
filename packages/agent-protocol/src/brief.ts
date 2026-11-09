@@ -1,12 +1,10 @@
 import * as z from 'zod/mini';
-
-export const AGENT_PROTOCOL_VERSION = 1;
+import { pauseSchema } from './pause';
+import { AGENT_PROTOCOL_VERSION, nonEmpty, shaSchema } from './values';
 
 const text = z.string();
-const nonEmpty = z.string().check(z.minLength(1));
 const count = z.int().check(z.nonnegative());
 const positive = z.int().check(z.positive());
-export const shaSchema = z.string().check(z.regex(/^[0-9a-f]{40}$/, 'Must be a git commit id'));
 
 /** One step of the task, as the requester marked it on a page. */
 export const briefStepSchema = z.object({
@@ -52,8 +50,15 @@ export const briefSchema = z.object({
     entry: nonEmpty,
     files: z.array(z.object({ path: nonEmpty, mediaType: nonEmpty })),
   }),
+  /** The questions asked so far and their answers, in the order asked. */
   exchanges: z.array(briefExchangeSchema),
+  /** How many more questions the agent may ask the requester. */
   questionsLeft: count,
+  /**
+   * The paused session this run goes on with, as the run that paused left it; null starts a new
+   * session, told the exchanges so far.
+   */
+  resume: z.nullable(pauseSchema),
   /** The project's own commands that check a change (`.redline/receiver.yaml`), run as written. */
   checks: z.array(nonEmpty),
   /** The rules the change is judged by, so the agent does not break them by accident. */

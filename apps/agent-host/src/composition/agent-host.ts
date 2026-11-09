@@ -27,8 +27,14 @@ const grantOf = (env: Env): GrantHeader => {
   throw new Error('No grant: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN');
 };
 
+/** How to start a program: the server of `ask_requester`, beside agent-host's own. */
+export interface Command {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
 /** agent-host as the receiver starts it in a sandbox: everything at `RUN_LAYOUT`. */
-export const agentHost = (env: Env): RunAgent => {
+export const agentHost = (env: Env, askTool: Command): RunAgent => {
   const baseUrl = env['ANTHROPIC_BASE_URL'];
   if (baseUrl === undefined || baseUrl === '')
     throw new Error('Set ANTHROPIC_BASE_URL to the gateway');
@@ -44,10 +50,13 @@ export const agentHost = (env: Env): RunAgent => {
       env,
       workspace: RUN_LAYOUT.workspace,
       sessionDir: RUN_LAYOUT.session,
+      askTool,
     }),
     workspace: new GitWorkspace({
       root: RUN_LAYOUT.workspace,
-      bundlePath: out(RUN_OUTPUTS.change),
+      changeBundle: out(RUN_OUTPUTS.change),
+      workBundle: out(RUN_OUTPUTS.work),
+      pausedWork: RUN_LAYOUT.work,
     }),
     gateway: new GatewayClient({ baseUrl, grant }),
     clock: systemClock,

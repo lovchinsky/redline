@@ -68,6 +68,11 @@ export class ScriptedRunner implements AgentRunner {
     return Promise.resolve([...this.runs.keys()]);
   }
 
+  /** A scripted run keeps no session, so it never leaves a snapshot to resume. */
+  resumable(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
+
   private outcomeOf(spec: RunSpec): RunOutcome {
     const { brief } = spec;
     if (this.options.asks && brief.exchanges.length === 0 && brief.questionsLeft > 0) {

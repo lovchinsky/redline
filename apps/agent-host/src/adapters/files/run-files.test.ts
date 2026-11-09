@@ -34,7 +34,7 @@ describe('VolumeRunFiles', () => {
 
   it('appends events as lines and writes the outcome whole', async () => {
     const at = '2026-11-09T12:00:00.000Z';
-    await files.journal({ kind: 'started', at, model: 'm' });
+    await files.journal({ kind: 'started', at, model: 'm', resumed: false });
     await files.journal({ kind: 'ended', at, result: 'no-change' });
     expect(
       (await readFile(path.join(dir, 'events.jsonl'), 'utf8')).trim().split('\n'),
@@ -43,6 +43,7 @@ describe('VolumeRunFiles', () => {
       protocol: 1 as const,
       runId: 'run-1',
       result: { kind: 'no-change' as const, explanation: 'Fine' },
+      pause: null,
       usage: { turns: 1, durationMs: 1, costUsd: 0 },
     };
     await files.conclude(outcome);

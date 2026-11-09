@@ -49,6 +49,8 @@ export type ContainerState =
 export interface SandboxProvider {
   /** Why sandboxes cannot run as configured, or null when they can. */
   unfit(networks: readonly string[]): Promise<string | null>;
+  /** The id of the image `reference` names where sandboxes run, or null when it is not there. */
+  imageId(reference: string): Promise<string | null>;
   createVolume(name: string, labels: Readonly<Record<string, string>>): Promise<void>;
   removeVolume(name: string): Promise<void>;
   /** Creates the container; does nothing when one of that name exists. */

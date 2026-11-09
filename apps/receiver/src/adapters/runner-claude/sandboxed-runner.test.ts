@@ -1,17 +1,32 @@
-import { AGENT_PROTOCOL_VERSION, type Outcome } from '@redline/agent-protocol';
+import {
+  AGENT_PROTOCOL_VERSION,
+  RUN_LAYOUT,
+  type Outcome,
+  type Pause,
+} from '@redline/agent-protocol';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { bundle, project, silentLogger } from '../../application/testing/fakes';
-import { BlobDigest, ProjectId, RunId, TaskId } from '../../domain/ids';
+import { BlobDigest, ProjectId, QuestionId, RunId, TaskId } from '../../domain/ids';
 import type { RunSpec } from '../../ports/agent';
 import type { GrantToken } from '../../ports/tasks';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import type { ContainerSpec, ContainerState, SandboxProvider } from './sandbox';
 import { SandboxedClaudeRunner, type SandboxSettings, type SourceTrees } from './sandboxed-runner';
+import { packSnapshot, unpackSnapshot } from './snapshot';
 import { filesOf, tarOf } from './tar';
+
+const IMAGE_ID = 'sha256:1d2e';
+
+const bufferOf = async (archive: Buffer | Readable): Promise<Buffer> => {
+  if (Buffer.isBuffer(archive)) return archive;
+  const chunks: Buffer[] = [];
+  for await (const chunk of archive) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks);
+};
 
 /** Docker in memory: containers that run when told, and exit with what the test says. */
 class FakeSandboxes implements SandboxProvider {
@@ -25,10 +40,19 @@ class FakeSandboxes implements SandboxProvider {
   readonly exits: Record<'setup' | 'agent', number> = { setup: 0, agent: 0 };
   /** What the agent leaves in its out volume when it exits. */
   agentOutput: Buffer | null = null;
+  /** Docker's archive of the agent's session directory. */
+  sessionArchive: Buffer | null = null;
   readonly started: string[] = [];
+  /** Every archive put into a container, by the path it went to. */
+  readonly uploaded: { container: string; target: string; archive: Buffer }[] = [];
+  /** The images Docker has, by reference. */
+  readonly images = new Map<string, string>([[project().execution.image, IMAGE_ID]]);
 
   unfit() {
     return Promise.resolve(this.unfitReason);
+  }
+  imageId(reference: string) {
+    return Promise.resolve(this.images.get(reference) ?? null);
   }
   createVolume(name: string, labels: Record<string, string>) {
     this.volumes.set(name, labels);
@@ -49,14 +73,14 @@ class FakeSandboxes implements SandboxProvider {
     }
     return Promise.resolve();
   }
-  upload(container: string, target: string, archive: Buffer | Readable) {
-    if (archive instanceof Readable) archive.resume();
+  async upload(container: string, target: string, archive: Buffer | Readable) {
     this.get(container).uploads.push(target);
-    return Promise.resolve();
+    this.uploaded.push({ container, target, archive: await bufferOf(archive) });
   }
-  download(container: string) {
-    const out = this.get(container).out;
-    return Promise.resolve(out === null ? null : Readable.from([out]));
+  download(container: string, target: string) {
+    const entry = this.get(container);
+    const archive = target === RUN_LAYOUT.session ? this.sessionArchive : entry.out;
+    return Promise.resolve(archive === null ? null : Readable.from([archive]));
   }
   start(container: string) {
     const entry = this.get(container);
@@ -170,7 +194,7 @@ const runner = (
     logger: silentLogger,
   });
 
-const outputOf = async (outcome: Outcome, change: string | null) =>
+const outputOf = async (outcome: Outcome, change: string | null, work: string | null = null) =>
   tarOf(
     [
       { path: 'out/outcome.json', content: new TextEncoder().encode(JSON.stringify(outcome)) },
@@ -178,9 +202,19 @@ const outputOf = async (outcome: Outcome, change: string | null) =>
       ...(change === null
         ? []
         : [{ path: 'out/change.bundle', content: new TextEncoder().encode(change) }]),
+      ...(work === null
+        ? []
+        : [{ path: 'out/work.bundle', content: new TextEncoder().encode(work) }]),
     ],
     { uid: 1000, gid: 1000 },
   );
+
+const text = (value: string) => new TextEncoder().encode(value);
+const pause: Pause = { sessionId: 'session-1', deferredCall: 'toolu_1', workHead: 'c'.repeat(40) };
+const sessionFiles = [
+  { path: '.claude.json', content: text('{}') },
+  { path: 'projects/-workspace/session-1.jsonl', content: text('{"type":"user"}\n') },
+];
 
 const changed: Outcome = {
   protocol: AGENT_PROTOCOL_VERSION,
@@ -197,7 +231,16 @@ const changed: Outcome = {
       explanation: '',
     },
   },
+  pause: null,
   usage: { turns: 5, durationMs: 60_000, costUsd: 0.5 },
+};
+
+const asked: Outcome = {
+  protocol: AGENT_PROTOCOL_VERSION,
+  runId,
+  result: { kind: 'question', question: { text: 'Desktop only?', options: ['Yes', 'No'] } },
+  pause,
+  usage: { turns: 2, durationMs: 10_000, costUsd: 0.1 },
 };
 
 beforeEach(async () => {
@@ -238,8 +281,15 @@ describe('SandboxedClaudeRunner', () => {
       command: null,
       network: 'redline-agent',
       env: { ANTHROPIC_BASE_URL: 'http://10.89.1.2:8788', ANTHROPIC_API_KEY: 'agent-grant' },
-      labels: { 'redline.run': 'run-1', 'redline.timeout-ms': String(3_600_000 + 60_000) },
+      labels: {
+        'redline.run': 'run-1',
+        'redline.timeout-ms': String(3_600_000 + 60_000),
+        'redline.image': IMAGE_ID,
+        'redline.model': project().execution.model,
+      },
     });
+    // Every container runs the image's id: what its name points at later does not matter.
+    expect([setup?.image, agent?.image]).toEqual([IMAGE_ID, IMAGE_ID]);
     expect(agent?.env).not.toHaveProperty('CLAUDE_CODE_OAUTH_TOKEN');
     expect(agent?.mounts).toContainEqual({
       volume: 'redline-run-1-input',
@@ -378,9 +428,114 @@ describe('SandboxedClaudeRunner', () => {
           gid: 1000,
         }),
       ]),
-      new Set(['brief.json']),
-      1024,
+      (name) => name === 'brief.json',
+      { file: 1024 },
     );
     expect(files.get('brief.json')?.toString()).toBe('{}');
+  });
+
+  it('refuses to start without the image, rather than pull one', async () => {
+    sandboxes.images.clear();
+    expect(await runner().start(await spec())).toMatchObject({
+      ok: false,
+      error: { transient: false, detail: expect.stringContaining('no image') as string },
+    });
+  });
+
+  describe('paused sessions', () => {
+    it('keeps the session a run paused with: its work, its files, its image and model', async () => {
+      const agent = runner(null);
+      await agent.start(await spec());
+      sandboxes.agentOutput = await outputOf(asked, null, 'the work bundle');
+      sandboxes.sessionArchive = await tarOf(
+        sessionFiles.map((file) => ({ ...file, path: `session/${file.path}` })),
+        { uid: 1000, gid: 1000 },
+      );
+      const outcome = await agent.observe(runId, new AbortController().signal);
+      if (outcome.kind !== 'question') throw new Error(`Expected a question, got ${outcome.kind}`);
+      expect(outcome.question).toEqual({
+        id: QuestionId('q-run-1'),
+        text: 'Desktop only?',
+        options: ['Yes', 'No'],
+      });
+      expect(outcome.snapshot).toMatchObject({
+        image: IMAGE_ID,
+        model: project().execution.model,
+        questionId: QuestionId('q-run-1'),
+      });
+      const stored = await blobs.read(outcome.snapshot?.blob ?? BlobDigest('0'.repeat(64)));
+      const paused = await unpackSnapshot(stored ?? new Uint8Array());
+      expect(paused.pause).toEqual(pause);
+      expect(new TextDecoder().decode(paused.work ?? new Uint8Array())).toBe('the work bundle');
+      expect(paused.session.map((file) => file.path).sort()).toEqual([
+        '.claude.json',
+        'projects/-workspace/session-1.jsonl',
+      ]);
+    });
+
+    it('asks anyway when the session cannot be kept: the next run starts over', async () => {
+      const agent = runner(null);
+      await agent.start(await spec());
+      // The pause names work that agent-host did not leave.
+      sandboxes.agentOutput = await outputOf(asked, null);
+      sandboxes.sessionArchive = await tarOf([], { uid: 1000, gid: 1000 });
+      expect(await agent.observe(runId, new AbortController().signal)).toMatchObject({
+        kind: 'question',
+        snapshot: null,
+      });
+    });
+
+    it('gives the run that goes on the session back, where agent-host looks for it', async () => {
+      const writer = blobs.writer();
+      await writer.write(await packSnapshot({ pause, work: text('work'), session: sessionFiles }));
+      const { digest } = await writer.commit();
+      const base = await spec();
+      await runner(null).start({
+        ...base,
+        resumeFrom: {
+          blob: BlobDigest(digest),
+          image: IMAGE_ID,
+          model: project().execution.model,
+          questionId: QuestionId('q-run-0'),
+        },
+      });
+      const into = async (target: string) => {
+        const upload = sandboxes.uploaded.find((entry) => entry.target === target);
+        return filesOf(Readable.from([upload?.archive ?? Buffer.alloc(0)]), () => true, {
+          file: 1 << 20,
+        });
+      };
+      const input = await into('/redline/input');
+      expect(JSON.parse(input.get('brief.json')?.toString() ?? '{}')).toMatchObject({
+        resume: pause,
+      });
+      expect(input.get('work.bundle')?.toString()).toBe('work');
+      expect([...(await into('/redline/session')).keys()].sort()).toEqual([
+        '.claude.json',
+        'projects/-workspace/session-1.jsonl',
+      ]);
+    });
+
+    it('resumes a session only on the image and model that wrote it, while it is stored', async () => {
+      const writer = blobs.writer();
+      await writer.write(await packSnapshot({ pause, work: null, session: sessionFiles }));
+      const { digest } = await writer.commit();
+      const snapshot = {
+        blob: BlobDigest(digest),
+        image: IMAGE_ID,
+        model: project().execution.model,
+        questionId: null,
+      };
+      const execution = project().execution;
+      const agent = runner();
+      expect(await agent.resumable(snapshot, execution)).toBe(true);
+      expect(await agent.resumable({ ...snapshot, model: 'claude-other' }, execution)).toBe(false);
+      expect(
+        await agent.resumable({ ...snapshot, blob: BlobDigest('f'.repeat(64)) }, execution),
+      ).toBe(false);
+      // The image was rebuilt: its name points at another id now.
+      sandboxes.images.set(execution.image, 'sha256:9f8e');
+      expect(await agent.resumable(snapshot, execution)).toBe(false);
+    });
   });
 });

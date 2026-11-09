@@ -29,6 +29,7 @@ export const sampleBrief = (overrides: Partial<Brief> = {}): Brief => ({
   },
   exchanges: [],
   questionsLeft: 0,
+  resume: null,
   checks: ['pnpm test --run'],
   policy: {
     protectedPaths: ['.github', 'CLAUDE.md', 'src/generated/**'],

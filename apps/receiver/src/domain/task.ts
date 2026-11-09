@@ -165,10 +165,20 @@ export const submitTask = (submission: Submission, now: Instant): Transition => 
   event: { type: 'submitted', at: now },
 });
 
-/** A run starts on a queued task. It is recorded before anything is prepared for it. */
-export const beginRun = (task: Task, runId: RunId, now: Instant): TransitionResult => {
+/**
+ * A run starts on a queued task, recorded before anything is prepared for it. It goes on with
+ * the task's paused session when `resumable` is that session (the runner can resume it);
+ * otherwise it starts over, told the exchanges so far.
+ */
+export const beginRun = (
+  task: Task,
+  runId: RunId,
+  resumable: Snapshot | null,
+  now: Instant,
+): TransitionResult => {
   if (task.state.kind !== 'queued') return conflict(`A ${task.state.kind} task cannot start a run`);
-  const resumedFrom = task.state.resumeFrom;
+  const paused = task.state.resumeFrom;
+  const resumedFrom = paused !== null && paused.blob === resumable?.blob ? paused : null;
   return move(
     task,
     { state: { kind: 'running', runId, resumedFrom } },

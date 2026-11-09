@@ -60,20 +60,42 @@ export class ScriptedSession implements AgentSession {
       request: SessionRequest,
       signal: AbortSignal,
     ) => Promise<SessionResult>,
+    /** The sessions whose files are here. */
+    private readonly sessions: readonly string[] = [],
   ) {}
 
   run(request: SessionRequest, signal: AbortSignal): Promise<SessionResult> {
     this.request = request;
     return this.script(request, signal);
   }
+
+  stored(sessionId: string): Promise<boolean> {
+    return Promise.resolve(this.sessions.includes(sessionId));
+  }
 }
 
 export class FixedWorkspace implements Workspace {
   exported = 0;
-  constructor(private readonly change: WorkspaceChange) {}
+  readonly restored: { baseSha: string; head: string }[] = [];
+
+  constructor(
+    private readonly change: WorkspaceChange,
+    /** The work so far; an Error is an export that fails. */
+    private readonly work: WorkspaceChange | Error = null,
+  ) {}
+
   exportChange(): Promise<WorkspaceChange> {
     this.exported += 1;
     return Promise.resolve(this.change);
+  }
+
+  exportWork(): Promise<WorkspaceChange> {
+    return this.work instanceof Error ? Promise.reject(this.work) : Promise.resolve(this.work);
+  }
+
+  restoreWork(baseSha: string, head: string): Promise<void> {
+    this.restored.push({ baseSha, head });
+    return Promise.resolve();
   }
 }
 

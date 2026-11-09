@@ -4,6 +4,8 @@ import type { AgentReport, RunUsage } from '@redline/agent-protocol';
 export type SessionEnd =
   /** The agent finished its turn; `report` is null when its structured report was unusable. */
   | { readonly kind: 'completed'; readonly report: AgentReport | null }
+  /** The agent asked the requester: the session waits on the deferred call `call`. */
+  | { readonly kind: 'asked'; readonly call: string; readonly input: unknown }
   | { readonly kind: 'max-turns' }
   /** The SDK's own estimate of the cost reached the run's budget. */
   | { readonly kind: 'budget' }
@@ -16,5 +18,7 @@ export type SessionEnd =
 
 export interface SessionResult {
   readonly end: SessionEnd;
+  /** The session's id, to resume it by; null when it did not get as far as starting. */
+  readonly sessionId: string | null;
   readonly usage: RunUsage;
 }

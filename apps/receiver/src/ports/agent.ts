@@ -26,6 +26,7 @@ export interface RunSpec {
   readonly repository: RepositoryRef;
   readonly baseSha: string;
   readonly brief: AgentBrief;
+  /** The paused session the run goes on with (`resumable` said it can), or null to start anew. */
   readonly resumeFrom: Snapshot | null;
   /** The grants of the run's two sandboxes: the setup's (registries) and the agent's (the model). */
   readonly grants: { readonly setup: GrantToken; readonly agent: GrantToken };
@@ -58,4 +59,10 @@ export interface AgentRunner {
   release(runId: RunId): Promise<void>;
   /** Runs that hold something where they run: sandboxes, volumes, memory. */
   live(): Promise<readonly RunId[]>;
+  /**
+   * Whether a run with `execution` can go on with the session in `snapshot`: its files are
+   * kept, and the image and model are the ones that wrote it. A session never resumes on
+   * another image or model; the run starts over instead, told the exchanges so far.
+   */
+  resumable(snapshot: Snapshot, execution: ExecutionProfile): Promise<boolean>;
 }

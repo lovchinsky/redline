@@ -325,7 +325,13 @@ export class FakeRunner implements AgentRunner {
   readonly aborted: string[] = [];
   readonly released: string[] = [];
   startError: RunnerError | null = null;
+  /** Whether the paused sessions it is asked about can be resumed. */
+  resumes = true;
   constructor(public outcomes: (RunOutcome | { kind: 'lost'; detail: string })[] = []) {}
+
+  resumable() {
+    return Promise.resolve(this.resumes);
+  }
 
   start(spec: RunSpec) {
     if (this.startError !== null)

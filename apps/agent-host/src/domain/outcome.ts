@@ -4,6 +4,7 @@ import {
   type OutcomeResult,
   type RunFailure,
 } from '@redline/agent-protocol';
+import { questionOf } from './asking';
 import type { SessionEnd } from './session';
 
 /** What the workspace holds once the session is over. */
@@ -61,6 +62,12 @@ export const decideOutcome = (input: {
           }
         : { kind: 'change', head: change.head, report };
     }
+    case 'asked': {
+      const question = questionOf(end.input);
+      return question === null
+        ? failed('agent-failed', 'The agent asked a question that cannot be shown to the requester')
+        : { kind: 'question', question };
+    }
     case 'api-error':
       if (gateway?.state === 'refused') return refused(gateway);
       // The gateway did not refuse it: the model or the network failed.
@@ -81,3 +88,12 @@ export const decideOutcome = (input: {
       return failed('infra', end.detail);
   }
 };
+
+/**
+ * Whether a run that ended so keeps its session for a later run to go on with: it waits for an
+ * answer, for the subscription's limit to reset, or for the requester's credential.
+ */
+export const pauses = (result: OutcomeResult): boolean =>
+  result.kind === 'question' ||
+  result.kind === 'quota-exhausted' ||
+  (result.kind === 'failed' && result.reason === 'credential-missing');

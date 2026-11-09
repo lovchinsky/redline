@@ -13,6 +13,10 @@ export interface RunFiles {
 export interface Workspace {
   /** Exports what changed against `baseSha` as one commit (`RUN_OUTPUTS.change`), or null. */
   exportChange(baseSha: string): Promise<WorkspaceChange>;
+  /** Exports the work so far, for a later run to go on with (`RUN_OUTPUTS.work`), or null. */
+  exportWork(baseSha: string): Promise<WorkspaceChange>;
+  /** Takes the tree of the work of a paused run (`RUN_LAYOUT.work`), still on `baseSha`. */
+  restoreWork(baseSha: string, head: string): Promise<void>;
 }
 
 /** The gateway, asked about the run's own grant. */

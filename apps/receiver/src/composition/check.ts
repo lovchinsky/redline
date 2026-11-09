@@ -99,7 +99,7 @@ export const checkDeployment = async (
     for (const image of new Set(config.projects.map((project) => project.execution.image))) {
       checks.push(
         await attempt(`sandbox image ${image}`, async () => {
-          if (!(await sandboxes.hasImage(image)))
+          if ((await sandboxes.imageId(image)) === null)
             throw new Error('Docker does not have it: build or pull it');
           return 'present';
         }),
