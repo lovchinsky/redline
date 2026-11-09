@@ -34,12 +34,30 @@ export interface RunsTable {
   started_at: Timestamp;
 }
 
-/** Grants of running runs. Only the hash of a grant is stored: the token itself is the sandbox's. */
+/**
+ * Grants of running runs, one per sandbox of a run. Only the hash of a grant is stored: the
+ * token itself is the sandbox's. `terms` is what the grant allows (`GrantTerms`).
+ */
 export interface RunGrantsTable {
+  token_hash: string;
   run_id: string;
   task_id: string;
-  token_hash: string;
+  terms: Json;
   issued_at: Timestamp;
+}
+
+/** What each model response of a run cost, as the gateway metered it. */
+export interface RunUsageTable {
+  seq: Generated<string>;
+  run_id: string;
+  task_id: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_write_tokens: number;
+  cache_read_tokens: number;
+  cost_usd: number;
+  at: Timestamp;
 }
 
 export interface UsersTable {
@@ -63,6 +81,7 @@ export interface Database {
   task_events: TaskEventsTable;
   runs: RunsTable;
   run_grants: RunGrantsTable;
+  run_usage: RunUsageTable;
   users: UsersTable;
   tokens: TokensTable;
 }
@@ -148,6 +167,42 @@ export const migrations: Record<string, Migration> = {
       await sql`comment on table run_grants is 'Grants of model access for running runs; hashes only.'`.execute(
         db,
       );
+    },
+  },
+  '0002-grant-terms-and-usage': {
+    async up(db: Kysely<unknown>) {
+      // A run has a grant per sandbox, each with its terms. Grants issued without terms cannot
+      // be read by the gateway: their runs are fenced like any run whose grant is revoked.
+      await sql`delete from run_grants`.execute(db);
+      await db.schema.alterTable('run_grants').dropConstraint('run_grants_pkey').execute();
+      await db.schema
+        .alterTable('run_grants')
+        .dropConstraint('run_grants_token_hash_key')
+        .execute();
+      await db.schema
+        .alterTable('run_grants')
+        .addPrimaryKeyConstraint('run_grants_pkey', ['token_hash'])
+        .execute();
+      await db.schema
+        .alterTable('run_grants')
+        .addColumn('terms', 'jsonb', (column) => column.notNull())
+        .execute();
+      await db.schema.createIndex('run_grants_run').on('run_grants').column('run_id').execute();
+      await db.schema
+        .createTable('run_usage')
+        .addColumn('seq', 'bigserial', (column) => column.primaryKey())
+        .addColumn('run_id', 'text', (column) => column.notNull())
+        .addColumn('task_id', 'text', (column) => column.notNull())
+        .addColumn('model', 'text', (column) => column.notNull())
+        .addColumn('input_tokens', 'integer', (column) => column.notNull())
+        .addColumn('output_tokens', 'integer', (column) => column.notNull())
+        .addColumn('cache_write_tokens', 'integer', (column) => column.notNull())
+        .addColumn('cache_read_tokens', 'integer', (column) => column.notNull())
+        .addColumn('cost_usd', 'double precision', (column) => column.notNull())
+        .addColumn('at', 'timestamptz', (column) => column.notNull())
+        .execute();
+      // Kept after the run and its task are gone: what was spent stays spent.
+      await db.schema.createIndex('run_usage_task').on('run_usage').column('task_id').execute();
     },
   },
 };

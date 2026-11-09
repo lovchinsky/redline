@@ -1,3 +1,4 @@
+import type { CredentialKind } from '../domain/grant';
 import type { Exchange } from '../domain/exchange';
 import type { ProjectId, RunId, TaskId } from '../domain/ids';
 import type { RunOutcome } from '../domain/run';
@@ -25,7 +26,10 @@ export interface RunSpec {
   readonly baseSha: string;
   readonly brief: AgentBrief;
   readonly resumeFrom: Snapshot | null;
-  readonly grant: GrantToken;
+  /** The grants of the run's two sandboxes: the setup's (registries) and the agent's (the model). */
+  readonly grants: { readonly setup: GrantToken; readonly agent: GrantToken };
+  /** The kind of credential behind the agent's grant, which decides how the agent presents it. */
+  readonly credential: CredentialKind;
   readonly execution: ExecutionProfile;
 }
 

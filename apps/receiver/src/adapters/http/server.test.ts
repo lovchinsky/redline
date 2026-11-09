@@ -95,7 +95,11 @@ const body = async (parts: {
 };
 
 const harness = async (
-  access: ModelAccessPolicy = { credentials: 'managed', acceptRequesterSubscriptions: false },
+  access: ModelAccessPolicy = {
+    credentials: 'managed',
+    operator: 'api-key',
+    acceptRequesterSubscriptions: false,
+  },
 ) => {
   const store = new MemoryStore();
   const clock = new FixedClock();
@@ -128,6 +132,7 @@ const harness = async (
     source: git,
     runner,
     vault,
+    access,
     ids,
     clock,
     logger: silentLogger,
@@ -187,7 +192,11 @@ describe('receiver-api.v1 over HTTP', () => {
   });
 
   it('lists projects with the receiver’s credential policy', async () => {
-    const { app } = await harness({ credentials: 'required', acceptRequesterSubscriptions: false });
+    const { app } = await harness({
+      credentials: 'required',
+      operator: null,
+      acceptRequesterSubscriptions: false,
+    });
     const listed = await app.inject({ method: 'GET', url: '/v1/projects', headers: ANN });
     expect(listed.json()).toEqual({
       projects: [{ id: 'acme', name: 'Acme Web' }],
@@ -357,6 +366,7 @@ describe('receiver-api.v1 over HTTP', () => {
   it('takes the requester’s credential from its headers and refuses malformed ones', async () => {
     const { app, vault } = await harness({
       credentials: 'required',
+      operator: null,
       acceptRequesterSubscriptions: false,
     });
     expect((await submit(app, valid)).statusCode).toBe(422);
@@ -366,7 +376,7 @@ describe('receiver-api.v1 over HTTP', () => {
       [IDEMPOTENCY_KEY_HEADER]: 'k2',
     });
     expect(withKey.statusCode).toBe(200);
-    expect([...vault.held.values()].map((credential) => credential.reveal())).toEqual([
+    expect([...vault.credentials.values()].map((credential) => credential.reveal())).toEqual([
       'sk-ant-api-secret',
     ]);
     const malformed = await submit(app, valid, {

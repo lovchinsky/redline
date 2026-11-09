@@ -3,7 +3,11 @@ import { ProjectId, QuestionId, TaskId } from '../domain/ids';
 import { ann, apiKey, bob, MANIFEST, project, subscription } from './testing/fakes';
 import { system } from './testing/system';
 
-const requiring = { credentials: 'required', acceptRequesterSubscriptions: false } as const;
+const requiring = {
+  credentials: 'required',
+  operator: null,
+  acceptRequesterSubscriptions: false,
+} as const;
 
 describe('listing projects', () => {
   it('lists the projects a user may submit to, and what credential the receiver needs', () => {
@@ -78,7 +82,7 @@ describe('submitting', () => {
 
     const task = await app.submit({ credential: apiKey });
     expect(task.credentials).toBe('requester');
-    expect(app.vault.held.get(task.id)).toBe(apiKey);
+    expect(app.vault.credentials.get(task.id)).toBe(apiKey);
   });
 
   it('accepts a subscription token only where the receiver allows it', async () => {
@@ -86,12 +90,20 @@ describe('submitting', () => {
     await expect(refusing.submit({ credential: subscription })).rejects.toThrow(
       'subscription tokens',
     );
-    const accepting = system({ credentials: 'required', acceptRequesterSubscriptions: true });
+    const accepting = system({
+      credentials: 'required',
+      operator: null,
+      acceptRequesterSubscriptions: true,
+    });
     expect((await accepting.submit({ credential: subscription })).credentials).toBe('requester');
   });
 
   it('falls back to the operator’s credential when the requester’s is optional', async () => {
-    const app = system({ credentials: 'optional', acceptRequesterSubscriptions: false });
+    const app = system({
+      credentials: 'optional',
+      operator: 'api-key',
+      acceptRequesterSubscriptions: false,
+    });
     expect((await app.submit()).credentials).toBe('operator');
     expect((await app.submit({ key: 'k2', credential: apiKey })).credentials).toBe('requester');
   });
@@ -100,7 +112,7 @@ describe('submitting', () => {
     const app = system();
     const task = await app.submit({ credential: apiKey });
     expect(task.credentials).toBe('operator');
-    expect(app.vault.held.size).toBe(0);
+    expect(app.vault.credentials.size).toBe(0);
   });
 });
 
@@ -118,9 +130,9 @@ describe('following a task', () => {
   it('schedules the run of a queued task once its credential comes back', async () => {
     const app = system(requiring);
     const task = await app.submit({ credential: apiKey });
-    app.vault.held.clear();
+    app.vault.credentials.clear();
     await app.requests.state(ann, task.id, apiKey);
-    expect(app.vault.held.get(task.id)).toBe(apiKey);
+    expect(app.vault.credentials.get(task.id)).toBe(apiKey);
     expect(app.store.jobsOf('run')).toHaveLength(2);
     // While the vault holds it, polling schedules nothing more.
     await app.requests.state(ann, task.id, apiKey);

@@ -1,3 +1,4 @@
+import type { GrantTerms } from '../domain/grant';
 import type { Instant, ProjectId, QuestionId, RunId, TaskId, UserId } from '../domain/ids';
 import type { Run } from '../domain/run';
 import type { Task, TaskEvent } from '../domain/task';
@@ -58,8 +59,10 @@ export interface JobScheduler {
 }
 
 /** Grants of model access for runs; the gateway serves a run only while its grant exists. */
+/** Grants of a run's sandboxes, issued with the run and revoked when it ends. */
 export interface RunGrants {
-  issue(runId: RunId, taskId: TaskId): Promise<GrantToken>;
+  issue(terms: GrantTerms): Promise<GrantToken>;
+  /** Revokes every grant of the run. */
   revoke(runId: RunId): Promise<void>;
 }
 

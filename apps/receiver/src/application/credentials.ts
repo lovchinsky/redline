@@ -59,9 +59,9 @@ export class CredentialRelay {
       });
       return;
     }
-    const held = await this.deps.vault.holds(task.id);
+    const held = await this.deps.vault.held(task.id);
     await this.deps.vault.deposit(task.id, credential);
-    if (!held && task.state.kind === 'queued') {
+    if (held === null && task.state.kind === 'queued') {
       await this.deps.writer.schedule({ queue: 'run', taskId: task.id, projectId: task.projectId });
     }
   }

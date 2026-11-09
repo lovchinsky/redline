@@ -178,6 +178,9 @@ importers:
       '@fastify/multipart':
         specifier: 10.1.8
         version: 10.1.8
+      '@redline/agent-protocol':
+        specifier: workspace:*
+        version: link:../../packages/agent-protocol
       '@redline/contract':
         specifier: workspace:*
         version: link:../../packages/contract

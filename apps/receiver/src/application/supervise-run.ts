@@ -10,12 +10,13 @@ import {
   type Task,
   type TransitionResult,
 } from '../domain/task';
-import type { CredentialVault, Project, ProjectCatalog } from '../ports/access';
-import type { AgentRunner } from '../ports/agent';
+import type { CredentialVault, ModelAccessPolicy, Project, ProjectCatalog } from '../ports/access';
+import type { CredentialKind } from '../domain/grant';
+import type { AgentRunner, RunSpec } from '../ports/agent';
 import type { BundleReader } from '../ports/bundles';
 import type { SourceRepository } from '../ports/publishing';
 import type { Clock, IdGenerator, Logger } from '../ports/system';
-import type { GrantToken, TaskQueries, UnitOfWork, WorkScope } from '../ports/tasks';
+import type { TaskQueries, UnitOfWork, WorkScope } from '../ports/tasks';
 import { composeBrief } from './brief';
 import { PROJECT_GONE } from './errors';
 import type { TaskWriter } from './task-writer';
@@ -45,6 +46,7 @@ export class SuperviseRun {
       readonly source: SourceRepository;
       readonly runner: AgentRunner;
       readonly vault: CredentialVault;
+      readonly access: ModelAccessPolicy;
       readonly ids: IdGenerator;
       readonly clock: Clock;
       readonly logger: Logger;
@@ -73,7 +75,11 @@ export class SuperviseRun {
       );
       return null;
     }
-    if (task.credentials === 'requester' && !(await this.deps.vault.holds(task.id))) {
+    const credential =
+      task.credentials === 'operator'
+        ? this.deps.access.operator
+        : await this.deps.vault.held(task.id);
+    if (credential === null) {
       // The extension's next request brings the credential back and schedules the run.
       log.info('Waiting for the requester’s credential');
       return null;
@@ -96,7 +102,21 @@ export class SuperviseRun {
             startedAt: transition.event?.at ?? this.deps.clock.now(),
           }),
         );
-        return scope.grants.issue(runId, task.id);
+        const terms = { runId, taskId: task.id } as const;
+        return {
+          setup: await scope.grants.issue({
+            ...terms,
+            phase: 'setup',
+            hosts: project.execution.setupHosts,
+          }),
+          agent: await scope.grants.issue({
+            ...terms,
+            phase: 'agent',
+            model: project.execution.model,
+            credentials: task.credentials,
+            budget: project.execution.budget,
+          }),
+        };
       },
     );
     if (!begun.ok || begun.value.extra === undefined) {
@@ -106,12 +126,10 @@ export class SuperviseRun {
       return null;
     }
 
-    const launch = await this.launch(
-      begun.value.transition.task,
-      runId,
-      project,
-      begun.value.extra,
-    );
+    const launch = await this.launch(begun.value.transition.task, runId, project, {
+      grants: begun.value.extra,
+      credential,
+    });
     switch (launch.kind) {
       case 'started':
         return runId;
@@ -139,7 +157,7 @@ export class SuperviseRun {
     task: Task,
     runId: RunId,
     project: Project,
-    grant: GrantToken,
+    access: { readonly grants: RunSpec['grants']; readonly credential: CredentialKind },
   ): Promise<Launch> {
     const ended = (
       reason: Extract<RunOutcome, { kind: 'failed' }>['reason'],
@@ -173,7 +191,8 @@ export class SuperviseRun {
       baseSha,
       brief: composeBrief(task, bundle, project),
       resumeFrom: task.state.kind === 'running' ? task.state.resumedFrom : null,
-      grant,
+      grants: access.grants,
+      credential: access.credential,
       execution: project.execution,
     });
     return started.ok

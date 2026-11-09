@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import type { Server } from 'node:http';
 import { FsBlobStore } from '../adapters/blobs/fs-blob-store';
 import { StoredBundles } from '../adapters/blobs/stored-bundles';
 import { ConfiguredProjects, parseConfig, type ReceiverConfig } from '../adapters/config/config';
@@ -10,7 +11,13 @@ import { PostgresUsers } from '../adapters/postgres/users';
 import { ScriptedGit } from '../adapters/scripted/scripted-git';
 import { ScriptedRunner } from '../adapters/scripted/scripted-runner';
 import { jsonLogger, randomIds, systemClock } from '../adapters/system/system';
+import { createEgressProxy } from '../adapters/gateway/egress-proxy';
+import { createModelProxy } from '../adapters/gateway/model-proxy';
+import { PostgresGateway } from '../adapters/postgres/gateway-store';
+import { EmptyVault } from '../adapters/vault/empty-vault';
 import { MemoryVault } from '../adapters/vault/memory-vault';
+import { SocketVault, serveVault } from '../adapters/vault/socket-vault';
+import { EgressGate, ModelGateway } from '../application/gateway';
 import { CredentialRelay } from '../application/credentials';
 import { TaskOperations } from '../application/operations';
 import { PublishChange } from '../application/publish-change';
@@ -18,11 +25,15 @@ import { TaskRequests } from '../application/requests';
 import { SuperviseRun } from '../application/supervise-run';
 import { AbortRun, ExpireQuestion, WithdrawChange } from '../application/task-jobs';
 import { TaskWriter } from '../application/task-writer';
+import { ModelCredential, type CredentialVault } from '../ports/access';
 import type { Logger } from '../ports/system';
 import type { Settings } from './settings';
 
-/** Which parts of the receiver one process runs. */
-export type Role = 'api' | 'worker' | 'all';
+/**
+ * Which parts of the receiver one process runs: the API, the worker, the gateway's model side
+ * (with the vault of requesters' credentials), its egress side, or all of them at once.
+ */
+export type Role = 'api' | 'worker' | 'gateway' | 'egress' | 'all';
 
 /** How long an idle requester's credential stays in memory: past every polling interval. */
 const CREDENTIAL_IDLE_MS = 24 * 3_600_000;
@@ -36,9 +47,63 @@ export const loadConfig = async (path: string): Promise<ReceiverConfig> => {
   return parsed.value;
 };
 
+/** The operator's credential, read from its secret file; null when tasks never run with it. */
+const operatorCredential = async (config: ReceiverConfig): Promise<ModelCredential | null> => {
+  const operator = config.gateway.operator;
+  if (operator === null) return null;
+  const secret = (await readFile(operator.secretFile, 'utf8')).trim();
+  if (secret === '')
+    throw new Error(`The operator's credential file ${operator.secretFile} is empty`);
+  return new ModelCredential(operator.kind, secret);
+};
+
+/** Servers a role runs, each on its own port. */
+export interface Listeners {
+  readonly gateway: Server | null;
+  readonly egress: Server | null;
+}
+
+/** The gateway's two sides, over the grants and usage in Postgres. */
+const gatewayOf = async (
+  config: ReceiverConfig,
+  db: ReturnType<typeof openDatabase>,
+  vault: MemoryVault,
+  sides: { readonly model: boolean; readonly egress: boolean },
+  logger: Logger,
+): Promise<Listeners> => {
+  const book = new PostgresGateway(db);
+  const prices = config.gateway.prices;
+  const gateway = sides.model
+    ? createModelProxy({
+        access: new ModelGateway({
+          grants: book,
+          ledger: book,
+          prices: { priceOf: (model) => prices[model] ?? null },
+          requesters: vault,
+          operator: await operatorCredential(config),
+          maxTokens: config.gateway.maxTokens,
+          clock: systemClock,
+          logger: logger.child({ component: 'gateway' }),
+        }),
+        upstream: config.gateway.upstream,
+        logger: logger.child({ component: 'gateway' }),
+      })
+    : null;
+  const egress = sides.egress
+    ? createEgressProxy({
+        access: new EgressGate({ grants: book, logger: logger.child({ component: 'egress' }) }),
+        logger: logger.child({ component: 'egress' }),
+      })
+    : null;
+  return { gateway, egress };
+};
+
 /**
  * The receiver assembled from its adapters: the one place that knows which adapter serves
  * which port. Returns what the chosen role runs and how to stop it.
+ *
+ * Requesters' credentials live in the gateway's memory. In one process (`all`) everything
+ * shares that memory; split, the API and the worker reach it over the vault's socket.
  */
 export const assemble = async (
   settings: Settings,
@@ -46,12 +111,35 @@ export const assemble = async (
   role: Role,
   logger: Logger,
 ) => {
-  if (role !== 'all' && config.modelAccess.credentials !== 'managed') {
-    throw new Error(
-      'Requesters’ credentials are held in memory: with `models.credentials` other than managed, ' +
-        'run the receiver as one process (`receiver serve all`).',
+  const clock = systemClock;
+  const memory = new MemoryVault(clock, CREDENTIAL_IDLE_MS);
+
+  if (role === 'gateway' || role === 'egress') {
+    const db = openDatabase(settings.databaseUrl, 4);
+    const listeners = await gatewayOf(
+      config,
+      db,
+      memory,
+      { model: role === 'gateway', egress: role === 'egress' },
+      logger,
     );
+    const vaultServer = role === 'gateway' ? await serveVault(memory, settings.vaultSocket) : null;
+    return {
+      api: null,
+      ...listeners,
+      stop: async () => {
+        vaultServer?.close();
+        await db.destroy();
+      },
+    };
   }
+
+  const vault: CredentialVault =
+    config.modelAccess.credentials === 'managed'
+      ? new EmptyVault()
+      : role === 'all'
+        ? memory
+        : new SocketVault(settings.vaultSocket);
   const db = openDatabase(settings.databaseUrl);
   await migrate(db);
   const runTimeoutSeconds =
@@ -67,13 +155,11 @@ export const assemble = async (
   );
   await jobs.start();
 
-  const clock = systemClock;
   const store = new PostgresStore(db, (trx) => jobs.scheduler(trx));
   const users = new PostgresUsers(db);
   const blobs = new FsBlobStore(settings.blobsPath);
   const bundles = new StoredBundles(blobs);
   const projects = new ConfiguredProjects(config.projects);
-  const vault = new MemoryVault(clock, CREDENTIAL_IDLE_MS);
   const runner = new ScriptedRunner(config.agent, () => clock.now());
   const git = new ScriptedGit(config.git.resultBaseUrl);
   const writer = new TaskWriter({ uow: store, clock });
@@ -99,6 +185,7 @@ export const assemble = async (
     source: git,
     runner,
     vault,
+    access: config.modelAccess,
     ids: randomIds,
     clock,
     logger: logger.child({ component: 'runs' }),
@@ -139,9 +226,12 @@ export const assemble = async (
       'withdraw-change': (job) => withdraw.handle(job.taskId),
     });
   }
+  // A scripted agent calls no model: one process with it needs no gateway.
+  const listeners: Listeners = { gateway: null, egress: null };
 
   return {
     api,
+    ...listeners,
     stop: async () => {
       await api?.close();
       await jobs.stop();

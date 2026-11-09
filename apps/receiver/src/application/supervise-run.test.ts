@@ -42,7 +42,19 @@ describe('SuperviseRun', () => {
       brief: { title: task.bundle.title, questionsLeft: 2 },
     });
     const runId = spec?.runId ?? RunId('');
-    expect(spec?.grant).toBe(`grant-${runId}`);
+    expect(spec?.grants).toEqual({ setup: `grant-setup-${runId}`, agent: `grant-agent-${runId}` });
+    expect(spec?.credential).toBe('api-key');
+    expect(app.store.state.issued).toEqual([
+      { phase: 'setup', runId, taskId: task.id, hosts: ['registry.npmjs.org'] },
+      {
+        phase: 'agent',
+        runId,
+        taskId: task.id,
+        model: 'claude-opus-5-5',
+        credentials: 'operator',
+        budget: { usd: 10, tokens: 10_000_000 },
+      },
+    ]);
 
     const stored = app.store.task(task.id);
     expect(stored.state.kind).toBe('publishing');
@@ -86,9 +98,13 @@ describe('SuperviseRun', () => {
   });
 
   it('does not start a task whose requester’s credential is not in the vault', async () => {
-    const app = system({ credentials: 'required', acceptRequesterSubscriptions: false });
+    const app = system({
+      credentials: 'required',
+      operator: null,
+      acceptRequesterSubscriptions: false,
+    });
     const task = await app.submit({ credential: apiKey });
-    app.vault.held.clear();
+    app.vault.credentials.clear();
     await app.supervise.handle(task.id, never);
     expect(app.runner.started).toEqual([]);
     expect(app.store.task(task.id).state.kind).toBe('queued');
@@ -175,11 +191,15 @@ describe('SuperviseRun', () => {
   });
 
   it('forgets the requester’s credential when the task ends', async () => {
-    const app = system({ credentials: 'required', acceptRequesterSubscriptions: false });
+    const app = system({
+      credentials: 'required',
+      operator: null,
+      acceptRequesterSubscriptions: false,
+    });
     const task = await app.submit({ credential: apiKey });
     app.runner.outcomes.push({ kind: 'no-change', explanation: 'Already done' });
     await app.supervise.handle(task.id, never);
-    expect(app.vault.held.size).toBe(0);
+    expect(app.vault.credentials.size).toBe(0);
   });
 
   it('decides again when the task changed while it was being saved', async () => {

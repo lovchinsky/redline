@@ -1,3 +1,4 @@
+import type { CredentialKind } from '../domain/grant';
 import type { ChangePolicyRules } from '../domain/change-policy';
 import type { ProjectId, TaskId, UserId } from '../domain/ids';
 import type { TaskPolicy } from '../domain/policy';
@@ -74,7 +75,7 @@ export class ModelCredential {
   readonly #secret: string;
 
   constructor(
-    readonly kind: 'api-key' | 'subscription',
+    readonly kind: CredentialKind,
     secret: string,
   ) {
     this.#secret = secret;
@@ -100,6 +101,8 @@ export class ModelCredential {
  */
 export interface ModelAccessPolicy {
   readonly credentials: 'managed' | 'required' | 'optional';
+  /** The kind of the operator's own credential; null when there is none (`required`). */
+  readonly operator: CredentialKind | null;
   /** Whether requesters may bring a subscription token, not only an API key. */
   readonly acceptRequesterSubscriptions: boolean;
 }
@@ -110,6 +113,12 @@ export interface ModelAccessPolicy {
  */
 export interface CredentialVault {
   deposit(taskId: TaskId, credential: ModelCredential): Promise<void>;
-  holds(taskId: TaskId): Promise<boolean>;
+  /** The kind of the credential held for the task, or null when none is. */
+  held(taskId: TaskId): Promise<CredentialKind | null>;
   forget(taskId: TaskId): Promise<void>;
+}
+
+/** The vault as the gateway, the one component that uses the credentials, reads it. */
+export interface HeldCredentials {
+  credentialOf(taskId: TaskId): ModelCredential | null;
 }

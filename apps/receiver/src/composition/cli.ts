@@ -1,3 +1,4 @@
+import type { Server } from 'node:http';
 import { parseArgs } from 'node:util';
 import { TaskId, UserId } from '../domain/ids';
 import { administration, assemble, loadConfig, loggerFor, type Role } from './receiver';
@@ -5,7 +6,9 @@ import { settingsFrom } from './settings';
 
 const USAGE = `Usage: receiver <command>
 
-  serve api|worker|all            Serve the API, work the queues, or both
+  serve api|worker|gateway|egress|all
+                                  Serve the API, work the queues, serve the gateway's model or
+                                  egress side, or all of them in one process
   migrate                         Bring the database schema up to date
   config check                    Validate the configuration
   users add <id> --name <name> [--email <email>]
@@ -16,7 +19,7 @@ const USAGE = `Usage: receiver <command>
   tasks cancel <id> --reason <text>
 
 Environment: DATABASE_URL, REDLINE_CONFIG, REDLINE_BLOBS, REDLINE_HOST, REDLINE_PORT,
-REDLINE_LOG_LEVEL.`;
+REDLINE_GATEWAY_PORT, REDLINE_EGRESS_PORT, REDLINE_VAULT_SOCKET, REDLINE_LOG_LEVEL.`;
 
 const print = (text: string) => {
   process.stdout.write(`${text}\n`);
@@ -30,7 +33,20 @@ const argument = (positionals: readonly string[], index: number, name: string): 
   return value;
 };
 
-const ROLES: readonly Role[] = ['api', 'worker', 'all'];
+const ROLES: readonly Role[] = ['api', 'worker', 'gateway', 'egress', 'all'];
+
+const listen = (server: Server, host: string, port: number) =>
+  new Promise<string>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => {
+      const address = server.address();
+      resolve(
+        typeof address === 'object' && address !== null
+          ? `${address.address}:${String(address.port)}`
+          : String(address),
+      );
+    });
+  });
 
 /** Runs one command of the operator's command line; resolves with the process's exit code. */
 export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Promise<number> => {
@@ -55,7 +71,7 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
   try {
     if (command === 'serve') {
       const role = ROLES.find((candidate) => candidate === sub);
-      if (role === undefined) throw new UsageError('serve takes api, worker or all');
+      if (role === undefined) throw new UsageError(`serve takes ${ROLES.join(', ')}`);
       const logger = loggerFor(settings, role);
       const receiver = await assemble(
         settings,
@@ -67,6 +83,14 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
         const address = await receiver.api.listen({ host: settings.host, port: settings.port });
         logger.info('Serving receiver-api.v1', { address });
       }
+      if (receiver.gateway !== null) {
+        const address = await listen(receiver.gateway, settings.host, settings.gatewayPort);
+        logger.info('Serving the model gateway', { address });
+      }
+      if (receiver.egress !== null) {
+        const address = await listen(receiver.egress, settings.host, settings.egressPort);
+        logger.info('Serving the egress proxy', { address });
+      }
       logger.info('Receiver started', { role });
       await new Promise<void>((resolve) => {
         const stop = () => {
@@ -76,6 +100,8 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
         process.once('SIGTERM', stop);
         process.once('SIGINT', stop);
       });
+      receiver.gateway?.close();
+      receiver.egress?.close();
       await receiver.stop();
       return 0;
     }

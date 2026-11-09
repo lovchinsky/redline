@@ -20,7 +20,12 @@ describe('parseConfig', () => {
     if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
     expect(parsed.value.modelAccess).toEqual({
       credentials: 'required',
+      operator: null,
       acceptRequesterSubscriptions: false,
+    });
+    expect(parsed.value.gateway).toMatchObject({
+      upstream: 'https://api.anthropic.com',
+      operator: null,
     });
     expect(parsed.value.agent).toEqual({ kind: 'scripted', durationMs: 5000, asks: true });
     expect(parsed.value.intake).toEqual({
@@ -44,7 +49,7 @@ describe('parseConfig', () => {
     const parsed = parseConfig(`
 agent: { kind: scripted }
 git: { kind: scripted }
-models: { credentials: managed }
+models: { credentials: required }
 defaults:
   policy: { maxQuestions: 1 }
   changePolicy: { deny: [secrets] }
@@ -64,7 +69,7 @@ projects:
     const fixed = parseConfig(`
 agent: { kind: scripted }
 git: { kind: scripted }
-models: { credentials: managed }
+models: { credentials: required }
 defaults:
   policy: { maxQuestions: 1 }
   changePolicy: { deny: [secrets] }
@@ -121,5 +126,49 @@ describe('ConfiguredProjects', () => {
     expect(catalog.get(ProjectId('acme-web'))?.name).toBe('Acme Web');
     expect(catalog.get(ProjectId('nope'))).toBeNull();
     expect(catalog.list()).toHaveLength(1);
+  });
+
+  it('asks where the operator’s credential is when tasks may run with it, and for every model’s price', () => {
+    const parsed = parseConfig(`
+agent: { kind: scripted }
+git: { kind: scripted }
+models: { credentials: optional }
+projects:
+  - id: web
+    name: Web
+    repository: { host: github, name: acme/web }
+    execution: { model: claude-next }
+`);
+    expect(parsed.ok ? [] : parsed.errors).toEqual([
+      "models.operator: tasks run with the operator's credential (credentials: optional); say where it is",
+      'projects.web.execution.model: no price for claude-next; set models.prices',
+    ]);
+    const priced = parseConfig(`
+agent: { kind: scripted }
+git: { kind: scripted }
+models:
+  credentials: optional
+  operator: { kind: subscription, secretFile: /run/secrets/claude }
+  prices: { claude-next: { input: 1, output: 2, cacheWrite: 1.25, cacheRead: 0.1 } }
+gateway: { upstream: 'https://llm.internal.example', maxTokens: 64000 }
+projects:
+  - id: web
+    name: Web
+    repository: { host: github, name: acme/web }
+    execution: { model: claude-next }
+`);
+    if (!priced.ok) throw new Error(priced.errors.join('\n'));
+    expect(priced.value.modelAccess.operator).toBe('subscription');
+    expect(priced.value.gateway).toMatchObject({
+      upstream: 'https://llm.internal.example',
+      maxTokens: 64_000,
+      operator: { kind: 'subscription', secretFile: '/run/secrets/claude' },
+    });
+    expect(priced.value.gateway.prices['claude-next']).toEqual({
+      input: 1,
+      output: 2,
+      cacheWrite: 1.25,
+      cacheRead: 0.1,
+    });
   });
 });

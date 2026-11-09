@@ -3,6 +3,8 @@ import * as z from 'zod/mini';
 import { DEFAULT_CHANGE_POLICY, type ChangePolicyRules } from '../../domain/change-policy';
 import { ProjectId, UserId } from '../../domain/ids';
 import type { TaskPolicy } from '../../domain/policy';
+import type { CredentialKind } from '../../domain/grant';
+import type { ModelPrice } from '../../domain/usage';
 import type {
   ExecutionProfile,
   ModelAccessPolicy,
@@ -73,6 +75,24 @@ const git = z.object({
 });
 
 const seconds = z.int().check(z.positive());
+const dollars = z.number().check(z.nonnegative());
+const price = z.object({
+  input: dollars,
+  output: dollars,
+  cacheWrite: dollars,
+  cacheRead: dollars,
+});
+
+/**
+ * List prices of the models a run may use, in dollars per million tokens. They turn usage into
+ * the dollars of a task's budget; an operator whose contract differs sets `models.prices`.
+ */
+export const LIST_PRICES: Readonly<Record<string, ModelPrice>> = {
+  'claude-fable-5-1': { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25 },
+  'claude-opus-5-5': { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+  'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
+};
 
 const configSchema = z.object({
   agent,
@@ -88,8 +108,19 @@ const configSchema = z.object({
   git,
   models: z.object({
     credentials: z.enum(['managed', 'required', 'optional']),
+    /** The operator's own credential, read by the gateway from a secret file. */
+    operator: z.optional(z.object({ kind: z.enum(['api-key', 'subscription']), secretFile: text })),
     acceptRequesterSubscriptions: z.optional(z.boolean()),
+    /** Prices of models in dollars per million tokens, over the list prices built in. */
+    prices: z.optional(z.record(text, price)),
   }),
+  /** Where the gateway sends model requests, and how large one may be. */
+  gateway: z.optional(
+    z.object({
+      upstream: z.optional(z.url({ protocol: /^https?$/ })),
+      maxTokens: z.optional(positive),
+    }),
+  ),
   intake: z.optional(
     z.object({
       bundleMegabytes: z.optional(positive),
@@ -120,6 +151,14 @@ export interface IntakeLimits {
   readonly submissionsPerMinute: number;
 }
 
+export interface GatewayConfig {
+  readonly upstream: string;
+  readonly maxTokens: number;
+  readonly prices: Readonly<Record<string, ModelPrice>>;
+  /** Where the operator's credential is; null when tasks run with requesters' only. */
+  readonly operator: { readonly kind: CredentialKind; readonly secretFile: string } | null;
+}
+
 export interface ReceiverConfig {
   readonly polling: {
     readonly queued: number;
@@ -134,6 +173,7 @@ export interface ReceiverConfig {
   };
   readonly git: { readonly kind: 'scripted'; readonly resultBaseUrl: string };
   readonly modelAccess: ModelAccessPolicy;
+  readonly gateway: GatewayConfig;
   readonly intake: IntakeLimits;
   readonly worker: { readonly runSlots: number; readonly runsPerProject: number };
   readonly projects: readonly Project[];
@@ -252,6 +292,19 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
       },
     });
   }
+  if (raw.models.credentials !== 'required' && raw.models.operator === undefined) {
+    errors.push(
+      `models.operator: tasks run with the operator's credential (credentials: ${raw.models.credentials}); say where it is`,
+    );
+  }
+  const prices = { ...LIST_PRICES, ...(raw.models.prices ?? {}) };
+  for (const entry of projects) {
+    if (prices[entry.execution.model] === undefined) {
+      errors.push(
+        `projects.${entry.id}.execution.model: no price for ${entry.execution.model}; set models.prices`,
+      );
+    }
+  }
   if (errors.length > 0) return { ok: false, errors };
   return {
     ok: true,
@@ -273,7 +326,14 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
       },
       modelAccess: {
         credentials: raw.models.credentials,
+        operator: raw.models.operator?.kind ?? null,
         acceptRequesterSubscriptions: raw.models.acceptRequesterSubscriptions ?? false,
+      },
+      gateway: {
+        upstream: raw.gateway?.upstream ?? 'https://api.anthropic.com',
+        maxTokens: raw.gateway?.maxTokens ?? 128_000,
+        prices,
+        operator: raw.models.operator ?? null,
       },
       intake: {
         bundleBytes: (raw.intake?.bundleMegabytes ?? 50) * 1024 * 1024,

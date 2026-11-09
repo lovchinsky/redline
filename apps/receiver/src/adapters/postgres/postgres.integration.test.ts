@@ -1,13 +1,14 @@
 import { sql, type Kysely } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ProjectId, TaskId, UserId, type BlobDigest } from '../../domain/ids';
+import { ProjectId, RunId, TaskId, UserId, type BlobDigest } from '../../domain/ids';
 import { submitTask, type Task } from '../../domain/task';
 import { TaskWriter } from '../../application/task-writer';
 import { FixedClock, silentLogger } from '../../application/testing/fakes';
 import type { Job } from '../../ports/tasks';
 import { migrate, openDatabase } from './database';
+import { PostgresGateway } from './gateway-store';
 import { PgBossJobs, type JobHandlers } from './jobs';
-import type { Database } from './schema';
+import { migrations, type Database } from './schema';
 import { PostgresStore } from './store';
 import { freshDatabase } from './testing/database';
 import { PostgresUsers } from './users';
@@ -24,7 +25,7 @@ beforeAll(async () => {
   const database = await freshDatabase();
   drop = database.drop;
   db = openDatabase(database.url);
-  expect(await migrate(db)).toEqual(['0001-tasks-runs-users']);
+  expect(await migrate(db)).toEqual(Object.keys(migrations));
   jobs = PgBossJobs.create(database.url, limits, silentLogger);
   await jobs.start();
   store = new PostgresStore(db, (trx) => jobs.scheduler(trx));
@@ -127,33 +128,68 @@ describe('PostgresStore', () => {
     expect(await queued('run', submitted.task.id)).toHaveLength(1);
   });
 
-  it('keeps grants as hashes and drops them on revoke', async () => {
+  it('keeps grants as hashes with their terms, for the gateway to read, until revoked', async () => {
     const submitted = transition();
     await store.run((scope) => scope.tasks.insert(submitted.task, submitted.key));
-    const runId = 'run-grant' as never;
-    const token = await store.run(async (scope) => {
+    const runId = RunId('run-grant');
+    const taskId = submitted.task.id;
+    const agentTerms = {
+      phase: 'agent',
+      runId,
+      taskId,
+      model: 'claude-opus-5-5',
+      credentials: 'operator',
+      budget: { usd: 10, tokens: 1_000_000 },
+    } as const;
+    const setupTerms = { phase: 'setup', runId, taskId, hosts: ['registry.npmjs.org'] } as const;
+    const [agent, setup] = await store.run(async (scope) => {
       await scope.runs.insert({
         id: runId,
-        taskId: submitted.task.id,
+        taskId,
         kind: 'start',
         image: 'image',
         model: 'model',
         startedAt: 1_000,
         state: { kind: 'started' },
       });
-      return scope.grants.issue(runId, submitted.task.id);
+      return [await scope.grants.issue(agentTerms), await scope.grants.issue(setupTerms)];
     });
     const stored = await db
       .selectFrom('run_grants')
       .selectAll()
       .where('run_id', '=', runId)
-      .executeTakeFirstOrThrow();
-    expect(stored.token_hash).not.toContain(token);
-    expect(stored.token_hash).toMatch(/^[a-f0-9]{64}$/);
+      .execute();
+    expect(stored).toHaveLength(2);
+    for (const row of stored) {
+      expect(row.token_hash).toMatch(/^[a-f0-9]{64}$/);
+      expect(row.token_hash).not.toContain(agent);
+    }
+    const gateway = new PostgresGateway(db);
+    expect(await gateway.terms(agent)).toEqual(agentTerms);
+    expect(await gateway.terms(setup)).toEqual(setupTerms);
+    expect(await gateway.terms('not-a-grant')).toBeNull();
+
     await store.run((scope) => scope.grants.revoke(runId));
-    expect(
-      await db.selectFrom('run_grants').selectAll().where('run_id', '=', runId).execute(),
-    ).toEqual([]);
+    expect(await gateway.terms(agent)).toBeNull();
+    expect(await gateway.terms(setup)).toBeNull();
+  });
+
+  it('adds up what a task spent over all its runs', async () => {
+    const gateway = new PostgresGateway(db);
+    const taskId = TaskId('task-spending');
+    expect(await gateway.spent(taskId)).toEqual({ usd: 0, tokens: 0 });
+    const usage = { input: 1000, output: 200, cacheWrite: 300, cacheRead: 50_000 };
+    for (const runId of ['run-a', 'run-b']) {
+      await gateway.record({
+        runId: RunId(runId),
+        taskId,
+        model: 'm',
+        usage,
+        costUsd: 0.25,
+        at: 1_000,
+      });
+    }
+    expect(await gateway.spent(taskId)).toEqual({ usd: 0.5, tokens: 3000 });
   });
 });
 

@@ -13,6 +13,7 @@ import {
   type TaskId as TaskIdType,
   type UserId as UserIdType,
 } from '../../domain/ids';
+import type { GrantTerms } from '../../domain/grant';
 import type { Run, RunOutcome } from '../../domain/run';
 import type { Task, TaskEvent } from '../../domain/task';
 import type { ChangeRequestRef } from '../../domain/work';
@@ -53,7 +54,10 @@ interface State {
   runs: Map<string, Run>;
   history: { taskId: TaskIdType; event: TaskEvent }[];
   jobs: { job: Job; startAfter: Instant | null }[];
-  grants: Map<string, TaskIdType>;
+  /** Grants in force, by run. */
+  grants: Map<string, GrantTerms[]>;
+  /** Every grant ever issued, in order, revoked or not. */
+  issued: GrantTerms[];
 }
 
 const copy = (state: State): State => ({
@@ -63,6 +67,7 @@ const copy = (state: State): State => ({
   history: [...state.history],
   jobs: [...state.jobs],
   grants: new Map(state.grants),
+  issued: [...state.issued],
 });
 
 const submissionKey = (requester: UserIdType, key: string) => `${requester}\u0000${key}`;
@@ -79,6 +84,7 @@ export class MemoryStore implements UnitOfWork, TaskQueries {
     history: [],
     jobs: [],
     grants: new Map(),
+    issued: [],
   };
   private queue: Promise<unknown> = Promise.resolve();
   /** The next this many task saves find the task changed by someone else, as under concurrency. */
@@ -148,9 +154,10 @@ export class MemoryStore implements UnitOfWork, TaskQueries {
         },
       },
       grants: {
-        issue: (runId, taskId) => {
-          draft.grants.set(runId, taskId);
-          return Promise.resolve(`grant-${runId}` as GrantToken);
+        issue: (terms) => {
+          draft.grants.set(terms.runId, [...(draft.grants.get(terms.runId) ?? []), terms]);
+          draft.issued.push(terms);
+          return Promise.resolve(`grant-${terms.phase}-${terms.runId}` as GrantToken);
         },
         revoke: (runId) => {
           draft.grants.delete(runId);
@@ -288,16 +295,16 @@ export class FakeBundles implements BundleReader {
 }
 
 export class MemoryVault implements CredentialVault {
-  readonly held = new Map<TaskIdType, ModelCredential>();
+  readonly credentials = new Map<TaskIdType, ModelCredential>();
   deposit(taskId: TaskIdType, credential: ModelCredential) {
-    this.held.set(taskId, credential);
+    this.credentials.set(taskId, credential);
     return Promise.resolve();
   }
-  holds(taskId: TaskIdType) {
-    return Promise.resolve(this.held.has(taskId));
+  held(taskId: TaskIdType) {
+    return Promise.resolve(this.credentials.get(taskId)?.kind ?? null);
   }
   forget(taskId: TaskIdType) {
-    this.held.delete(taskId);
+    this.credentials.delete(taskId);
     return Promise.resolve();
   }
 }
@@ -307,6 +314,7 @@ export const subscription = new ModelCredential('subscription', 'sk-ant-oat-secr
 
 export const managed: ModelAccessPolicy = {
   credentials: 'managed',
+  operator: 'api-key',
   acceptRequesterSubscriptions: false,
 };
 

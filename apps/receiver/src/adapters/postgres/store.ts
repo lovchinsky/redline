@@ -17,6 +17,7 @@ import {
   runToRecord,
   taskFromRecord,
   taskToRecord,
+  grantTermsToRecord,
 } from './records';
 import type { Database } from './schema';
 
@@ -174,14 +175,15 @@ export class PostgresStore implements UnitOfWork, TaskQueries {
       },
       jobs: this.schedulerFor(trx),
       grants: {
-        issue: async (runId, taskId) => {
+        issue: async (terms) => {
           const token = randomBytes(32).toString('base64url');
           await trx
             .insertInto('run_grants')
             .values({
-              run_id: runId,
-              task_id: taskId,
               token_hash: sha256(token),
+              run_id: terms.runId,
+              task_id: terms.taskId,
+              terms: json(grantTermsToRecord(terms)),
               issued_at: new Date(),
             })
             .execute();

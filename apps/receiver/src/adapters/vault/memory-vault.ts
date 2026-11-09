@@ -1,5 +1,6 @@
 import type { TaskId } from '../../domain/ids';
-import type { CredentialVault, ModelCredential } from '../../ports/access';
+import type { CredentialKind } from '../../domain/grant';
+import type { CredentialVault, HeldCredentials, ModelCredential } from '../../ports/access';
 import type { Clock } from '../../ports/system';
 
 /**
@@ -8,8 +9,8 @@ import type { Clock } from '../../ports/system';
  * Holds them for a receiver that calls the model in-process; with a separate gateway, the
  * gateway holds them.
  */
-export class MemoryVault implements CredentialVault {
-  private readonly held = new Map<TaskId, { credential: ModelCredential; touchedAt: number }>();
+export class MemoryVault implements CredentialVault, HeldCredentials {
+  private readonly entries = new Map<TaskId, { credential: ModelCredential; touchedAt: number }>();
 
   constructor(
     private readonly clock: Clock,
@@ -17,28 +18,28 @@ export class MemoryVault implements CredentialVault {
   ) {}
 
   deposit(taskId: TaskId, credential: ModelCredential): Promise<void> {
-    this.held.set(taskId, { credential, touchedAt: this.clock.now() });
+    this.entries.set(taskId, { credential, touchedAt: this.clock.now() });
     return Promise.resolve();
   }
 
-  holds(taskId: TaskId): Promise<boolean> {
-    this.sweep();
-    return Promise.resolve(this.held.has(taskId));
+  held(taskId: TaskId): Promise<CredentialKind | null> {
+    return Promise.resolve(this.credentialOf(taskId)?.kind ?? null);
   }
 
   forget(taskId: TaskId): Promise<void> {
-    this.held.delete(taskId);
+    this.entries.delete(taskId);
     return Promise.resolve();
   }
 
   /** The credential of a task, for the component that calls the model. */
   credentialOf(taskId: TaskId): ModelCredential | null {
     this.sweep();
-    return this.held.get(taskId)?.credential ?? null;
+    return this.entries.get(taskId)?.credential ?? null;
   }
 
   private sweep(): void {
     const oldest = this.clock.now() - this.idleMs;
-    for (const [taskId, entry] of this.held) if (entry.touchedAt < oldest) this.held.delete(taskId);
+    for (const [taskId, entry] of this.entries)
+      if (entry.touchedAt < oldest) this.entries.delete(taskId);
   }
 }

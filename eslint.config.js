@@ -137,8 +137,8 @@ const dependencyPolicies = [
     allow: to(['rcv-application', 'rcv-ports', 'rcv-domain']),
   },
   {
-    // An adapter may use its own files and the ones it builds on; only the Claude runner speaks
-    // the agent's exchange format.
+    // An adapter may use its own files and the ones it builds on; only the Claude runner and
+    // the gateway speak the agent's exchange format.
     from: { element: { type: 'rcv-adapter' } },
     allow: [
       to(['rcv-ports', 'rcv-domain', 'contract']),
@@ -155,6 +155,10 @@ const dependencyPolicies = [
   },
   {
     from: { element: { type: 'rcv-adapter', captured: { adapterName: 'runner-claude' } } },
+    allow: to(['agent-protocol']),
+  },
+  {
+    from: { element: { type: 'rcv-adapter', captured: { adapterName: 'gateway' } } },
     allow: to(['agent-protocol']),
   },
   {

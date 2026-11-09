@@ -1,5 +1,6 @@
 import * as z from 'zod/mini';
 import { BlobDigest, ProjectId, QuestionId, RunId, TaskId, UserId } from '../../domain/ids';
+import type { GrantTerms } from '../../domain/grant';
 import type { Run } from '../../domain/run';
 import type { Task, TaskEvent } from '../../domain/task';
 
@@ -235,4 +236,42 @@ export const eventFromRecord = (record: unknown, taskId: string): TaskEvent => {
   const parsed = event.safeParse(record);
   if (!parsed.success) throw new CorruptRecord('event of task', taskId, parsed.error);
   return parsed.data;
+};
+
+const grantTermsRecord = z.discriminatedUnion('phase', [
+  z.object({
+    phase: z.literal('setup'),
+    runId: id(RunId),
+    taskId: id(TaskId),
+    hosts: z.array(text),
+  }),
+  z.object({
+    phase: z.literal('agent'),
+    runId: id(RunId),
+    taskId: id(TaskId),
+    model: text,
+    credentials: z.enum(['requester', 'operator']),
+    budget: z.object({ usd: z.number(), tokens: z.number() }),
+  }),
+]);
+
+export const grantTermsToRecord = (terms: GrantTerms): unknown => ({
+  format: RECORD_FORMAT,
+  ...terms,
+});
+
+export const grantTermsFromRecord = (record: unknown, runId: string): GrantTerms => {
+  const parsed = grantTermsRecord.safeParse(record);
+  if (!parsed.success) throw new CorruptRecord('grant', runId, parsed.error);
+  const stored = parsed.data;
+  return stored.phase === 'setup'
+    ? { phase: 'setup', runId: stored.runId, taskId: stored.taskId, hosts: stored.hosts }
+    : {
+        phase: 'agent',
+        runId: stored.runId,
+        taskId: stored.taskId,
+        model: stored.model,
+        credentials: stored.credentials,
+        budget: { usd: stored.budget.usd, tokens: stored.budget.tokens },
+      };
 };

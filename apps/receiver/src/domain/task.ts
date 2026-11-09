@@ -1,3 +1,4 @@
+import type { CredentialSource } from './grant';
 import { lastExchange, openExchange, settleLast, type Answer, type Exchange } from './exchange';
 import { failure, type Failure, type FailureCode } from './failure';
 import type { BlobDigest, Instant, ProjectId, QuestionId, RunId, TaskId, UserId } from './ids';
@@ -42,7 +43,7 @@ export interface Task {
    * Whose model credential the task runs with: the requester's own, brought with every request
    * of the extension, or the operator's. Fixed at submission, so a task never changes who pays.
    */
-  readonly credentials: 'requester' | 'operator';
+  readonly credentials: CredentialSource;
   /** The commit every run of this task works on, fixed by its first run. */
   readonly baseSha: string | null;
   readonly state: TaskState;
@@ -145,7 +146,7 @@ export interface Submission {
   readonly requester: UserId;
   readonly projectId: ProjectId;
   readonly bundle: BundleRef;
-  readonly credentials: 'requester' | 'operator';
+  readonly credentials: CredentialSource;
 }
 
 export const submitTask = (submission: Submission, now: Instant): Transition => ({

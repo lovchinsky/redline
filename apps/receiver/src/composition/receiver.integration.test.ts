@@ -13,7 +13,10 @@ import { assemble } from './receiver';
 const CONFIG = `
 agent: { kind: scripted, durationSeconds: 0.2, asks: true }
 git: { kind: scripted }
-models: { credentials: managed }
+models:
+  credentials: managed
+  # The scripted agent calls no model: the gateway never reads this file.
+  operator: { kind: api-key, secretFile: /run/secrets/anthropic-api-key }
 projects:
   - id: acme-web
     name: Acme Web
@@ -33,6 +36,9 @@ describeConformance(
       blobsPath: blobs,
       host: '127.0.0.1',
       port: 0,
+      gatewayPort: 0,
+      egressPort: 0,
+      vaultSocket: '/nonexistent/vault.sock',
       logLevel: 'silent',
     };
     const receiver = await assemble(settings, config.value, 'all', silentLogger);

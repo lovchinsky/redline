@@ -7,7 +7,11 @@ git: { kind: scripted, resultBaseUrl: 'https://git.example/acme/web/pull/' }
 
 # Whose model credential tasks run with: managed (the operator's), required (each requester
 # brings their own with every request), optional (theirs when given, the operator's otherwise).
-models: { credentials: managed }
+models:
+  credentials: managed
+  # The operator's credential, read only by the gateway: an API key, or a subscription token
+  # (`claude setup-token`) in a deployment of one person. Not needed with `required`.
+  operator: { kind: api-key, secretFile: /run/secrets/anthropic-api-key }
 
 intake: { bundleMegabytes: 50, files: 500, submissionsPerMinute: 30 }
 worker: { runSlots: 2, runsPerProject: 1 }

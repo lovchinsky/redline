@@ -55,6 +55,7 @@ export const system = (access: ModelAccessPolicy = managed) => {
     source: git,
     runner,
     vault,
+    access,
     ids,
     clock,
     logger: silentLogger,

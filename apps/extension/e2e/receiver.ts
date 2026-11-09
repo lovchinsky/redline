@@ -16,7 +16,10 @@ const configFor = (credentials: ModelCredentials) => `
 agent: { kind: scripted, durationSeconds: 1, asks: true }
 git: { kind: scripted, resultBaseUrl: 'https://git.example/acme/web/pull/' }
 polling: { queuedSeconds: 1, workingSeconds: 1, waitingSeconds: 1, finishedSeconds: 1 }
-models: { credentials: ${credentials} }
+models:
+  credentials: ${credentials}
+  # The scripted agent calls no model: the gateway never reads this file.
+  ${credentials === 'required' ? '' : 'operator: { kind: api-key, secretFile: /run/secrets/anthropic-api-key }'}
 projects:
   - id: acme-web
     name: Acme Web
