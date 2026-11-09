@@ -159,7 +159,7 @@ describe('SuperviseRun', () => {
     expect(confirmed.store.jobsOf('run').at(-1)?.startAfter).toBe(5_000);
   });
 
-  it('does not start a task whose requester’s credential is not in the vault', async () => {
+  it('makes a task whose requester’s credential is not in the vault wait for it', async () => {
     const app = system({
       credentials: 'required',
       operator: null,
@@ -169,7 +169,7 @@ describe('SuperviseRun', () => {
     app.vault.credentials.clear();
     await app.supervise.handle(task.id, never);
     expect(app.runner.started).toEqual([]);
-    expect(app.store.task(task.id).state.kind).toBe('queued');
+    expect(app.store.task(task.id).state).toMatchObject({ kind: 'queued', awaiting: 'credential' });
   });
 
   it('attaches to the run of a running task instead of starting another', async () => {
@@ -196,7 +196,7 @@ describe('SuperviseRun', () => {
     app.runner.outcomes.push({ kind: 'lost', detail: 'sandbox vanished' });
     await app.supervise.handle(task.id, never);
     const stored = app.store.task(task.id);
-    expect(stored.state).toEqual({ kind: 'queued', resumeFrom: null });
+    expect(stored.state).toEqual({ kind: 'queued', resumeFrom: null, awaiting: null });
     expect(stored.runAttempts).toBe(1);
     const runId = app.runner.started[0]?.runId ?? RunId('');
     expect(app.store.state.runs.get(runId)?.state.kind).toBe('interrupted');

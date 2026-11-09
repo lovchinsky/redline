@@ -22,7 +22,7 @@ const refused = (status: Extract<GrantStatus, { state: 'refused' }>): OutcomeRes
     case GATEWAY_REFUSALS.budgetExhausted:
       return failed('budget-exhausted', 'The task spent its budget');
     case GATEWAY_REFUSALS.credentialMissing:
-      return failed('credential-missing', 'The requester’s model credential is not available');
+      return { kind: 'credential-missing' };
     case GATEWAY_REFUSALS.credentialRefused:
       return failed('model-access-failed', 'The model refused the task’s credential');
     case GATEWAY_REFUSALS.quotaExhausted:
@@ -104,4 +104,4 @@ export const decideOutcome = (input: {
 export const pauses = (result: OutcomeResult): boolean =>
   result.kind === 'question' ||
   result.kind === 'quota-exhausted' ||
-  (result.kind === 'failed' && result.reason === 'credential-missing');
+  result.kind === 'credential-missing';

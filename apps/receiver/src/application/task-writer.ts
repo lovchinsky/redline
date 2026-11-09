@@ -121,9 +121,4 @@ export class TaskWriter {
     // Not a conflict of the task's state: the job or request that asked is tried again.
     throw new Error(`Task ${taskId} kept changing while it was being saved`);
   }
-
-  /** Schedules a job outside any transition, e.g. a run for a task whose credential came back. */
-  async schedule(job: Job): Promise<void> {
-    await this.deps.uow.run((scope) => scope.jobs.schedule(job, null));
-  }
 }

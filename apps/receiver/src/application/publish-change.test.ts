@@ -163,6 +163,9 @@ describe('PublishChange', () => {
     expect(app.store.task(task.id).state.kind).toBe('cancelled');
     // The cancellation's withdrawal looked before the change request existed: it looks again.
     expect(app.store.jobsOf('withdraw-change')).toHaveLength(2);
+    expect((await app.store.history(task.id)).map((event) => event.type)).toContain(
+      'opened-after-cancel',
+    );
     await app.withdraw.handle(task.id);
     expect(app.git.closed).toEqual([{ id: '1', url: 'https://git.example/acme/web/pull/1' }]);
   });

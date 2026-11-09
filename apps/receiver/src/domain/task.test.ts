@@ -6,8 +6,10 @@ import type { RunOutcome } from './run';
 import {
   answerQuestion,
   applyOutcome,
+  awaitCredential,
   beginRun,
   cancelTask,
+  credentialArrived,
   expireQuestion,
   fixBase,
   isCurrentRun,
@@ -96,7 +98,7 @@ describe('submitting and starting', () => {
       },
       5,
     );
-    expect(transition.task.state).toEqual({ kind: 'queued', resumeFrom: null });
+    expect(transition.task.state).toEqual({ kind: 'queued', resumeFrom: null, awaiting: null });
     expect(transition.effects).toEqual([{ kind: 'schedule-run', at: null }]);
     expect(transition.event).toEqual({ type: 'submitted', at: 5 });
   });
@@ -130,6 +132,32 @@ describe('submitting and starting', () => {
 
   it('starts runs only on queued tasks', () => {
     expect(beginRun(running(), run2, pausedOf(running()), 20).ok).toBe(false);
+  });
+});
+
+describe('waiting for the credential', () => {
+  it('waits for the credential once, and schedules the run when it comes', () => {
+    const waiting = value(awaitCredential(submitted(), 5));
+    expect(waiting.task.state).toEqual({
+      kind: 'queued',
+      resumeFrom: null,
+      awaiting: 'credential',
+    });
+    expect(waiting.event).toEqual({ type: 'awaiting-credential', at: 5 });
+    expect(waiting.effects).toEqual([]);
+    expect(value(awaitCredential(waiting.task, 6)).event).toBeNull();
+
+    const arrived = value(credentialArrived(waiting.task, 7));
+    expect(arrived.task.state).toEqual({ kind: 'queued', resumeFrom: null, awaiting: null });
+    expect(arrived.event).toEqual({ type: 'credential-arrived', at: 7 });
+    expect(arrived.effects).toEqual([{ kind: 'schedule-run', at: null }]);
+  });
+
+  it('schedules nothing for a task that waits for no credential', () => {
+    for (const task of [submitted(), running(), asked()]) {
+      expect(value(credentialArrived(task, 7)).event).toBeNull();
+    }
+    expect(awaitCredential(running(), 7).ok).toBe(false);
   });
 });
 
@@ -198,7 +226,11 @@ describe('run outcomes', () => {
       resetAt: 5_000,
       snapshot: snapshot('d'),
     });
-    expect(transition.task.state).toEqual({ kind: 'queued', resumeFrom: snapshot('d') });
+    expect(transition.task.state).toEqual({
+      kind: 'queued',
+      resumeFrom: snapshot('d'),
+      awaiting: null,
+    });
     expect(transition.task.runAttempts).toBe(0);
     expect(transition.effects).toEqual([{ kind: 'schedule-run', at: 5_000 }]);
   });
@@ -262,17 +294,17 @@ describe('run outcomes', () => {
     expect(failed.task.state).toEqual({
       kind: 'queued',
       resumeFrom: snapshot('b', QuestionId('q1')),
+      awaiting: null,
     });
   });
 
   it('waits for the credential without scheduling anything when the gateway lost it', () => {
-    const transition = outcome(running(), {
-      kind: 'failed',
-      reason: 'credential-missing',
-      detail: 'gateway restarted',
-      snapshot: snapshot('e'),
+    const transition = outcome(running(), { kind: 'credential-missing', snapshot: snapshot('e') });
+    expect(transition.task.state).toEqual({
+      kind: 'queued',
+      resumeFrom: snapshot('e'),
+      awaiting: 'credential',
     });
-    expect(transition.task.state).toEqual({ kind: 'queued', resumeFrom: snapshot('e') });
     expect(transition.effects).toEqual([]);
     expect(transition.task.runAttempts).toBe(0);
   });
@@ -305,7 +337,7 @@ describe('run outcomes', () => {
 
   it('treats a lost run as an infrastructure failure', () => {
     const transition = value(loseRun(running(), run1, 'no sandbox', policy, 20));
-    expect(transition.task.state).toEqual({ kind: 'queued', resumeFrom: null });
+    expect(transition.task.state).toEqual({ kind: 'queued', resumeFrom: null, awaiting: null });
     expect(transition.task.runAttempts).toBe(1);
   });
 });
@@ -316,6 +348,7 @@ describe('questions and answers', () => {
     expect(transition.task.state).toEqual({
       kind: 'queued',
       resumeFrom: snapshot('b', QuestionId('q1')),
+      awaiting: null,
     });
     expect(transition.task.exchanges[0]?.answer).toEqual({
       source: 'requester',
@@ -490,6 +523,14 @@ describe('cancelling', () => {
     const transition = value(cancelTask(make(), 'not needed', 30));
     expect(transition.task.state).toEqual({ kind: 'cancelled', reason: 'not needed' });
     expect(transition.effects).toEqual(effects);
+  });
+
+  it('withdraws the change request opened for a task cancelled while it was being published', () => {
+    const cancelled = value(cancelTask(publishing(), 'not needed', 30)).task;
+    const opened = value(markPublished(cancelled, { id: '1', url: 'https://x' }, 40));
+    expect(opened.task.state).toEqual({ kind: 'cancelled', reason: 'not needed' });
+    expect(opened.event).toEqual({ type: 'opened-after-cancel', url: 'https://x', at: 40 });
+    expect(opened.effects).toEqual([{ kind: 'withdraw-change' }]);
   });
 
   it('cancels once and refuses finished tasks', () => {

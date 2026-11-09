@@ -9,6 +9,7 @@ import {
 } from '../domain/run';
 import {
   applyOutcome,
+  awaitCredential,
   beginRun,
   cancelTask,
   fixBase,
@@ -86,8 +87,8 @@ export class SuperviseRun {
         ? this.deps.access.operator
         : await this.deps.vault.held(task.id);
     if (credential === null) {
-      // The extension's next request brings the credential back and schedules the run.
       log.info('Waiting for the requester’s credential');
+      await this.deps.writer.update(task.id, (current, now) => awaitCredential(current, now));
       return null;
     }
 

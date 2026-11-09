@@ -127,25 +127,23 @@ describe('following a task', () => {
     });
   });
 
-  it('schedules the run of a queued task whenever its credential comes', async () => {
+  it('schedules the run of a task that waits for its credential when the credential comes', async () => {
     const app = system(requiring);
     const task = await app.submit({ credential: apiKey });
-    // The gateway lost the credential, and the run found it missing; the extension sent it again
-    // while the run was still running, so the vault holds it before the task is queued.
-    app.runner.outcomes.push({
-      kind: 'failed',
-      reason: 'credential-missing',
-      detail: 'gone',
-      snapshot: null,
-    });
+    // The gateway lost the credential, and the run found it missing: the task waits for it.
+    app.runner.outcomes.push({ kind: 'credential-missing', snapshot: null });
     app.runner.onStart = (spec) => {
       app.store.state.refusals.set(spec.runId, { kind: 'credential-missing' });
     };
     await app.supervise.handle(task.id, never);
-    expect(app.store.task(task.id).state.kind).toBe('queued');
+    expect(app.store.task(task.id).state).toMatchObject({ kind: 'queued', awaiting: 'credential' });
     const scheduled = app.store.jobsOf('run').length;
     await app.requests.state(ann, task.id, apiKey);
     expect(app.vault.credentials.get(task.id)).toBe(apiKey);
+    expect(app.store.task(task.id).state).toMatchObject({ kind: 'queued', awaiting: null });
+    expect(app.store.jobsOf('run')).toHaveLength(scheduled + 1);
+    // A task that waits for nothing gets no run from the credential.
+    await app.requests.state(ann, task.id, apiKey);
     expect(app.store.jobsOf('run')).toHaveLength(scheduled + 1);
   });
 });

@@ -63,7 +63,11 @@ const failureCode = z.enum([
 ]);
 
 const state = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('queued'), resumeFrom: z.nullable(snapshot) }),
+  z.object({
+    kind: z.literal('queued'),
+    resumeFrom: z.nullable(snapshot),
+    awaiting: z.nullable(z.literal('credential')),
+  }),
   z.object({ kind: z.literal('running'), runId: id(RunId), resumedFrom: z.nullable(snapshot) }),
   z.object({
     kind: z.literal('awaiting-reply'),
@@ -101,7 +105,6 @@ const taskRecord = z.object({
 
 const runFailureReason = z.enum([
   'infra',
-  'credential-missing',
   'setup-failed',
   'repository-unavailable',
   'budget-exhausted',
@@ -118,6 +121,7 @@ const outcome = z.discriminatedUnion('kind', [
     resetAt: instant,
     snapshot: z.nullable(snapshot),
   }),
+  z.object({ kind: z.literal('credential-missing'), snapshot: z.nullable(snapshot) }),
   z.object({
     kind: z.literal('failed'),
     reason: runFailureReason,
@@ -239,6 +243,9 @@ const event = z.discriminatedUnion('type', [
     detail: z.string(),
   }),
   z.object({ type: z.literal('published'), at: instant, url: text }),
+  z.object({ type: z.literal('opened-after-cancel'), at: instant, url: text }),
+  z.object({ type: z.literal('awaiting-credential'), at: instant }),
+  z.object({ type: z.literal('credential-arrived'), at: instant }),
   z.object({ type: z.literal('failed'), at: instant, code: failureCode }),
   z.object({ type: z.literal('cancelled'), at: instant, reason: z.string() }),
 ]);

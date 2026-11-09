@@ -2,12 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { corroborate, type RunOutcome } from './run';
 
 const quota: RunOutcome = { kind: 'quota-exhausted', resetAt: 10, snapshot: null };
-const missing: RunOutcome = {
-  kind: 'failed',
-  reason: 'credential-missing',
-  detail: 'gone',
-  snapshot: null,
-};
+const missing: RunOutcome = { kind: 'credential-missing', snapshot: null };
 
 describe('corroborate', () => {
   it('lets a run wait for the limit or the credential only on the gateway’s word', () => {

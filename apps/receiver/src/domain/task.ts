@@ -16,8 +16,16 @@ export interface BundleRef {
 }
 
 export type TaskState =
-  /** Waiting for a run: the first one, or one that goes on from `resumeFrom` (null: from scratch). */
-  | { readonly kind: 'queued'; readonly resumeFrom: Snapshot | null }
+  /**
+   * Waiting for a run: the first one, or one that goes on from `resumeFrom` (null: from scratch).
+   * `awaiting` names what the run waits for besides a slot: the requester's credential, which
+   * the next request of the extension brings.
+   */
+  | {
+      readonly kind: 'queued';
+      readonly resumeFrom: Snapshot | null;
+      readonly awaiting: 'credential' | null;
+    }
   | { readonly kind: 'running'; readonly runId: RunId; readonly resumedFrom: Snapshot | null }
   /** The agent asked; the session waits in `snapshot` (null: it will be replayed). */
   | {
@@ -94,6 +102,10 @@ export type TaskEvent = { readonly at: Instant } & (
     }
   | { readonly type: 'publish-deferred'; readonly attempt: number; readonly detail: string }
   | { readonly type: 'published'; readonly url: string }
+  /** The change request of a task cancelled while it was being opened: it is withdrawn. */
+  | { readonly type: 'opened-after-cancel'; readonly url: string }
+  | { readonly type: 'awaiting-credential' }
+  | { readonly type: 'credential-arrived' }
   | { readonly type: 'failed'; readonly code: FailureCode }
   | { readonly type: 'cancelled'; readonly reason: string }
 );
@@ -168,7 +180,7 @@ export const submitTask = (submission: Submission, now: Instant): Transition => 
   task: {
     ...submission,
     baseSha: null,
-    state: { kind: 'queued', resumeFrom: null },
+    state: { kind: 'queued', resumeFrom: null, awaiting: null },
     exchanges: [],
     runAttempts: 0,
     publishAttempts: 0,
@@ -206,6 +218,31 @@ export const beginRun = (
 };
 
 /**
+ * The task's run cannot start without the requester's credential, which the gateway does not
+ * hold: the task waits for it. Saying so again changes nothing.
+ */
+export const awaitCredential = (task: Task, now: Instant): TransitionResult => {
+  if (task.state.kind !== 'queued') return conflict(`A ${task.state.kind} task waits for nothing`);
+  if (task.state.awaiting === 'credential') return unchanged(task);
+  return move(
+    task,
+    { state: { ...task.state, awaiting: 'credential' } },
+    { type: 'awaiting-credential', at: now },
+  );
+};
+
+/** The requester's credential came: a task that waited for it has its run scheduled. */
+export const credentialArrived = (task: Task, now: Instant): TransitionResult => {
+  if (task.state.kind !== 'queued' || task.state.awaiting !== 'credential') return unchanged(task);
+  return move(
+    task,
+    { state: { ...task.state, awaiting: null } },
+    { type: 'credential-arrived', at: now },
+    [{ kind: 'schedule-run', at: null }],
+  );
+};
+
+/**
  * The first run fixes the commit every run of the task works on; a later run keeps it, so a
  * resumed session works on the tree it left. Fixing it again is a no-op.
  */
@@ -220,10 +257,7 @@ export const fixBase = (
   return move(task, { baseSha }, { type: 'base-fixed', runId, baseSha, at: now });
 };
 
-const FAILURE_OF_RUN: Record<
-  Exclude<RunFailureReason, 'infra' | 'credential-missing'>,
-  FailureCode
-> = {
+const FAILURE_OF_RUN: Record<Exclude<RunFailureReason, 'infra'>, FailureCode> = {
   'setup-failed': 'setup-failed',
   'repository-unavailable': 'repository-unavailable',
   'budget-exhausted': 'budget-exhausted',
@@ -293,9 +327,28 @@ export const applyOutcome = (
     case 'quota-exhausted':
       return move(
         task,
-        { state: { kind: 'queued', resumeFrom: outcome.snapshot ?? resumedFrom } },
+        { state: { kind: 'queued', resumeFrom: outcome.snapshot ?? resumedFrom, awaiting: null } },
         { type: 'requeued', runId, reason: 'quota', detail: 'subscription limit reached', at: now },
         [{ kind: 'schedule-run', at: outcome.resetAt }],
+      );
+    case 'credential-missing':
+      // Nothing to schedule: the credential's arrival does (`credentialArrived`).
+      return move(
+        task,
+        {
+          state: {
+            kind: 'queued',
+            resumeFrom: outcome.snapshot ?? resumedFrom,
+            awaiting: 'credential',
+          },
+        },
+        {
+          type: 'requeued',
+          runId,
+          reason: 'credential',
+          detail: 'the requester’s credential is not in the gateway',
+          at: now,
+        },
       );
     case 'failed':
       return runFailed(
@@ -332,19 +385,11 @@ const runFailed = (
       }
       return move(
         task,
-        { state: { kind: 'queued', resumeFrom }, runAttempts: attempts },
+        { state: { kind: 'queued', resumeFrom, awaiting: null }, runAttempts: attempts },
         { type: 'requeued', runId, reason: 'infra', detail, at: now },
         [{ kind: 'schedule-run', at: now + retryDelay(policy, attempts) }],
       );
     }
-    case 'credential-missing':
-      // Nothing to schedule: the next request of the extension brings the credential back and
-      // schedules the run.
-      return move(
-        task,
-        { state: { kind: 'queued', resumeFrom } },
-        { type: 'requeued', runId, reason: 'credential', detail, at: now },
-      );
     default:
       return fail(task, FAILURE_OF_RUN[reason], detail, now);
   }
@@ -389,7 +434,7 @@ export const answerQuestion = (
     return move(
       task,
       {
-        state: { kind: 'queued', resumeFrom: state.snapshot },
+        state: { kind: 'queued', resumeFrom: state.snapshot, awaiting: null },
         exchanges: settleLast(task.exchanges, answer),
       },
       { type: 'answered', questionId, source: 'requester', at: now },
@@ -429,7 +474,7 @@ export const expireQuestion = (
   return move(
     task,
     {
-      state: { kind: 'queued', resumeFrom: state.snapshot },
+      state: { kind: 'queued', resumeFrom: state.snapshot, awaiting: null },
       exchanges: settleLast(task.exchanges, { source: 'timeout', at: now }),
     },
     { type: 'answered', questionId, source: 'timeout', at: now },
@@ -437,11 +482,20 @@ export const expireQuestion = (
   );
 };
 
+/**
+ * The task's change request is open. A task cancelled while it was being opened stays cancelled,
+ * and its change request is withdrawn.
+ */
 export const markPublished = (
   task: Task,
   changeRequest: ChangeRequestRef,
   now: Instant,
 ): TransitionResult => {
+  if (task.state.kind === 'cancelled') {
+    return move(task, {}, { type: 'opened-after-cancel', url: changeRequest.url, at: now }, [
+      { kind: 'withdraw-change' },
+    ]);
+  }
   if (task.state.kind !== 'publishing')
     return conflict(`A ${task.state.kind} task cannot be published`);
   return move(

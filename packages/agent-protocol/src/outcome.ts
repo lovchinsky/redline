@@ -26,8 +26,6 @@ export type AgentReport = z.infer<typeof agentReportSchema>;
 export const RUN_FAILURES = [
   /** The gateway refused the run's budget: the task has spent it. */
   'budget-exhausted',
-  /** The requester's credential is not in the gateway (it restarted): the task waits for it. */
-  'credential-missing',
   /** The model refused the task's credential. */
   'model-access-failed',
   /** The agent ran out of turns or time, stalled, or ended without a usable report. */
@@ -56,11 +54,13 @@ export const outcomeSchema = z.object({
     z.object({ kind: z.literal('question'), question: askedQuestionSchema }),
     /** The subscription's limit ran out; the task waits until it resets. */
     z.object({ kind: z.literal('quota-exhausted'), resetAt: z.iso.datetime() }),
+    /** The requester's credential is not in the gateway (it restarted); the task waits for it. */
+    z.object({ kind: z.literal('credential-missing') }),
     z.object({ kind: z.literal('failed'), reason: z.enum(RUN_FAILURES), detail: text }),
   ]),
   /**
-   * How a later run goes on with this run's session: set when the run paused (a question, the
-   * subscription's limit, a missing credential) and its session can be resumed; null otherwise,
+   * How a later run goes on with this run's session: set when the run paused (`question`,
+   * `quota-exhausted`, `credential-missing`) and its session can be resumed; null otherwise,
    * and then a later run starts over, told the exchanges so far.
    */
   pause: z.nullable(pauseSchema),

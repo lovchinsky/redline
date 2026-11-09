@@ -73,18 +73,11 @@ export class PublishChange {
       );
       return;
     }
-    const recorded = await this.deps.writer.update(taskId, (current, now) =>
+    // A task cancelled meanwhile has the change request withdrawn (`markPublished`); a conflict
+    // is a concurrent delivery of this job that published the same change request.
+    await this.deps.writer.update(taskId, (current, now) =>
       markPublished(current, result.changeRequest, now),
     );
-    if (recorded.ok) return;
-    // Cancelled while publishing: the change request just opened must not stay open, and the
-    // withdrawal the cancellation scheduled may have looked before it existed. (Another conflict
-    // is a concurrent delivery of this job that published the same change request.)
-    const current = await this.deps.queries.get(taskId);
-    if (current?.state.kind === 'cancelled') {
-      this.deps.logger.info('Withdrawing the change request of a cancelled task', { taskId });
-      await this.deps.writer.schedule({ queue: 'withdraw-change', taskId });
-    }
   }
 
   private async publish(

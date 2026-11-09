@@ -1,4 +1,4 @@
-import { isTerminal, type Task } from '../domain/task';
+import { credentialArrived, isTerminal, type Task } from '../domain/task';
 import { err, ok, type Result } from '../domain/result';
 import type { CredentialVault, ModelAccessPolicy, ModelCredential } from '../ports/access';
 import type { Logger } from '../ports/system';
@@ -37,8 +37,8 @@ export const credentialsFor = (
 
 /**
  * Hands the requester's credential to the vault on every request about a task that runs with
- * it. A queued task that was waiting for its credential (the vault forgot it, e.g. on restart)
- * gets its run scheduled at once.
+ * it. A task that waits for its credential (the vault forgot it, e.g. on restart) has its run
+ * scheduled at once.
  */
 export class CredentialRelay {
   constructor(
@@ -60,11 +60,8 @@ export class CredentialRelay {
       return;
     }
     await this.deps.vault.deposit(task.id, credential);
-    // A queued task may be waiting for this credential, whether or not the vault lost it just
-    // now (its run may have found it missing since): its run is scheduled, and a run already
-    // queued absorbs the repeat.
-    if (task.state.kind === 'queued') {
-      await this.deps.writer.schedule({ queue: 'run', taskId: task.id, projectId: task.projectId });
+    if (task.state.kind === 'queued' && task.state.awaiting === 'credential') {
+      await this.deps.writer.update(task.id, (current, now) => credentialArrived(current, now));
     }
   }
 }

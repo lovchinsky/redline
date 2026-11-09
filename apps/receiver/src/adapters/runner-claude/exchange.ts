@@ -117,6 +117,8 @@ export const runOutcomeOf = (runId: RunId, outcome: Outcome, stored: StoredOutpu
         resetAt: Date.parse(result.resetAt),
         snapshot: snapshot(null),
       };
+    case 'credential-missing':
+      return { kind: 'credential-missing', snapshot: snapshot(null) };
     case 'failed':
       return {
         kind: 'failed',

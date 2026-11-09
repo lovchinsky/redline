@@ -58,9 +58,7 @@ describe('decideOutcome', () => {
     expect(refusedBy(GATEWAY_REFUSALS.budgetExhausted)).toMatchObject({
       reason: 'budget-exhausted',
     });
-    expect(refusedBy(GATEWAY_REFUSALS.credentialMissing)).toMatchObject({
-      reason: 'credential-missing',
-    });
+    expect(refusedBy(GATEWAY_REFUSALS.credentialMissing)).toEqual({ kind: 'credential-missing' });
     expect(refusedBy(GATEWAY_REFUSALS.credentialRefused)).toMatchObject({
       reason: 'model-access-failed',
     });

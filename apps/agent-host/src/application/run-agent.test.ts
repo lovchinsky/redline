@@ -147,7 +147,7 @@ describe('RunAgent', () => {
     );
     await agent.execute();
     expect(gateway.asked).toBe(1);
-    expect(files.outcome?.result).toMatchObject({ kind: 'failed', reason: 'credential-missing' });
+    expect(files.outcome?.result).toEqual({ kind: 'credential-missing' });
     // The session waits for the credential, and goes on where it stopped.
     expect(files.outcome?.pause).toEqual({
       sessionId: 'session-1',

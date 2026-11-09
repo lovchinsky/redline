@@ -7,8 +7,6 @@ import type { AgentReport, ChangeRef, Snapshot } from './work';
 export type RunFailureReason =
   /** The sandbox, the gateway or the receiver failed: the task may run again. */
   | 'infra'
-  /** The requester's model credential is not in the gateway: the task waits for the extension. */
-  | 'credential-missing'
   | 'setup-failed'
   | 'repository-unavailable'
   | 'budget-exhausted'
@@ -26,6 +24,8 @@ export type RunOutcome =
       readonly resetAt: Instant;
       readonly snapshot: Snapshot | null;
     }
+  /** The requester's model credential is not in the gateway: the task waits for it to come. */
+  | { readonly kind: 'credential-missing'; readonly snapshot: Snapshot | null }
   | {
       readonly kind: 'failed';
       readonly reason: RunFailureReason;
@@ -106,7 +106,7 @@ export const corroborate = (outcome: RunOutcome, refusal: GatewayRefusal | null)
       ? { ...outcome, resetAt: refusal.resetAt }
       : unconfirmed('the subscription’s limit ran out');
   }
-  if (outcome.kind === 'failed' && outcome.reason === 'credential-missing') {
+  if (outcome.kind === 'credential-missing') {
     return refusal?.kind === 'credential-missing'
       ? outcome
       : unconfirmed('the requester’s credential was missing');
