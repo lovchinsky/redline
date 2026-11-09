@@ -19,6 +19,9 @@ import { SandboxedClaudeRunner, type SandboxSettings, type SourceTrees } from '.
 import { packSnapshot, unpackSnapshot } from './snapshot';
 import { filesOf, tarOf } from './tar';
 
+/** A supervisor that does nothing with what it hears of the run. */
+const quiet = { setupDone: () => Promise.resolve() };
+
 const IMAGE_ID = 'sha256:1d2e';
 
 const bufferOf = async (archive: Buffer | Readable): Promise<Buffer> => {
@@ -343,13 +346,35 @@ describe('SandboxedClaudeRunner', () => {
     const agent = runner();
     await agent.start(await spec());
     sandboxes.agentOutput = await outputOf(changed, 'the change bundle');
-    const outcome = await agent.observe(runId, new AbortController().signal);
+    const outcome = await agent.observe(runId, new AbortController().signal, quiet);
     expect(sandboxes.started).toEqual(['redline-run-1-setup', 'redline-run-1-agent']);
     if (outcome.kind !== 'change') throw new Error(`Expected a change, got ${outcome.kind}`);
     expect(outcome.report.summary).toBe('Cards stretch');
     expect(
       new TextDecoder().decode((await blobs.read(outcome.change.blob)) ?? new Uint8Array()),
     ).toBe('the change bundle');
+  });
+
+  it('tells the supervisor the setup is done before the agent starts, and not when it failed', async () => {
+    const heard: string[] = [];
+    const phases = {
+      setupDone: () => {
+        heard.push(`setup done with ${sandboxes.started.join(', ')}`);
+        return Promise.resolve();
+      },
+    };
+    const agent = runner();
+    await agent.start(await spec());
+    sandboxes.agentOutput = await outputOf(changed, 'bundle');
+    await agent.observe(runId, new AbortController().signal, phases);
+    expect(heard).toEqual(['setup done with redline-run-1-setup']);
+
+    await agent.release(runId);
+    heard.length = 0;
+    await agent.start(await spec());
+    sandboxes.exits.setup = 1;
+    await agent.observe(runId, new AbortController().signal, phases);
+    expect(heard).toEqual([]);
   });
 
   it('starts the agent at once when the project has no setup', async () => {
@@ -364,7 +389,7 @@ describe('SandboxedClaudeRunner', () => {
     const restarted = runner();
     expect(await restarted.start(await spec())).toEqual({ ok: true });
     sandboxes.agentOutput = await outputOf(changed, 'bundle');
-    await restarted.observe(runId, new AbortController().signal);
+    await restarted.observe(runId, new AbortController().signal, quiet);
     expect(sandboxes.started.filter((name) => name.endsWith('-agent'))).toHaveLength(1);
     expect(sandboxes.started.filter((name) => name.endsWith('-setup'))).toHaveLength(1);
   });
@@ -373,7 +398,7 @@ describe('SandboxedClaudeRunner', () => {
     const agent = runner();
     await agent.start(await spec());
     sandboxes.exits.setup = 1;
-    expect(await agent.observe(runId, new AbortController().signal)).toEqual({
+    expect(await agent.observe(runId, new AbortController().signal, quiet)).toEqual({
       kind: 'failed',
       reason: 'setup-failed',
       detail: 'The project’s setup exited with 1:\nnpm ERR! 404 left-pad',
@@ -387,7 +412,7 @@ describe('SandboxedClaudeRunner', () => {
     await agent.start(await spec());
     sandboxes.exits.setup = 1;
     sandboxes.output = `${'x'.repeat(10_000)}\nGET http://redline:setup-grant@10.89.2.2:3128 failed`;
-    const outcome = await agent.observe(runId, new AbortController().signal);
+    const outcome = await agent.observe(runId, new AbortController().signal, quiet);
     const detail = outcome.kind === 'failed' ? outcome.detail : '';
     expect(detail).toContain('http://***@10.89.2.2:3128');
     expect(detail).not.toContain('setup-grant');
@@ -414,12 +439,12 @@ describe('SandboxedClaudeRunner', () => {
     const agent = runner(null);
     await agent.start(await spec());
     sandboxes.agentOutput = null;
-    expect(await agent.observe(runId, new AbortController().signal)).toMatchObject({
+    expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject({
       kind: 'failed',
       reason: 'infra',
     });
     await agent.release(runId);
-    expect(await agent.observe(runId, new AbortController().signal)).toEqual({
+    expect(await agent.observe(runId, new AbortController().signal, quiet)).toEqual({
       kind: 'lost',
       detail: 'The run’s sandbox is gone',
     });
@@ -432,7 +457,7 @@ describe('SandboxedClaudeRunner', () => {
     await agent.start(await spec());
     sandboxes.hangAgent = true;
     const stopping = new AbortController();
-    const watching = agent.observe(runId, stopping.signal);
+    const watching = agent.observe(runId, stopping.signal, quiet);
     stopping.abort();
     await watching;
     expect(sandboxes.containers.get('redline-run-1-agent')?.state.status).toBe('running');
@@ -473,7 +498,7 @@ describe('SandboxedClaudeRunner', () => {
         })),
         { uid: 1000, gid: 1000 },
       );
-      const outcome = await agent.observe(runId, new AbortController().signal);
+      const outcome = await agent.observe(runId, new AbortController().signal, quiet);
       if (outcome.kind !== 'question') throw new Error(`Expected a question, got ${outcome.kind}`);
       expect(outcome.question).toEqual({
         id: QuestionId('q-run-1'),
@@ -501,7 +526,7 @@ describe('SandboxedClaudeRunner', () => {
       // The pause names work that agent-host did not leave.
       sandboxes.agentOutput = await outputOf(asked, null);
       sandboxes.sessionArchive = await tarOf([], { uid: 1000, gid: 1000 });
-      expect(await agent.observe(runId, new AbortController().signal)).toMatchObject({
+      expect(await agent.observe(runId, new AbortController().signal, quiet)).toMatchObject({
         kind: 'question',
         snapshot: null,
       });

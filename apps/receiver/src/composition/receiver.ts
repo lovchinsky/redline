@@ -31,7 +31,13 @@ import { TaskOperations } from '../application/operations';
 import { PublishChange } from '../application/publish-change';
 import { TaskRequests } from '../application/requests';
 import { SuperviseRun } from '../application/supervise-run';
-import { AbortRun, ExpireQuestion, ReleaseStrays, WithdrawChange } from '../application/task-jobs';
+import {
+  AbortRun,
+  ExpireQuestion,
+  ForgetCredential,
+  ReleaseStrays,
+  WithdrawChange,
+} from '../application/task-jobs';
 import { TaskWriter } from '../application/task-writer';
 import { ModelCredential, type CredentialVault } from '../ports/access';
 import type { AgentRunner } from '../ports/agent';
@@ -323,6 +329,7 @@ export const assemble = async (
     });
     const expire = new ExpireQuestion({ writer, projects });
     const abort = new AbortRun({ runner });
+    const forget = new ForgetCredential({ vault });
     const withdraw = new WithdrawChange({ queries: store, projects, forge: git.forge, logger });
     const strays = new ReleaseStrays({
       uow: store,
@@ -342,6 +349,7 @@ export const assemble = async (
       'reply-timeout': (job) => expire.handle(job.taskId, job.questionId),
       'abort-run': (job) => abort.handle(job.runId),
       'withdraw-change': (job) => withdraw.handle(job.taskId),
+      'forget-credential': (job) => forget.handle(job.taskId),
     });
   }
   // One process with sandboxed agents is their gateway too; a scripted agent calls no model.

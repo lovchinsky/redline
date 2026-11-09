@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ProjectId, QuestionId, TaskId } from '../domain/ids';
 import { ann, apiKey, bob, MANIFEST, project, subscription } from './testing/fakes';
-import { system } from './testing/system';
+import { never, system } from './testing/system';
 
 const requiring = {
   credentials: 'required',
@@ -127,16 +127,26 @@ describe('following a task', () => {
     });
   });
 
-  it('schedules the run of a queued task once its credential comes back', async () => {
+  it('schedules the run of a queued task whenever its credential comes', async () => {
     const app = system(requiring);
     const task = await app.submit({ credential: apiKey });
-    app.vault.credentials.clear();
+    // The gateway lost the credential, and the run found it missing; the extension sent it again
+    // while the run was still running, so the vault holds it before the task is queued.
+    app.runner.outcomes.push({
+      kind: 'failed',
+      reason: 'credential-missing',
+      detail: 'gone',
+      snapshot: null,
+    });
+    app.runner.onStart = (spec) => {
+      app.store.state.refusals.set(spec.runId, { kind: 'credential-missing' });
+    };
+    await app.supervise.handle(task.id, never);
+    expect(app.store.task(task.id).state.kind).toBe('queued');
+    const scheduled = app.store.jobsOf('run').length;
     await app.requests.state(ann, task.id, apiKey);
     expect(app.vault.credentials.get(task.id)).toBe(apiKey);
-    expect(app.store.jobsOf('run')).toHaveLength(2);
-    // While the vault holds it, polling schedules nothing more.
-    await app.requests.state(ann, task.id, apiKey);
-    expect(app.store.jobsOf('run')).toHaveLength(2);
+    expect(app.store.jobsOf('run')).toHaveLength(scheduled + 1);
   });
 });
 

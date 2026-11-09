@@ -43,7 +43,9 @@ export type RunState =
       readonly at: Instant;
     }
   /** The run's sandbox disappeared without an outcome. */
-  | { readonly kind: 'interrupted'; readonly at: Instant };
+  | { readonly kind: 'interrupted'; readonly at: Instant }
+  /** The task stopped wanting the run (it was cancelled) while it ran. */
+  | { readonly kind: 'aborted'; readonly at: Instant };
 
 /**
  * How a run begins: the task's first, one that goes on with a paused session, or one that
@@ -78,6 +80,11 @@ export const finishRun = (run: Run, outcome: RunOutcome, applied: boolean, at: I
 export const interruptRun = (run: Run, at: Instant): Run => ({
   ...run,
   state: { kind: 'interrupted', at },
+});
+
+export const abortRun = (run: Run, at: Instant): Run => ({
+  ...run,
+  state: { kind: 'aborted', at },
 });
 
 /**

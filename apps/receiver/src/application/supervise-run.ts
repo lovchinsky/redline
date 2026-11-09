@@ -12,7 +12,6 @@ import {
   beginRun,
   cancelTask,
   fixBase,
-  isTerminal,
   loseRun,
   type Task,
   type TransitionResult,
@@ -224,7 +223,10 @@ export class SuperviseRun {
   private async supervise(taskId: TaskId, runId: RunId, signal: AbortSignal): Promise<void> {
     const run = await this.deps.uow.run((scope) => scope.runs.get(runId));
     if (run?.state.kind !== 'started') return;
-    const observed = await this.deps.runner.observe(runId, signal);
+    const observed = await this.deps.runner.observe(runId, signal, {
+      // The agent never holds what the setup used: its registries' grant ends with the setup.
+      setupDone: () => this.deps.uow.run((scope) => scope.grants.revoke(runId, 'setup')),
+    });
     // Shutting down: the run goes on, and the job's next delivery attaches to it again.
     if (signal.aborted) return;
     if (observed.kind === 'lost') {
@@ -276,9 +278,7 @@ export class SuperviseRun {
       await this.deps.uow.run((scope) =>
         this.closeRun(scope, runId, (run) => record(run, false, this.deps.clock.now())),
       );
-      return;
     }
-    if (isTerminal(settled.value.transition.task)) await this.deps.vault.forget(taskId);
   }
 
   private async closeRun(scope: WorkScope, runId: RunId, close: (run: Run) => Run): Promise<void> {

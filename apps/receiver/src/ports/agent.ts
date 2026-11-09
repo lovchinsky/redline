@@ -35,6 +35,15 @@ export interface RunSpec {
   readonly execution: ExecutionProfile;
 }
 
+/** What a supervisor hears from its run while it waits for the run's outcome. */
+export interface RunPhases {
+  /**
+   * The setup phase is over (or the run has none): what only the setup may use, its
+   * registries' grant, goes now. Heard again by a supervisor that attaches later.
+   */
+  setupDone(): Promise<void>;
+}
+
 export type RunnerError = { readonly transient: boolean; readonly detail: string };
 
 /**
@@ -47,14 +56,14 @@ export interface AgentRunner {
     spec: RunSpec,
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: RunnerError }>;
   /**
-   * Waits for the run's outcome. A run that no longer exists and left no outcome is `lost`.
-   * Aborting `signal` stops waiting; the run goes on.
+   * Waits for the run's outcome, telling `phases` how far the run got. A run that no longer
+   * exists and left no outcome is `lost`. Aborting `signal` stops waiting; the run goes on.
    */
   observe(
     runId: RunId,
     signal: AbortSignal,
+    phases: RunPhases,
   ): Promise<RunOutcome | { readonly kind: 'lost'; readonly detail: string }>;
-  abort(runId: RunId): Promise<void>;
   /** Frees what the run holds once its outcome has been applied. */
   release(runId: RunId): Promise<void>;
   /** Runs that hold something where they run: sandboxes, volumes, memory. */

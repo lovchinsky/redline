@@ -67,9 +67,12 @@ export type TaskEffect =
       readonly questionId: QuestionId;
       readonly at: Instant;
     }
+  /** The run is over for the task: its record closes and its grants go now, its sandbox later. */
   | { readonly kind: 'abort-run'; readonly runId: RunId }
   /** Close the change request a cancelled publication may already have opened. */
-  | { readonly kind: 'withdraw-change' };
+  | { readonly kind: 'withdraw-change' }
+  /** The task is over: the requester's credential is no longer needed anywhere. */
+  | { readonly kind: 'forget-credential' };
 
 /** What happened to a task, for its history. */
 export type TaskEvent = { readonly at: Instant } & (
@@ -114,6 +117,10 @@ const conflict = (message: string): TransitionResult => err({ code: 'conflict', 
 
 const unchanged = (task: Task): TransitionResult => ok({ task, effects: [], event: null });
 
+/**
+ * A transition that happened. A task that ends with it lets go of the requester's credential,
+ * whichever way it ended.
+ */
 const move = (
   task: Task,
   changes: Partial<
@@ -121,7 +128,15 @@ const move = (
   >,
   event: TaskEvent,
   effects: readonly TaskEffect[] = [],
-): TransitionResult => ok({ task: { ...task, ...changes, updatedAt: event.at }, effects, event });
+): TransitionResult => {
+  const moved = { ...task, ...changes, updatedAt: event.at };
+  const ends = !isTerminal(task) && isTerminal(moved) && task.credentials === 'requester';
+  return ok({
+    task: moved,
+    effects: ends ? [...effects, { kind: 'forget-credential' }] : effects,
+    event,
+  });
+};
 
 const fail = (task: Task, code: FailureCode, detail: string, now: Instant): TransitionResult =>
   move(
@@ -181,7 +196,11 @@ export const beginRun = (
   const resumedFrom = paused !== null && paused.blob === resumable?.blob ? paused : null;
   return move(
     task,
-    { state: { kind: 'running', runId, resumedFrom } },
+    {
+      state: { kind: 'running', runId, resumedFrom },
+      // The run goes on from the exchanges as they stand: a late answer would come too late.
+      exchanges: task.exchanges.map((exchange) => ({ ...exchange, closed: true })),
+    },
     { type: 'run-started', runId, resumed: resumedFrom !== null, at: now },
   );
 };
@@ -233,7 +252,12 @@ export const applyOutcome = (
       if (questionsLeft(task, policy) === 0) {
         return fail(task, 'agent-failed', 'it asked more questions than the project allows', now);
       }
-      const exchange: Exchange = { question: outcome.question, askedAt: now, answer: null };
+      const exchange: Exchange = {
+        question: outcome.question,
+        askedAt: now,
+        answer: null,
+        closed: false,
+      };
       return move(
         task,
         {
@@ -345,7 +369,7 @@ export const loseRun = (
 /**
  * The requester answers a question. Answering the same question with the same text again
  * changes nothing (its response may have been lost). An answer that arrives after the question
- * timed out still counts while the run that goes on without it has not started.
+ * timed out still counts until a run goes on from the exchange without it.
  */
 export const answerQuestion = (
   task: Task,
@@ -376,7 +400,8 @@ export const answerQuestion = (
   if (
     state.kind === 'queued' &&
     last?.question.id === questionId &&
-    last.answer?.source === 'timeout'
+    last.answer?.source === 'timeout' &&
+    !last.closed
   ) {
     return move(
       task,

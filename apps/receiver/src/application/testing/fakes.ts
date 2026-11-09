@@ -26,7 +26,7 @@ import {
   type ProjectCatalog,
   type User,
 } from '../../ports/access';
-import type { AgentRunner, RunSpec, RunnerError } from '../../ports/agent';
+import type { AgentRunner, RunPhases, RunSpec, RunnerError } from '../../ports/agent';
 import type { BundleContents, BundleReader } from '../../ports/bundles';
 import type {
   ChangeRequestDraft,
@@ -164,8 +164,12 @@ export class MemoryStore implements UnitOfWork, TaskQueries {
           draft.issued.push(terms);
           return Promise.resolve(`grant-${terms.phase}-${terms.runId}` as GrantToken);
         },
-        revoke: (runId) => {
-          draft.grants.delete(runId);
+        revoke: (runId, phase) => {
+          const kept = (draft.grants.get(runId) ?? []).filter(
+            (terms) => phase !== undefined && terms.phase !== phase,
+          );
+          if (kept.length === 0) draft.grants.delete(runId);
+          else draft.grants.set(runId, kept);
           return Promise.resolve();
         },
         refusal: (runId) => Promise.resolve(draft.refusals.get(runId) ?? null),
@@ -345,7 +349,6 @@ export class MemoryGrantBook implements GrantBook {
 /** An agent runner that plays outcomes a test chose, one per run, in order. */
 export class FakeRunner implements AgentRunner {
   readonly started: RunSpec[] = [];
-  readonly aborted: string[] = [];
   readonly released: string[] = [];
   startError: RunnerError | null = null;
   /** Whether the paused sessions it is asked about can be resumed. */
@@ -365,14 +368,11 @@ export class FakeRunner implements AgentRunner {
     this.onStart(spec);
     return Promise.resolve({ ok: true as const });
   }
-  observe() {
+  observe(_runId: RunId, _signal: AbortSignal, phases: RunPhases) {
+    void phases.setupDone();
     const next = this.outcomes.shift();
     if (next === undefined) throw new Error('No outcome scripted');
     return Promise.resolve(next);
-  }
-  abort(runId: RunId) {
-    this.aborted.push(runId);
-    return Promise.resolve();
   }
   release(runId: RunId) {
     this.released.push(runId);

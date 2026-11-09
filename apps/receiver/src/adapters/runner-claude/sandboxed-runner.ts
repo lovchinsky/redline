@@ -5,7 +5,7 @@ import { BlobDigest, RunId, type TaskId } from '../../domain/ids';
 import type { RunOutcome } from '../../domain/run';
 import type { Snapshot } from '../../domain/work';
 import type { ExecutionProfile, RepositoryRef } from '../../ports/access';
-import type { AgentRunner, RunnerError, RunSpec } from '../../ports/agent';
+import type { AgentRunner, RunPhases, RunnerError, RunSpec } from '../../ports/agent';
 import type { BlobStore } from '../../ports/bundles';
 import type { Logger } from '../../ports/system';
 import { briefOf, runOutcomeOf, type StoredOutputs } from './exchange';
@@ -178,9 +178,11 @@ export class SandboxedClaudeRunner implements AgentRunner {
   async observe(
     runId: RunId,
     signal: AbortSignal,
+    phases: RunPhases,
   ): Promise<RunOutcome | { kind: 'lost'; detail: string }> {
     const { sandboxes } = this.deps;
     const names = containers(runId);
+    let setupDone = false;
     for (;;) {
       if (signal.aborted) return infra('The worker stopped watching');
       const setup = await sandboxes.state(names.setup);
@@ -216,6 +218,10 @@ export class SandboxedClaudeRunner implements AgentRunner {
           snapshot: null,
         };
       }
+      if (!setupDone) {
+        await phases.setupDone();
+        setupDone = true;
+      }
       if (agent.status === 'created') {
         await sandboxes.start(names.agent);
         continue;
@@ -236,12 +242,6 @@ export class SandboxedClaudeRunner implements AgentRunner {
       }
       return this.collect(runId, agent.exitCode, agent.labels);
     }
-  }
-
-  async abort(runId: RunId): Promise<void> {
-    const names = containers(runId);
-    await this.deps.sandboxes.remove(names.agent);
-    await this.deps.sandboxes.remove(names.setup);
   }
 
   async release(runId: RunId): Promise<void> {

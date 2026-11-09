@@ -1,5 +1,6 @@
 import type { Instant, TaskId } from '../domain/ids';
 import { err, ok, type Result } from '../domain/result';
+import { abortRun } from '../domain/run';
 import type { Task, TaskEffect, Transition, TransitionResult } from '../domain/task';
 import type { Clock } from '../ports/system';
 import type { InsertResult, Job, UnitOfWork, WorkScope } from '../ports/tasks';
@@ -21,6 +22,8 @@ const jobOf = (task: Task, effect: TaskEffect): Job => {
       return { queue: 'abort-run', taskId, runId: effect.runId };
     case 'withdraw-change':
       return { queue: 'withdraw-change', taskId };
+    case 'forget-credential':
+      return { queue: 'forget-credential', taskId };
   }
 };
 
@@ -32,13 +35,19 @@ const startAfter = (effect: TaskEffect): Instant | null =>
     : null;
 
 /**
- * Records what a transition did: its event, and its effects as jobs. An aborted run also loses
- * its grant here, at once, so it cannot spend while its sandbox is being stopped.
+ * Records what a transition did: its event, and its effects as jobs. An aborted run is closed
+ * here, at once, with the task: its record says it is over, and its grants go, so it cannot
+ * spend while its sandbox is being stopped.
  */
 const carryOut = async (scope: WorkScope, task: Task, transition: Transition): Promise<void> => {
-  if (transition.event !== null) await scope.history.append(task.id, transition.event);
+  const { event } = transition;
+  if (event !== null) await scope.history.append(task.id, event);
   for (const effect of transition.effects) {
-    if (effect.kind === 'abort-run') await scope.grants.revoke(effect.runId);
+    if (effect.kind === 'abort-run') {
+      await scope.grants.revoke(effect.runId);
+      const run = await scope.runs.get(effect.runId);
+      if (run?.state.kind === 'started') await scope.runs.save(abortRun(run, task.updatedAt));
+    }
     await scope.jobs.schedule(jobOf(task, effect), startAfter(effect));
   }
 };
@@ -109,7 +118,8 @@ export class TaskWriter {
         if (!(error instanceof StaleTask)) throw error;
       }
     }
-    return err(conflictError('The task keeps changing; try again'));
+    // Not a conflict of the task's state: the job or request that asked is tried again.
+    throw new Error(`Task ${taskId} kept changing while it was being saved`);
   }
 
   /** Schedules a job outside any transition, e.g. a run for a task whose credential came back. */

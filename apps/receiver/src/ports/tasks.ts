@@ -45,7 +45,8 @@ export type Job =
   | { readonly queue: 'publish'; readonly taskId: TaskId; readonly projectId: ProjectId }
   | { readonly queue: 'reply-timeout'; readonly taskId: TaskId; readonly questionId: QuestionId }
   | { readonly queue: 'abort-run'; readonly taskId: TaskId; readonly runId: RunId }
-  | { readonly queue: 'withdraw-change'; readonly taskId: TaskId };
+  | { readonly queue: 'withdraw-change'; readonly taskId: TaskId }
+  | { readonly queue: 'forget-credential'; readonly taskId: TaskId };
 
 export type JobQueue = Job['queue'];
 
@@ -64,8 +65,8 @@ export interface JobScheduler {
  */
 export interface RunGrants {
   issue(terms: GrantTerms): Promise<GrantToken>;
-  /** Revokes every grant of the run. */
-  revoke(runId: RunId): Promise<void>;
+  /** Revokes the run's grants: every one, or only that of `phase`. */
+  revoke(runId: RunId, phase?: GrantTerms['phase']): Promise<void>;
   /** Why the gateway last refused the run, as the gateway recorded it; null when it did not. */
   refusal(runId: RunId): Promise<GatewayRefusal | null>;
 }

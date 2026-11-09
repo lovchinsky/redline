@@ -5,6 +5,12 @@ import type { Logger } from '../../ports/system';
 import { GitHubError, type GitHubApi } from './api';
 import type { GitHubAuth } from './auth';
 
+/** A repository as git reaches it on GitHub, with its token as the request's credentials. */
+interface Remote {
+  readonly url: string;
+  readonly authorization: string;
+}
+
 /** The label a pull request carries when the repository takes no drafts. */
 export const DRAFT_LABEL = 'redline:draft';
 
@@ -46,18 +52,22 @@ export class GitHubHost implements Forge {
   constructor(private readonly options: GitHubHostOptions) {}
 
   /** Where the repository is fetched from, with a token for it. */
-  async source(repository: RepositoryRef): Promise<{ url: string; authorization: string } | null> {
-    if (repository.host !== 'github') return null;
-    return this.remoteOf(repository.name);
+  source(repository: RepositoryRef): Promise<Publishing<Remote | null>> {
+    return caught(() =>
+      repository.host === 'github' ? this.remoteOf(repository.name) : Promise.resolve(null),
+    );
   }
 
   /** Where a task's branch goes: the bot's fork, or the repository itself. */
-  async target(
+  target(
     repository: RepositoryRef,
     publishing: PublishingProfile,
-  ): Promise<{ url: string; authorization: string } | null> {
-    if (repository.host !== 'github') return null;
-    return this.remoteOf(this.headRepository(repository, publishing));
+  ): Promise<Publishing<Remote | null>> {
+    return caught(() =>
+      repository.host === 'github'
+        ? this.remoteOf(this.headRepository(repository, publishing))
+        : Promise.resolve(null),
+    );
   }
 
   findOpen(repository: RepositoryRef, publishing: PublishingProfile, branch: string) {

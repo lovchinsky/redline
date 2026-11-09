@@ -1,6 +1,6 @@
 import type { QuestionId, RunId, TaskId } from '../domain/ids';
 import { cancelTask, expireQuestion } from '../domain/task';
-import type { ProjectCatalog } from '../ports/access';
+import type { CredentialVault, ProjectCatalog } from '../ports/access';
 import type { AgentRunner } from '../ports/agent';
 import type { Forge } from '../ports/publishing';
 import type { Logger } from '../ports/system';
@@ -26,14 +26,23 @@ export class ExpireQuestion {
 }
 
 /**
- * Stops the sandbox of a run the task no longer wants. Its grant was revoked when the task
- * moved on; this frees the machine.
+ * Frees what a run the task no longer wants holds: its sandbox stops and its volumes go. Its
+ * record and grants were closed when the task moved on.
  */
 export class AbortRun {
   constructor(private readonly deps: { readonly runner: AgentRunner }) {}
 
   async handle(runId: RunId): Promise<void> {
-    await this.deps.runner.abort(runId);
+    await this.deps.runner.release(runId);
+  }
+}
+
+/** Lets go of the requester's credential once the task is over. */
+export class ForgetCredential {
+  constructor(private readonly deps: { readonly vault: CredentialVault }) {}
+
+  async handle(taskId: TaskId): Promise<void> {
+    await this.deps.vault.forget(taskId);
   }
 }
 

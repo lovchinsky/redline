@@ -12,19 +12,13 @@ import type { Job, JobQueue, JobScheduler } from '../../ports/tasks';
 import type { Database } from './schema';
 
 /** What a worker does with each kind of job. A handler that throws has its job retried. */
-export interface JobHandlers {
-  run(job: Extract<Job, { queue: 'run' }>, signal: AbortSignal): Promise<void>;
-  publish(job: Extract<Job, { queue: 'publish' }>, signal: AbortSignal): Promise<void>;
-  'reply-timeout'(
-    job: Extract<Job, { queue: 'reply-timeout' }>,
+/** A handler for each queue, given the queue's jobs. */
+export type JobHandlers = {
+  readonly [Queue in JobQueue]: (
+    job: Extract<Job, { queue: Queue }>,
     signal: AbortSignal,
-  ): Promise<void>;
-  'abort-run'(job: Extract<Job, { queue: 'abort-run' }>, signal: AbortSignal): Promise<void>;
-  'withdraw-change'(
-    job: Extract<Job, { queue: 'withdraw-change' }>,
-    signal: AbortSignal,
-  ): Promise<void>;
-}
+  ) => Promise<void>;
+};
 
 export interface WorkerLimits {
   /** Runs at once on this worker. */
@@ -62,6 +56,7 @@ const queueOptions = (
   'reply-timeout': { policy: 'stately', retryLimit: 20, retryDelay: 60 },
   'abort-run': { policy: 'stately', retryLimit: 20, retryDelay: 30 },
   'withdraw-change': { policy: 'stately', retryLimit: 20, retryDelay: 60, retryBackoff: true },
+  'forget-credential': { policy: 'stately', retryLimit: 20, retryDelay: 30 },
 });
 
 /** pg-boss fixes a queue's policy, heartbeat and longest retry delay when it creates the queue. */
@@ -80,6 +75,7 @@ const QUEUES = [
   'reply-timeout',
   'abort-run',
   'withdraw-change',
+  'forget-credential',
 ] as const satisfies readonly JobQueue[];
 
 /** The singleton key of a job: the one thing at most one job is queued (and one active) for. */
@@ -88,6 +84,7 @@ const singletonOf = (job: Job): string => {
     case 'run':
     case 'publish':
     case 'withdraw-change':
+    case 'forget-credential':
       return job.taskId;
     case 'reply-timeout':
       return `${job.taskId}/${job.questionId}`;
@@ -116,6 +113,7 @@ const payloadOf = (job: Job): Payload => {
     case 'abort-run':
       return { taskId: job.taskId, runId: job.runId };
     case 'withdraw-change':
+    case 'forget-credential':
       return { taskId: job.taskId };
   }
 };
@@ -138,6 +136,7 @@ const jobFrom = (queue: JobQueue, data: Payload): Job => {
     case 'abort-run':
       return { queue, taskId, runId: RunId(field(data, 'runId')) };
     case 'withdraw-change':
+    case 'forget-credential':
       return { queue, taskId };
   }
 };

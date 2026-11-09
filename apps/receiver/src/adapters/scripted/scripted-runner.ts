@@ -1,6 +1,6 @@
 import { QuestionId, type BlobDigest, type RunId } from '../../domain/ids';
 import type { RunOutcome } from '../../domain/run';
-import type { AgentRunner, RunSpec } from '../../ports/agent';
+import type { AgentRunner, RunPhases, RunSpec } from '../../ports/agent';
 
 export interface ScriptedAgentOptions {
   /** How long a scripted run takes. */
@@ -21,10 +21,7 @@ export const SCRIPTED_HEAD = '5c41ed0000000000000000000000000000000000';
  * after a restart they are lost, and the receiver runs the task again.
  */
 export class ScriptedRunner implements AgentRunner {
-  private readonly runs = new Map<
-    RunId,
-    { readonly spec: RunSpec; readonly endsAt: number; aborted: boolean }
-  >();
+  private readonly runs = new Map<RunId, { readonly spec: RunSpec; readonly endsAt: number }>();
 
   constructor(
     private readonly options: ScriptedAgentOptions,
@@ -36,7 +33,6 @@ export class ScriptedRunner implements AgentRunner {
       this.runs.set(spec.runId, {
         spec,
         endsAt: this.now() + this.options.durationMs,
-        aborted: false,
       });
     }
     return Promise.resolve({ ok: true as const });
@@ -45,19 +41,16 @@ export class ScriptedRunner implements AgentRunner {
   async observe(
     runId: RunId,
     signal: AbortSignal,
+    phases: RunPhases,
   ): Promise<RunOutcome | { kind: 'lost'; detail: string }> {
+    // A scripted run has no setup.
+    await phases.setupDone();
     const run = this.runs.get(runId);
     if (run === undefined)
       return { kind: 'lost', detail: 'the scripted run is not in this process' };
     await this.until(run.endsAt, signal);
-    if (run.aborted) return { kind: 'failed', reason: 'infra', detail: 'aborted', snapshot: null };
+    if (!this.runs.has(runId)) return { kind: 'lost', detail: 'the scripted run was released' };
     return this.outcomeOf(run.spec);
-  }
-
-  abort(runId: RunId): Promise<void> {
-    const run = this.runs.get(runId);
-    if (run !== undefined) run.aborted = true;
-    return Promise.resolve();
   }
 
   release(runId: RunId): Promise<void> {

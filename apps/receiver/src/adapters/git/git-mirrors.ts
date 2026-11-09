@@ -8,8 +8,8 @@ import type { ChangeRef } from '../../domain/work';
 import type { PublishingProfile, RepositoryRef } from '../../ports/access';
 import type { BlobStore } from '../../ports/bundles';
 import type { DeterministicCommit, Publishing, SourceRepository } from '../../ports/publishing';
-import { GitError, git, reaching, streamOf } from './git';
-import type { GitRemotes } from './remotes';
+import { git, reaching, streamOf } from './git';
+import type { GitRemote, GitRemotes } from './remotes';
 
 /** The ref a change bundle carries its commit at (`CHANGE_REF` of the agent protocol). */
 const BUNDLE_REF = 'refs/redline/change';
@@ -92,8 +92,9 @@ export class GitMirrors implements SourceRepository {
     taskId: TaskId,
   ): Promise<Publishing<{ readonly baseSha: string }>> {
     try {
-      const remote = await this.options.remotes.source(repository);
-      if (remote === null) return fail(`No git host ${repository.host} is configured`, false);
+      const reached = await this.reached(repository, this.options.remotes.source(repository));
+      if (!reached.ok) return reached;
+      const remote = reached.value;
       return await this.locked(repository, async (mirror) => {
         const exists = await access(mirror).then(
           () => true,
@@ -125,8 +126,9 @@ export class GitMirrors implements SourceRepository {
   /** The head of the repository's base branch, read from its host: whether the mirrors reach it. */
   async reach(repository: RepositoryRef): Promise<Publishing<string>> {
     try {
-      const remote = await this.options.remotes.source(repository);
-      if (remote === null) return fail(`No git host ${repository.host} is configured`, false);
+      const reached = await this.reached(repository, this.options.remotes.source(repository));
+      if (!reached.ok) return reached;
+      const remote = reached.value;
       const listed = await git(
         tmpdir(),
         ['ls-remote', remote.url, `refs/heads/${repository.baseBranch}`],
@@ -165,14 +167,27 @@ export class GitMirrors implements SourceRepository {
     return archive;
   }
 
-  /** A file of the repository at `sha`, or null when there is none. */
+  /**
+   * A file of the repository at `sha`, or null when the tree has none there. Failing to read
+   * the mirror is an error, never taken for a missing file.
+   */
   async fileAt(repository: RepositoryRef, sha: string, file: string): Promise<string | null> {
-    try {
-      return await git(this.mirrorOf(repository), ['show', `${sha}:${file}`]);
-    } catch (error) {
-      if (error instanceof GitError) return null;
-      throw error;
-    }
+    const mirror = this.mirrorOf(repository);
+    const listed = await git(mirror, ['ls-tree', '--object-only', sha, '--', file]);
+    if (listed === '') return null;
+    return git(mirror, ['cat-file', 'blob', listed]);
+  }
+
+  /** The remote a host gives for a repository, or why there is none. */
+  private async reached(
+    repository: RepositoryRef,
+    found: Promise<Publishing<GitRemote | null>>,
+  ): Promise<Publishing<GitRemote>> {
+    const remote = await found;
+    if (!remote.ok) return remote;
+    return remote.value === null
+      ? fail(`No git host ${repository.host} is configured`, false)
+      : ok(remote.value);
   }
 
   async describe(repository: RepositoryRef, baseSha: string, change: ChangeRef) {
@@ -258,8 +273,12 @@ export class GitMirrors implements SourceRepository {
   ) {
     const mirror = this.mirrorOf(repository);
     try {
-      const remote = await this.options.remotes.target(repository, publishing);
-      if (remote === null) return fail(`No git host ${repository.host} is configured`, false);
+      const reached = await this.reached(
+        repository,
+        this.options.remotes.target(repository, publishing),
+      );
+      if (!reached.ok) return reached;
+      const remote = reached.value;
       const env = reaching(remote);
       const listed = await git(mirror, ['ls-remote', remote.url, `refs/heads/${branch}`], env);
       const current = listed.split(/\s/)[0] ?? '';
@@ -302,9 +321,14 @@ export class GitMirrors implements SourceRepository {
       try {
         await git(mirror, ['bundle', 'verify', '--quiet', file]);
         await this.inspectObjects(mirror, scratch, bytes);
-        await git(mirror, ['fetch', '--quiet', '--no-tags', file, `+${BUNDLE_REF}:${ref}`]);
       } catch (error) {
         return fail(`The change is not a git bundle of this repository: ${String(error)}`, false);
+      }
+      try {
+        await git(mirror, ['fetch', '--quiet', '--no-tags', file, `+${BUNDLE_REF}:${ref}`]);
+      } catch (error) {
+        // The bundle is sound: storing it failed (a lock, the disk), and may not next time.
+        return fail(`The change could not be stored in the mirror: ${String(error)}`, true);
       }
       const head = await git(mirror, ['rev-parse', ref]);
       if (head !== change.head) {

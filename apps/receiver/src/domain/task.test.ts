@@ -142,7 +142,7 @@ describe('run outcomes', () => {
     });
     expect(transition.task.state).toMatchObject({ kind: 'awaiting-reply', questionId: 'q1' });
     expect(transition.task.exchanges).toEqual([
-      { question: question('q1'), askedAt: 20, answer: null },
+      { question: question('q1'), askedAt: 20, answer: null, closed: false },
     ]);
     expect(transition.effects).toEqual([
       { kind: 'schedule-reply-timeout', questionId: 'q1', at: 20 + policy.replyTimeoutMs },
@@ -371,6 +371,52 @@ describe('questions and answers', () => {
 
     const started = value(beginRun(expired, run2, pausedOf(expired), 1_150)).task;
     expect(answerQuestion(started, QuestionId('q1'), 'Desktop only', 1_200).ok).toBe(false);
+  });
+
+  it('takes no late answer once a run went on without it, even if the task is queued again', () => {
+    const expired = value(expireQuestion(asked(), QuestionId('q1'), policy, 1_100)).task;
+    const started = value(beginRun(expired, run2, pausedOf(expired), 1_150)).task;
+    const requeued = outcome(
+      started,
+      { kind: 'quota-exhausted', resetAt: 5_000, snapshot: null },
+      run2,
+      1_160,
+    ).task;
+    expect(requeued.state.kind).toBe('queued');
+    expect(answerQuestion(requeued, QuestionId('q1'), 'Desktop only', 1_200).ok).toBe(false);
+  });
+});
+
+describe('ending', () => {
+  const ofRequester = (): Task => ({ ...submitted(), credentials: 'requester' });
+
+  it('lets go of the requester’s credential whichever way the task ends', () => {
+    const ends = [
+      cancelTask(ofRequester(), 'stop', 5),
+      applyOutcome(
+        running(ofRequester()),
+        run1,
+        { kind: 'no-change', explanation: 'done' },
+        policy,
+        20,
+      ),
+      markPublished(
+        outcome(running(ofRequester()), {
+          kind: 'change',
+          change: { blob: digest('c'), head: 'b'.repeat(40) },
+          report,
+        }).task,
+        { id: '1', url: 'https://git.example/pr/1' },
+        30,
+      ),
+    ];
+    for (const end of ends) {
+      expect(value(end).effects).toContainEqual({ kind: 'forget-credential' });
+    }
+    // The operator's credential is not the task's to let go of; and an end is not repeated.
+    expect(value(cancelTask(submitted(), 'stop', 5)).effects).toEqual([]);
+    const cancelled = value(cancelTask(ofRequester(), 'stop', 5)).task;
+    expect(value(cancelTask(cancelled, 'again', 6)).effects).toEqual([]);
   });
 });
 

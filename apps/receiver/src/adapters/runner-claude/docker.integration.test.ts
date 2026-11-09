@@ -25,6 +25,9 @@ import {
  * gives it. `REDLINE_TEST_DOCKER` names the Engine's socket. gVisor is what deployments run;
  * these tests run the same containers under runc, the isolation they waive by name.
  */
+/** A supervisor that does nothing with what it hears of the run. */
+const quiet = { setupDone: () => Promise.resolve() };
+
 const socket = process.env['REDLINE_TEST_DOCKER'];
 if (socket === undefined || socket === '') {
   throw new Error('Set REDLINE_TEST_DOCKER to the Docker socket to test sandboxes');
@@ -163,7 +166,7 @@ describe('the sandboxed runner on Docker', () => {
     expect(await agent.start(await specFor(runId, 'Make the cards equal height'))).toEqual({
       ok: true,
     });
-    const seen = report(await agent.observe(runId, new AbortController().signal));
+    const seen = report(await agent.observe(runId, new AbortController().signal, quiet));
     expect(seen).toMatchObject({
       title: 'Make the cards equal height',
       checks: ['pnpm test'],
@@ -190,7 +193,7 @@ describe('the sandboxed runner on Docker', () => {
     started.push(runId);
     await runner().start(await specFor(runId, 'Make a change'));
     // Another worker, after a restart, attaches to the same run.
-    const outcome = await runner().observe(runId, new AbortController().signal);
+    const outcome = await runner().observe(runId, new AbortController().signal, quiet);
     if (outcome.kind !== 'change') throw new Error(`Expected a change, got ${outcome.kind}`);
     expect(
       new TextDecoder().decode((await blobs.read(outcome.change.blob)) ?? new Uint8Array()),
@@ -203,7 +206,7 @@ describe('the sandboxed runner on Docker', () => {
     started.push(first);
     const asking = await specFor(first, 'Make the cards equal height, after a question');
     await runner().start({ ...asking, brief: { ...asking.brief, questionsLeft: 1 } });
-    const asked = await runner().observe(first, new AbortController().signal);
+    const asked = await runner().observe(first, new AbortController().signal, quiet);
     if (asked.kind !== 'question') throw new Error(`Expected a question, got ${asked.kind}`);
     const { snapshot } = asked;
     expect(snapshot).toMatchObject({
@@ -232,12 +235,13 @@ describe('the sandboxed runner on Docker', () => {
             question: asked.question,
             askedAt: 0,
             answer: { source: 'requester', text: 'Desktop only', at: 1 },
+            closed: true,
           },
         ],
       },
       resumeFrom: snapshot,
     });
-    const seen = report(await runner().observe(second, new AbortController().signal));
+    const seen = report(await runner().observe(second, new AbortController().signal, quiet));
     expect(seen['resumed']).toEqual({
       pause: { sessionId: 'session-1', deferredCall: 'toolu_1', workHead: 'd'.repeat(40) },
       transcript: '{"asked":"Desktop only?"}\n',

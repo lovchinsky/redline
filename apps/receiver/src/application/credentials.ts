@@ -59,9 +59,11 @@ export class CredentialRelay {
       });
       return;
     }
-    const held = await this.deps.vault.held(task.id);
     await this.deps.vault.deposit(task.id, credential);
-    if (held === null && task.state.kind === 'queued') {
+    // A queued task may be waiting for this credential, whether or not the vault lost it just
+    // now (its run may have found it missing since): its run is scheduled, and a run already
+    // queued absorbs the repeat.
+    if (task.state.kind === 'queued') {
       await this.deps.writer.schedule({ queue: 'run', taskId: task.id, projectId: task.projectId });
     }
   }

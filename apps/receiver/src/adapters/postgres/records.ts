@@ -36,7 +36,12 @@ const answer = z.discriminatedUnion('source', [
   z.object({ source: z.literal('timeout'), at: instant }),
 ]);
 
-const exchange = z.object({ question, askedAt: instant, answer: z.nullable(answer) });
+const exchange = z.object({
+  question,
+  askedAt: instant,
+  answer: z.nullable(answer),
+  closed: z.boolean(),
+});
 
 const report = z.object({
   summary: z.string(),
@@ -133,6 +138,7 @@ const runRecord = z.object({
     z.object({ kind: z.literal('started') }),
     z.object({ kind: z.literal('finished'), outcome, applied: z.boolean(), at: instant }),
     z.object({ kind: z.literal('interrupted'), at: instant }),
+    z.object({ kind: z.literal('aborted'), at: instant }),
   ]),
 });
 

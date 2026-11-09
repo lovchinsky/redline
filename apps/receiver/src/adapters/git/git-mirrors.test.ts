@@ -8,7 +8,7 @@ import { TaskId } from '../../domain/ids';
 import type { RepositoryRef } from '../../ports/access';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
-import { LocalRemotes } from './remotes';
+import { LocalRemotes, type GitRemote } from './remotes';
 import { httpGitServer } from './testing/http-git-server';
 
 const run = promisify(execFile);
@@ -27,6 +27,8 @@ let mirrors: GitMirrors;
 let blobs: FsBlobStore;
 const repository: RepositoryRef = { host: 'local', name: 'origin.git', baseBranch: 'main' };
 const taskId = TaskId('task-1');
+
+const reachable = (remote: GitRemote) => Promise.resolve({ ok: true as const, value: remote });
 
 /** The change agent-host would leave: one commit on the base, as a bundle at its ref. */
 const agentChange = async (base: string, edit: (work: string) => Promise<void>) => {
@@ -206,6 +208,15 @@ describe('GitMirrors', () => {
     await expect(git(mirrors.mirrorOf(repository), 'cat-file', '-e', head)).rejects.toThrow();
   });
 
+  it('reads a file at a commit, tells a missing one apart, and never takes a failure for one', async () => {
+    const prepared = await mirrors.prepare(repository, taskId);
+    if (!prepared.ok) throw new Error(prepared.error.detail);
+    const base = prepared.value.baseSha;
+    expect(await mirrors.fileAt(repository, base, 'Card.css')).toBe('.card { }');
+    expect(await mirrors.fileAt(repository, base, 'Missing.css')).toBeNull();
+    await expect(mirrors.fileAt(repository, 'f'.repeat(40), 'Card.css')).rejects.toThrow();
+  });
+
   it('takes only one commit on the task’s base as a change', async () => {
     const prepared = await mirrors.prepare(repository, taskId);
     if (!prepared.ok) throw new Error(prepared.error.detail);
@@ -232,7 +243,7 @@ describe('GitMirrors', () => {
       const remote = { url: `${server.url}/origin.git`, authorization };
       const viaHttp = new GitMirrors({
         root: path.join(dir, 'http-mirrors'),
-        remotes: { source: () => Promise.resolve(remote), target: () => Promise.resolve(remote) },
+        remotes: { source: () => reachable(remote), target: () => reachable(remote) },
         identity: { name: 'Redline', email: 'bot@redline.invalid' },
         blobs,
       });
@@ -268,8 +279,8 @@ describe('GitMirrors', () => {
       const refused = new GitMirrors({
         root: path.join(dir, 'refused-mirrors'),
         remotes: {
-          source: () => Promise.resolve({ ...remote, authorization: null }),
-          target: () => Promise.resolve(remote),
+          source: () => reachable({ ...remote, authorization: null }),
+          target: () => reachable(remote),
         },
         identity: { name: 'Redline', email: 'bot@redline.invalid' },
         blobs,

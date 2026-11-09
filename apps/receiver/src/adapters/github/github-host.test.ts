@@ -118,17 +118,27 @@ describe('GitHubHost', () => {
     const github = host(api);
     const basic = `Basic ${Buffer.from('x-access-token:pat-token').toString('base64')}`;
     expect(await github.source(repository)).toEqual({
-      url: 'https://github.test/acme/web.git',
-      authorization: basic,
+      ok: true,
+      value: { url: 'https://github.test/acme/web.git', authorization: basic },
     });
     expect(await github.target(repository, { target: 'fork', draft: true })).toEqual({
-      url: 'https://github.test/redline-bot/web.git',
-      authorization: basic,
+      ok: true,
+      value: { url: 'https://github.test/redline-bot/web.git', authorization: basic },
     });
     expect(await github.target(repository, { target: 'branch', draft: true })).toMatchObject({
-      url: 'https://github.test/acme/web.git',
+      value: { url: 'https://github.test/acme/web.git' },
     });
-    expect(await github.source({ ...repository, host: 'local' })).toBeNull();
+    expect(await github.source({ ...repository, host: 'local' })).toEqual({
+      ok: true,
+      value: null,
+    });
+    // A configuration that cannot work is said so, not tried again.
+    expect(
+      await host(api, new TokenAuth('pat-token'), null).target(repository, {
+        target: 'fork',
+        draft: true,
+      }),
+    ).toMatchObject({ ok: false, error: { transient: false } });
   });
 
   it('finds the open pull request of a task’s branch, from the fork or the repository', async () => {

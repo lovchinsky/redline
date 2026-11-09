@@ -74,6 +74,19 @@ describe('SuperviseRun', () => {
     ]);
   });
 
+  it('ends the setup’s grant with the setup: the agent holds only its own', async () => {
+    const app = system();
+    const task = await app.submit();
+    let held: string[] = [];
+    app.runner.observe = async (runId, _signal, phases) => {
+      await phases.setupDone();
+      held = (app.store.state.grants.get(runId) ?? []).map((terms) => terms.phase);
+      return change;
+    };
+    await app.supervise.handle(task.id, never);
+    expect(held).toEqual(['agent']);
+  });
+
   it('resumes a paused session from its snapshot after the answer', async () => {
     const app = system();
     const task = await app.submit();
@@ -228,11 +241,9 @@ describe('SuperviseRun', () => {
     };
     await app.supervise.handle(task.id, never);
     expect(app.store.task(task.id).state).toEqual({ kind: 'cancelled', reason: 'not needed' });
+    // The cancellation closed the run's record with the task: its late outcome changes nothing.
     const runId = app.runner.started[0]?.runId ?? RunId('');
-    expect(app.store.state.runs.get(runId)?.state).toMatchObject({
-      kind: 'finished',
-      applied: false,
-    });
+    expect(app.store.state.runs.get(runId)?.state).toMatchObject({ kind: 'aborted' });
     expect(app.store.jobsOf('abort-run')).toEqual([
       { job: { queue: 'abort-run', taskId: task.id, runId }, startAfter: null },
     ]);
@@ -248,7 +259,24 @@ describe('SuperviseRun', () => {
     const task = await app.submit({ credential: apiKey });
     app.runner.outcomes.push({ kind: 'no-change', explanation: 'Already done' });
     await app.supervise.handle(task.id, never);
+    expect(app.store.jobsOf('forget-credential')).toHaveLength(1);
+    await app.forget.handle(task.id);
     expect(app.vault.credentials.size).toBe(0);
+  });
+
+  it('frees the whole sandbox of a run its task no longer wants', async () => {
+    const app = system();
+    const task = await app.submit();
+    app.runner.observe = () => new Promise(() => undefined);
+    void app.supervise.handle(task.id, never);
+    await new Promise((resolve) => setImmediate(resolve));
+    await app.operations.cancel(task.id, 'not needed');
+    const [job] = app.store.jobsOf('abort-run');
+    const runId = app.runner.started[0]?.runId ?? RunId('');
+    // The run's record closed with the task, whatever becomes of its supervisor.
+    expect(app.store.state.runs.get(runId)?.state).toMatchObject({ kind: 'aborted' });
+    await app.abort.handle(job?.job.queue === 'abort-run' ? job.job.runId : RunId(''));
+    expect(app.runner.released).toEqual([runId]);
   });
 
   it('decides again when the task changed while it was being saved', async () => {
@@ -259,5 +287,14 @@ describe('SuperviseRun', () => {
     await app.supervise.handle(task.id, never);
     expect(app.store.task(task.id).state.kind).toBe('publishing');
     expect(app.runner.started).toHaveLength(1);
+  });
+
+  it('leaves a task it cannot save for the job to try again, rather than take it as superseded', async () => {
+    const app = system();
+    const task = await app.submit();
+    app.store.concurrentWrites = 100;
+    await expect(app.supervise.handle(task.id, never)).rejects.toThrow(/kept changing/);
+    expect(app.runner.started).toEqual([]);
+    expect(app.store.task(task.id).state.kind).toBe('queued');
   });
 });

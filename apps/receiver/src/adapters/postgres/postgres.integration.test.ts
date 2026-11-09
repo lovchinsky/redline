@@ -169,6 +169,11 @@ describe('PostgresStore', () => {
     expect(await gateway.terms(setup)).toEqual(setupTerms);
     expect(await gateway.terms('not-a-grant')).toBeNull();
 
+    // The setup's grant ends with the setup; the agent's stays.
+    await store.run((scope) => scope.grants.revoke(runId, 'setup'));
+    expect(await gateway.terms(setup)).toBeNull();
+    expect(await gateway.terms(agent)).toEqual(agentTerms);
+
     await store.run((scope) => scope.grants.revoke(runId));
     expect(await gateway.terms(agent)).toBeNull();
     expect(await gateway.terms(setup)).toBeNull();
@@ -242,6 +247,7 @@ describe('PgBossJobs', () => {
       'reply-timeout': () => Promise.resolve(),
       'abort-run': () => Promise.resolve(),
       'withdraw-change': () => Promise.resolve(),
+      'forget-credential': () => Promise.resolve(),
     };
     await jobs.work(handlers);
     await expect

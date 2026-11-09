@@ -5,7 +5,7 @@ import { TaskOperations } from '../operations';
 import { PublishChange } from '../publish-change';
 import { TaskRequests } from '../requests';
 import { SuperviseRun } from '../supervise-run';
-import { AbortRun, ExpireQuestion, WithdrawChange } from '../task-jobs';
+import { AbortRun, ExpireQuestion, ForgetCredential, WithdrawChange } from '../task-jobs';
 import { TaskWriter } from '../task-writer';
 import {
   FakeBundles,
@@ -81,6 +81,7 @@ export const system = (access: ModelAccessPolicy = managed, parts: SystemParts =
   });
   const expire = new ExpireQuestion({ writer, projects: catalog });
   const abort = new AbortRun({ runner });
+  const forget = new ForgetCredential({ vault });
   const withdraw = new WithdrawChange({
     queries: store,
     projects: catalog,
@@ -122,6 +123,7 @@ export const system = (access: ModelAccessPolicy = managed, parts: SystemParts =
     publish,
     expire,
     abort,
+    forget,
     withdraw,
     operations,
     submit,

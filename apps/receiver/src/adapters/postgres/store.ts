@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { Kysely, Transaction } from 'kysely';
+import { sql, type Kysely, type Transaction } from 'kysely';
 import type { GatewayRefusal } from '../../domain/grant';
 import type { RunId, TaskId, UserId } from '../../domain/ids';
 import type { Run } from '../../domain/run';
@@ -201,8 +201,14 @@ export class PostgresStore implements UnitOfWork, TaskQueries {
             .execute();
           return token as GrantToken;
         },
-        revoke: async (runId) => {
-          await trx.deleteFrom('run_grants').where('run_id', '=', runId).execute();
+        revoke: async (runId, phase) => {
+          await trx
+            .deleteFrom('run_grants')
+            .where('run_id', '=', runId)
+            .$if(phase !== undefined, (query) =>
+              query.where(sql<string>`terms->>'phase'`, '=', phase ?? ''),
+            )
+            .execute();
         },
         refusal: (runId) => refusalOf(trx, runId),
       },

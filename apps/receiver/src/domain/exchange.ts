@@ -21,6 +21,8 @@ export interface Exchange {
   readonly question: Question;
   readonly askedAt: Instant;
   readonly answer: Answer | null;
+  /** A run has gone on from the exchange as it stood: its answer no longer changes. */
+  readonly closed: boolean;
 }
 
 export const openExchange = (exchanges: readonly Exchange[]): Exchange | null => {
