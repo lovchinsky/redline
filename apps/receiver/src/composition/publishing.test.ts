@@ -122,6 +122,7 @@ let gitServer: Awaited<ReturnType<typeof httpGitServer>>;
 let api: Awaited<ReturnType<typeof fakeApi>>;
 let blobs: FsBlobStore;
 let base: string;
+let standIn: Awaited<ReturnType<typeof gitleaksStandIn>> | null = null;
 
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'redline-publishing-'));
@@ -186,7 +187,7 @@ git:
   auth: { token: { file: ${path.join(dir, 'token')} } }
   fork: { owner: redline-bot }
   commitAs: { name: 'redline[bot]', email: 'redline[bot]@users.noreply.github.com' }
-  gitleaks: ${await gitleaksStandIn(dir)}
+  gitleaks: ${(standIn = await gitleaksStandIn(dir)).command}
 models: { credentials: required }
 projects:
   - { id: acme, name: Acme Web, repository: { host: github, name: acme/web } }
@@ -292,6 +293,7 @@ describe('publishing to GitHub', () => {
       { target: 'fork', draft: true },
       'const key = "AKIAIOSFODNN7EXAMPLE";\n',
     );
+    await standIn?.report([{ File: 'src/key.ts', StartLine: 1, RuleID: 'aws-access-token' }]);
     await app.publish.handle(task.id);
     expect(app.store.task(task.id).state).toMatchObject({
       kind: 'failed',

@@ -54,6 +54,9 @@ export const fixedClock: Clock = { now: () => 0, iso: () => '2026-11-09T12:00:00
 /** A session the test scripts: it runs `script` with the request and the abort signal. */
 export class ScriptedSession implements AgentSession {
   request: SessionRequest | null = null;
+  private readonly began = Promise.withResolvers<SessionRequest>();
+  /** Resolves with the request once the session runs: the run got as far as its session. */
+  readonly running = this.began.promise;
 
   constructor(
     private readonly script: (
@@ -66,6 +69,7 @@ export class ScriptedSession implements AgentSession {
 
   run(request: SessionRequest, signal: AbortSignal): Promise<SessionResult> {
     this.request = request;
+    this.began.resolve(request);
     return this.script(request, signal);
   }
 

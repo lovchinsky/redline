@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { EgressGate, ModelGateway } from '../../application/gateway';
 import {
   FixedClock,
-  MemoryGrantBook,
   MemoryLedger,
+  MemoryStore,
   silentLogger,
 } from '../../application/testing/fakes';
 import type { GrantTerms } from '../../domain/grant';
@@ -22,37 +22,26 @@ import { createModelProxy } from './model-proxy';
 
 const runId = RunId('run-1');
 const taskId = TaskId('task-1');
-const AGENT = 'agent-grant';
-const SETUP = 'setup-grant';
-const SUBSCRIBER = 'subscriber-grant';
-
-const terms = new Map<string, GrantTerms>([
-  [
-    AGENT,
-    {
-      phase: 'agent',
-      runId,
-      taskId,
-      model: 'claude-opus-5-5',
-      credentials: 'operator',
-      budget: { usd: 0.05, tokens: 1_000_000 },
-    },
-  ],
-  [
-    SUBSCRIBER,
-    {
-      phase: 'agent',
-      runId: RunId('run-2'),
-      taskId: TaskId('task-2'),
-      model: 'claude-opus-5-5',
-      credentials: 'requester',
-      budget: { usd: 1, tokens: 1_000_000 },
-    },
-  ],
-  [SETUP, { phase: 'setup', runId, taskId, hosts: ['registry.npmjs.org'] }],
-]);
-
-const grants = new MemoryGrantBook(terms);
+/** The grants in force: one store, as the gateway reads them from the receiver's database. */
+const grants = new MemoryStore();
+const issue = (terms: GrantTerms) => grants.run((scope) => scope.grants.issue(terms));
+const AGENT = await issue({
+  phase: 'agent',
+  runId,
+  taskId,
+  model: 'claude-opus-5-5',
+  credentials: 'operator',
+  budget: { usd: 0.05, tokens: 1_000_000 },
+});
+const SUBSCRIBER = await issue({
+  phase: 'agent',
+  runId: RunId('run-2'),
+  taskId: TaskId('task-2'),
+  model: 'claude-opus-5-5',
+  credentials: 'requester',
+  budget: { usd: 1, tokens: 1_000_000 },
+});
+const SETUP = await issue({ phase: 'setup', runId, taskId, hosts: ['registry.npmjs.org'] });
 
 /** The provider: answers with `reply` and keeps every request it saw. */
 const provider = (

@@ -193,10 +193,3 @@ describe('PublishChange', () => {
     expect(app.git.commits).toHaveLength(1);
   });
 });
-
-describe('fenced', () => {
-  it('fences text with a fence longer than any backtick run inside it', () => {
-    expect(fenced('plain')).toBe('```text\nplain\n```');
-    expect(fenced('a ```` b')).toBe('`````text\na ```` b\n`````');
-  });
-});

@@ -120,7 +120,7 @@ const harness = async (
     ids,
     clock,
   });
-  const runner = new FakeRunner();
+  const runner = new FakeRunner(store);
   const git = new FakeGit();
   const supervise = new SuperviseRun({
     queries: store,

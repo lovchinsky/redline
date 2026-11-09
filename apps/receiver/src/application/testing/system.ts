@@ -38,7 +38,7 @@ export const system = (access: ModelAccessPolicy = managed, parts: SystemParts =
   const catalog = new FakeCatalog();
   const bundles = new FakeBundles();
   const vault = new MemoryVault();
-  const runner = new FakeRunner();
+  const runner = new FakeRunner(store);
   const git = new FakeGit();
   const identity = new FakeIdentity();
   const writer = new TaskWriter({ uow: store, clock });

@@ -2,36 +2,41 @@ import { chmod, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 /**
- * gitleaks as the scanner calls it, standing in for the binary: it reports every added line
- * with `AKIA` in the commit range it is given (leaving out those marked `gitleaks:allow`, as
- * gitleaks does unless told not to), and keeps its arguments.
+ * gitleaks as the scanner calls it, standing in for the binary: it keeps its arguments and
+ * writes the report the test gave it. What gitleaks itself finds is the integration test's
+ * (`gitleaks.integration.test.ts`).
  */
 const STAND_IN = `#!/bin/sh
-printf '%s\\n' "$@" > "$(dirname "$0")/arguments"
+here="$(dirname "$0")"
+printf '%s\\n' "$@" > "$here/arguments"
 for arg in "$@"; do
   case "$arg" in
-    --log-opts=*) range="\${arg#--log-opts=}" ;;
     --report-path=*) report="\${arg#--report-path=}" ;;
-    --ignore-gitleaks-allow) strict=1 ;;
   esac
 done
-repo="$2"
-if [ -n "$strict" ]; then
-  found=$(git -C "$repo" log -p "$range" | grep -c '^+.*AKIA')
-else
-  found=$(git -C "$repo" log -p "$range" | grep '^+.*AKIA' | grep -vc 'gitleaks:allow')
-fi
-if [ "$found" -gt 0 ]; then
-  echo '[{"File":"config.js","StartLine":1,"RuleID":"aws-access-token","Secret":"REDACTED"}]' > "$report"
-else
-  echo '[]' > "$report"
-fi
+cp "$here/report.json" "$report"
 `;
 
-/** Writes the stand-in as `gitleaks` in `dir`, keeping its arguments in `dir/arguments`. */
-export const gitleaksStandIn = async (dir: string): Promise<string> => {
+/** A finding as gitleaks reports it, its secret redacted. */
+export interface ReportedFinding {
+  readonly File: string;
+  readonly StartLine: number;
+  readonly RuleID: string;
+}
+
+/**
+ * Writes the stand-in as `gitleaks` in `dir`. It reports nothing until `report` says what it
+ * finds; its arguments are kept in `dir/arguments`.
+ */
+export const gitleaksStandIn = async (dir: string) => {
   const command = path.join(dir, 'gitleaks');
   await writeFile(command, STAND_IN);
   await chmod(command, 0o755);
-  return command;
+  const report = (findings: readonly ReportedFinding[]) =>
+    writeFile(
+      path.join(dir, 'report.json'),
+      JSON.stringify(findings.map((finding) => ({ ...finding, Secret: 'REDACTED' }))),
+    );
+  await report([]);
+  return { command, report };
 };

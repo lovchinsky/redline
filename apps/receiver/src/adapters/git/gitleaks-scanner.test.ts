@@ -10,7 +10,7 @@ import { FsBlobStore } from '../blobs/fs-blob-store';
 import { GitMirrors } from './git-mirrors';
 import { GitleaksScanner } from './gitleaks-scanner';
 import { LocalRemotes } from './remotes';
-import { gitleaksStandIn } from './testing/gitleaks-stand-in';
+import { gitleaksStandIn, type ReportedFinding } from './testing/gitleaks-stand-in';
 
 const run = promisify(execFile);
 const IDENTITY = {
@@ -26,6 +26,7 @@ let dir: string;
 let mirrors: GitMirrors;
 let blobs: FsBlobStore;
 let command: string;
+let standIn: Awaited<ReturnType<typeof gitleaksStandIn>>;
 const repository: RepositoryRef = { host: 'local', name: 'origin.git', baseBranch: 'main' };
 const taskId = TaskId('task-1');
 
@@ -67,7 +68,8 @@ beforeEach(async () => {
     identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
   });
-  command = await gitleaksStandIn(dir);
+  standIn = await gitleaksStandIn(dir);
+  command = standIn.command;
 });
 
 afterEach(async () => {
@@ -75,39 +77,43 @@ afterEach(async () => {
 });
 
 describe('GitleaksScanner', () => {
-  it('scans only what the change adds on the mirror, redacted, and names each finding', async () => {
+  it('has gitleaks scan the change’s commit on the mirror, told nothing by the change', async () => {
+    const prepared = await mirrors.prepare(repository, taskId);
+    if (!prepared.ok) throw new Error(prepared.error.detail);
+    const base = prepared.value.baseSha;
+    const change = await changeWith(base, 'export const key = "AKIAIOSFODNN7EXAMPLE";\n');
+    await new GitleaksScanner({ mirrors, command }).scan(repository, base, change);
+    const args = (await readFile(path.join(dir, 'arguments'), 'utf8')).trim().split('\n');
+    const ignorePath = args.find((arg) => arg.startsWith('--gitleaks-ignore-path='))?.split('=')[1];
+    expect(args.slice(0, 2)).toEqual(['git', mirrors.mirrorOf(repository)]);
+    expect(args).toEqual(
+      expect.arrayContaining([
+        `--log-opts=${base}..${change.head}`,
+        '--report-format=json',
+        '--ignore-gitleaks-allow',
+        '--redact',
+        '--exit-code=0',
+      ]),
+    );
+    // The ignore file is looked for where the change cannot have put one.
+    expect(ignorePath).not.toContain(mirrors.mirrorOf(repository));
+  });
+
+  it('names each finding gitleaks reports, and leaves out what is not one', async () => {
     const prepared = await mirrors.prepare(repository, taskId);
     if (!prepared.ok) throw new Error(prepared.error.detail);
     const base = prepared.value.baseSha;
     const scanner = new GitleaksScanner({ mirrors, command });
-
-    expect(
-      await scanner.scan(repository, base, await changeWith(base, 'export const region = "eu";\n')),
-    ).toEqual({
-      ok: true,
-      value: [],
-    });
-    const leaked = await changeWith(base, 'export const key = "AKIAIOSFODNN7EXAMPLE";\n');
-    expect(await scanner.scan(repository, base, leaked)).toEqual({
+    const change = await changeWith(base, 'x');
+    expect(await scanner.scan(repository, base, change)).toEqual({ ok: true, value: [] });
+    await standIn.report([
+      { File: 'config.js', StartLine: 1, RuleID: 'aws-access-token' },
+      { File: 'config.js', StartLine: 'one', RuleID: 'x' } as unknown as ReportedFinding,
+    ]);
+    expect(await scanner.scan(repository, base, change)).toEqual({
       ok: true,
       value: [{ path: 'config.js', line: 1, rule: 'aws-access-token' }],
     });
-    // A comment in the change does not make its secret allowed.
-    const allowed = await changeWith(
-      base,
-      'export const key = "AKIAIOSFODNN7EXAMPLE"; // gitleaks:allow\n',
-    );
-    expect(await scanner.scan(repository, base, allowed)).toMatchObject({
-      ok: true,
-      value: [{ rule: 'aws-access-token' }],
-    });
-    const args = (await readFile(path.join(dir, 'arguments'), 'utf8')).trim().split('\n');
-    expect(args[0]).toBe('git');
-    expect(args[1]).toBe(mirrors.mirrorOf(repository));
-    expect(args).toContain('--redact');
-    expect(args.find((arg) => arg.startsWith('--log-opts='))).toMatch(
-      new RegExp(`^--log-opts=${base}\\.\\.[0-9a-f]{40}$`),
-    );
   });
 
   it('fails a scan gitleaks cannot make, and retries only one the system stopped', async () => {

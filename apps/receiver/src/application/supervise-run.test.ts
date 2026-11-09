@@ -152,9 +152,7 @@ describe('SuperviseRun', () => {
     const confirmed = system();
     const queued = await confirmed.submit();
     confirmed.runner.outcomes.push(claimed);
-    confirmed.runner.onStart = (spec) => {
-      confirmed.store.state.refusals.set(spec.runId, { kind: 'quota-exhausted', resetAt: 5_000 });
-    };
+    confirmed.runner.refuseNext({ kind: 'quota-exhausted', resetAt: 5_000 });
     await confirmed.supervise.handle(queued.id, never);
     expect(confirmed.store.task(queued.id).state.kind).toBe('queued');
     // At the gateway's reset time, not the one the run gave.
@@ -179,14 +177,12 @@ describe('SuperviseRun', () => {
     const task = await app.submit();
     app.runner.outcomes.push(change);
     // A supervisor started the run and died before its outcome.
-    const originalObserve = app.runner.observe.bind(app.runner);
-    app.runner.observe = () => new Promise(() => undefined);
-    const dying = new AbortController();
-    void app.supervise.handle(task.id, dying.signal);
-    await new Promise((resolve) => setImmediate(resolve));
+    app.runner.hangs = true;
+    void app.supervise.handle(task.id, new AbortController().signal);
+    await app.runner.watched;
     expect(app.store.task(task.id).state.kind).toBe('running');
 
-    app.runner.observe = originalObserve;
+    app.runner.hangs = false;
     await app.supervise.handle(task.id, never);
     expect(app.runner.started).toHaveLength(1);
     expect(app.store.task(task.id).state.kind).toBe('publishing');
@@ -269,9 +265,9 @@ describe('SuperviseRun', () => {
   it('frees the whole sandbox of a run its task no longer wants', async () => {
     const app = system();
     const task = await app.submit();
-    app.runner.observe = () => new Promise(() => undefined);
+    app.runner.hangs = true;
     void app.supervise.handle(task.id, never);
-    await new Promise((resolve) => setImmediate(resolve));
+    await app.runner.watched;
     await app.operations.cancel(task.id, 'not needed');
     const [job] = app.store.jobsOf('abort-run');
     const runId = app.runner.started[0]?.runId ?? RunId('');

@@ -132,9 +132,7 @@ describe('following a task', () => {
     const task = await app.submit({ credential: apiKey });
     // The gateway lost the credential, and the run found it missing: the task waits for it.
     app.runner.outcomes.push({ kind: 'credential-missing', snapshot: null });
-    app.runner.onStart = (spec) => {
-      app.store.state.refusals.set(spec.runId, { kind: 'credential-missing' });
-    };
+    app.runner.refuseNext({ kind: 'credential-missing' });
     await app.supervise.handle(task.id, never);
     expect(app.store.task(task.id).state).toMatchObject({ kind: 'queued', awaiting: 'credential' });
     const scheduled = app.store.jobsOf('run').length;

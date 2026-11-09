@@ -50,9 +50,6 @@ const setup = (
   return { agent, files, timers, workspace, gateway, session };
 };
 
-/** Lets the run get as far as its session: every pending promise settles first. */
-const started = () => new Promise<void>((resolve) => setImmediate(resolve));
-
 /** A session that waits until it is aborted. */
 const hanging = (_request: SessionRequest, signal: AbortSignal) =>
   new Promise<SessionResult>((resolve) => {
@@ -102,9 +99,9 @@ describe('RunAgent', () => {
       [sampleBrief().limits.stallTimeoutMs, 'The agent stopped responding'],
       [sampleBrief().limits.timeoutMs, 'The run took longer than allowed'],
     ] as const) {
-      const { agent, files, timers } = setup(hanging);
+      const { agent, files, timers, session } = setup(hanging);
       const running = agent.execute();
-      await started();
+      await session.running;
       timers.fire(ms);
       await running;
       expect(files.outcome?.result).toEqual({ kind: 'failed', reason: 'agent-failed', detail });
@@ -113,16 +110,12 @@ describe('RunAgent', () => {
   });
 
   it('keeps an active agent alive: each sign of life restarts the stall timer', async () => {
-    let request: SessionRequest | null = null;
-    const { agent, files, timers } = setup((given, signal) => {
-      request = given;
-      return hanging(given, signal);
-    });
+    const { agent, files, timers, session } = setup(hanging);
     const running = agent.execute();
-    await started();
+    const request = await session.running;
     const stall = sampleBrief().limits.stallTimeoutMs;
     // Progress of a long command is a sign of life, though it is not worth a journal line.
-    (request as SessionRequest | null)?.onLife();
+    request.onLife();
     expect([...timers.pending.values()].filter((timer) => timer.ms === stall)).toHaveLength(1);
     timers.fire(sampleBrief().limits.timeoutMs);
     await running;

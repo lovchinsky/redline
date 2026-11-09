@@ -78,11 +78,15 @@ const copy = (state: State): State => ({
 
 const submissionKey = (requester: UserIdType, key: string) => `${requester}\u0000${key}`;
 
+/** The token a grant is issued with. */
+const tokenOf = (terms: GrantTerms) => `grant-${terms.phase}-${terms.runId}` as GrantToken;
+
 /**
  * A transactional in-memory store: each unit of work runs on a copy that replaces the store when
- * it resolves and is dropped when it throws. Units of work run one at a time.
+ * it resolves and is dropped when it throws. Units of work run one at a time. It holds the
+ * grants the gateway reads too (`GrantBook`), as the database does.
  */
-export class MemoryStore implements UnitOfWork, TaskQueries {
+export class MemoryStore implements UnitOfWork, TaskQueries, GrantBook {
   state: State = {
     tasks: new Map(),
     keys: new Map(),
@@ -98,14 +102,35 @@ export class MemoryStore implements UnitOfWork, TaskQueries {
   concurrentWrites = 0;
 
   run<T>(work: (scope: WorkScope) => Promise<T>): Promise<T> {
+    return this.transaction((draft) => work(this.scope(draft)));
+  }
+
+  private transaction<T>(work: (draft: State) => Promise<T>): Promise<T> {
     const next = this.queue.then(async () => {
       const draft = copy(this.state);
-      const result = await work(this.scope(draft));
+      const result = await work(draft);
       this.state = draft;
       return result;
     });
     this.queue = next.catch(() => undefined);
     return next;
+  }
+
+  terms(token: string) {
+    const issued = [...this.state.grants.values()].flat().find((terms) => tokenOf(terms) === token);
+    return Promise.resolve(issued ?? null);
+  }
+
+  refusalOf(runId: RunId) {
+    return Promise.resolve(this.state.refusals.get(runId) ?? null);
+  }
+
+  setRefusal(runId: RunId, refusal: GatewayRefusal | null) {
+    return this.transaction((draft) => {
+      if (refusal === null) draft.refusals.delete(runId);
+      else draft.refusals.set(runId, refusal);
+      return Promise.resolve();
+    });
   }
 
   private scope(draft: State): WorkScope {
@@ -164,7 +189,7 @@ export class MemoryStore implements UnitOfWork, TaskQueries {
         issue: (terms) => {
           draft.grants.set(terms.runId, [...(draft.grants.get(terms.runId) ?? []), terms]);
           draft.issued.push(terms);
-          return Promise.resolve(`grant-${terms.phase}-${terms.runId}` as GrantToken);
+          return Promise.resolve(tokenOf(terms));
         },
         revoke: (runId, phase) => {
           const kept = (draft.grants.get(runId) ?? []).filter(
@@ -381,49 +406,55 @@ export class MemoryLedger implements UsageLedger {
   }
 }
 
-/** The gateway's grants in memory: their terms by token, and its refusals of runs. */
-export class MemoryGrantBook implements GrantBook {
-  readonly refusals = new Map<RunId, GatewayRefusal>();
-  constructor(readonly byToken: Map<string, GrantTerms> = new Map()) {}
-  terms(token: string) {
-    return Promise.resolve(this.byToken.get(token) ?? null);
-  }
-  refusalOf(runId: RunId) {
-    return Promise.resolve(this.refusals.get(runId) ?? null);
-  }
-  setRefusal(runId: RunId, refusal: GatewayRefusal | null) {
-    if (refusal === null) this.refusals.delete(runId);
-    else this.refusals.set(runId, refusal);
-    return Promise.resolve();
-  }
-}
+type Observed = RunOutcome | { kind: 'lost'; detail: string };
 
-/** An agent runner that plays outcomes a test chose, one per run, in order. */
+/**
+ * An agent runner that plays outcomes a test chose, one per run, in order. Its runs reach the
+ * model through `gateway`, which records the refusals the script names, as the real one does.
+ */
 export class FakeRunner implements AgentRunner {
   readonly started: RunSpec[] = [];
   readonly released: string[] = [];
   startError: Fault | null = null;
   /** Whether the paused sessions it is asked about can be resumed. */
   resumes = true;
-  /** Called as each run starts, e.g. for the gateway to refuse it. */
-  onStart: (spec: RunSpec) => void = () => undefined;
-  constructor(public outcomes: (RunOutcome | { kind: 'lost'; detail: string })[] = []) {}
+  /** Whether its runs go on until the test says otherwise: their outcome does not come. */
+  hangs = false;
+  private readonly watching = Promise.withResolvers<RunId>();
+  /** Resolves with the run once a supervisor watches it. */
+  readonly watched = this.watching.promise;
+  private refusal: GatewayRefusal | null = null;
+
+  constructor(
+    private readonly gateway: Pick<GrantBook, 'setRefusal'>,
+    public outcomes: Observed[] = [],
+  ) {}
+
+  /** The gateway refuses the next run's model requests so, before the run ends. */
+  refuseNext(refusal: GatewayRefusal): void {
+    this.refusal = refusal;
+  }
 
   resumable() {
     return Promise.resolve(this.resumes);
   }
 
+  /** Starts a run once: a run that exists is left as it is. */
   start(spec: RunSpec) {
     if (this.startError !== null) return Promise.resolve(err(this.startError));
-    this.started.push(spec);
-    this.onStart(spec);
+    if (!this.started.some((started) => started.runId === spec.runId)) this.started.push(spec);
     return Promise.resolve(ok(undefined));
   }
-  observe(_runId: RunId, _signal: AbortSignal, phases: RunPhases) {
-    void phases.setupDone();
+  async observe(runId: RunId, _signal: AbortSignal, phases: RunPhases): Promise<Observed> {
+    const hangs = this.hangs;
+    this.watching.resolve(runId);
+    await phases.setupDone();
+    if (hangs) return new Promise(() => undefined);
     const next = this.outcomes.shift();
     if (next === undefined) throw new Error('No outcome scripted');
-    return Promise.resolve(next);
+    if (this.refusal !== null) await this.gateway.setRefusal(runId, this.refusal);
+    this.refusal = null;
+    return next;
   }
   release(runId: RunId) {
     this.released.push(runId);
