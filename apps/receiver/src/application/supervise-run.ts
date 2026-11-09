@@ -188,6 +188,7 @@ export class SuperviseRun {
       runId,
       taskId: task.id,
       project: project.id,
+      repository: project.repository,
       baseSha,
       brief: composeBrief(task, bundle, project),
       resumeFrom: task.state.kind === 'running' ? task.state.resumedFrom : null,

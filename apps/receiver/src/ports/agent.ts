@@ -4,7 +4,7 @@ import type { ProjectId, RunId, TaskId } from '../domain/ids';
 import type { RunOutcome } from '../domain/run';
 import type { Snapshot } from '../domain/work';
 import type { BundleContents } from './bundles';
-import type { ExecutionProfile } from './access';
+import type { ExecutionProfile, RepositoryRef } from './access';
 import type { GrantToken } from './tasks';
 
 /** Everything the agent is told about a task. Composed by the application, sent by the runner. */
@@ -23,6 +23,7 @@ export interface RunSpec {
   readonly runId: RunId;
   readonly taskId: TaskId;
   readonly project: ProjectId;
+  readonly repository: RepositoryRef;
   readonly baseSha: string;
   readonly brief: AgentBrief;
   readonly resumeFrom: Snapshot | null;
@@ -55,4 +56,6 @@ export interface AgentRunner {
   abort(runId: RunId): Promise<void>;
   /** Frees what the run holds once its outcome has been applied. */
   release(runId: RunId): Promise<void>;
+  /** Runs that hold something where they run: sandboxes, volumes, memory. */
+  live(): Promise<readonly RunId[]>;
 }

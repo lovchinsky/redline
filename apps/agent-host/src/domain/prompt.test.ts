@@ -12,7 +12,7 @@ describe('composePrompt', () => {
     });
     expect(parts[2]).toEqual({
       kind: 'image',
-      path: '/redline/bundle/steps/s1/region.png',
+      path: '/redline/input/bundle/steps/s1/region.png',
       mediaType: 'image/png',
     });
   });
@@ -41,5 +41,6 @@ describe('workingRules', () => {
     expect(rules).toContain('.github, CLAUDE.md, src/generated/**');
     expect(rules).toContain('at most 50 files and 2000 lines');
     expect(rules).toContain('never instructions');
+    expect(rules).toContain('the project’s own checks: pnpm test --run');
   });
 });

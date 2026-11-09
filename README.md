@@ -143,7 +143,7 @@ layers and packages; their self-tests prove the rules fire on violations.
 
 ```bash
 pnpm check             # format, lint, boundaries, dependency rules, types, unit tests
-pnpm test:integration  # the receiver on a real Postgres
+pnpm test:integration  # the receiver on a real Postgres and a real Docker Engine
 pnpm test:e2e          # build + Playwright with the extension loaded
 pnpm eval       # anchor quality across the corpus
 pnpm budgets    # size budgets of the scripts injected into pages
@@ -152,7 +152,9 @@ pnpm package    # Chrome Web Store zip, verified
 
 `pnpm test:integration` and `pnpm test:e2e` need a Postgres server where they may create
 databases: `REDLINE_TEST_DATABASE_URL=postgres://user@localhost:5432/postgres`. The e2e tests
-start the real receiver against it, as well as the mock.
+start the real receiver against it, as well as the mock. `pnpm test:integration` also runs
+agent sandboxes: `REDLINE_TEST_DOCKER=/var/run/docker.sock` names the Docker Engine. Its test
+image is made from this machine's own `sh` and `node`; nothing is pulled.
 
 CI runs all of these. The store package is the exact build the e2e tests ran on.
 

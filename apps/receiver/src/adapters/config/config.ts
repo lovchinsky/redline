@@ -61,18 +61,52 @@ const project = z.object({
   changePolicy: z.optional(changePolicy),
 });
 
-/** The agent: a scripted one (no model, no sandbox) until the sandboxed runner is configured. */
-const agent = z.object({
-  kind: z.literal('scripted'),
-  durationSeconds: z.optional(z.number().check(z.nonnegative())),
-  asks: z.optional(z.boolean()),
-});
+const sandboxAddress = z.url({ protocol: /^http$/ });
 
-/** Where changes are published: a simulated git host until a real one is configured. */
-const git = z.object({
-  kind: z.literal('scripted'),
-  resultBaseUrl: z.optional(z.url({ protocol: /^https?$/ })),
-});
+/**
+ * The agent: `scripted` follows a script (no model, no sandbox, for trying the receiver out);
+ * `claude` is Claude Code in Docker sandboxes, isolated by gVisor unless that is waived by name.
+ */
+const agent = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('scripted'),
+    durationSeconds: z.optional(z.number().check(z.nonnegative())),
+    asks: z.optional(z.boolean()),
+  }),
+  z.object({
+    kind: z.literal('claude'),
+    isolation: z.optional(z.enum(['gvisor', 'unsafe-runc'])),
+    docker: z.optional(z.object({ socket: z.optional(text) })),
+    user: z.optional(z.object({ uid: positive, gid: positive })),
+    networks: z.object({ setup: text, agent: text }),
+    /** The gateway's addresses on the sandbox networks: sandboxes resolve no names. */
+    gateway: z.object({ model: sandboxAddress, egress: sandboxAddress }),
+    limits: z.optional(
+      z.object({
+        cpus: z.optional(z.number().check(z.positive())),
+        memoryMegabytes: z.optional(positive),
+        pids: z.optional(positive),
+      }),
+    ),
+    setupTimeoutMinutes: z.optional(positive),
+  }),
+]);
+
+/**
+ * The git host: `scripted` simulates one; `local` reads repositories by path under `root`
+ * (`repository.host: local`) and publishes nowhere: its change requests are simulated.
+ */
+const git = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('scripted'),
+    resultBaseUrl: z.optional(z.url({ protocol: /^https?$/ })),
+  }),
+  z.object({
+    kind: z.literal('local'),
+    root: text,
+    resultBaseUrl: z.optional(z.url({ protocol: /^https?$/ })),
+  }),
+]);
 
 const seconds = z.int().check(z.positive());
 const dollars = z.number().check(z.nonnegative());
@@ -142,6 +176,27 @@ const configSchema = z.object({
 });
 
 type RawPolicy = z.infer<typeof policy>;
+type RawAgent = z.infer<typeof agent>;
+
+const SCRIPTED_RESULTS = 'https://git.example/redline/scripted/pull/';
+
+const agentOf = (raw: RawAgent): AgentConfig =>
+  raw.kind === 'scripted'
+    ? { kind: 'scripted', durationMs: (raw.durationSeconds ?? 5) * 1000, asks: raw.asks ?? true }
+    : {
+        kind: 'claude',
+        runtime: raw.isolation === 'unsafe-runc' ? 'runc' : 'runsc',
+        dockerSocket: raw.docker?.socket ?? '/var/run/docker.sock',
+        user: raw.user ?? { uid: 1000, gid: 1000 },
+        networks: raw.networks,
+        gateway: raw.gateway,
+        limits: {
+          cpus: raw.limits?.cpus ?? 2,
+          memoryBytes: (raw.limits?.memoryMegabytes ?? 4096) * 1024 * 1024,
+          pids: raw.limits?.pids ?? 1024,
+        },
+        setupTimeoutMs: (raw.setupTimeoutMinutes ?? 15) * MINUTE,
+      };
 type RawExecution = z.infer<typeof execution>;
 type RawChangePolicy = z.infer<typeof changePolicy>;
 
@@ -150,6 +205,28 @@ export interface IntakeLimits {
   readonly files: number;
   readonly submissionsPerMinute: number;
 }
+
+export type AgentConfig =
+  | { readonly kind: 'scripted'; readonly durationMs: number; readonly asks: boolean }
+  | {
+      readonly kind: 'claude';
+      /** The OCI runtime sandboxes run under. */
+      readonly runtime: 'runsc' | 'runc';
+      readonly dockerSocket: string;
+      readonly user: { readonly uid: number; readonly gid: number };
+      readonly networks: { readonly setup: string; readonly agent: string };
+      readonly gateway: { readonly model: string; readonly egress: string };
+      readonly limits: {
+        readonly cpus: number;
+        readonly memoryBytes: number;
+        readonly pids: number;
+      };
+      readonly setupTimeoutMs: number;
+    };
+
+export type GitConfig =
+  | { readonly kind: 'scripted'; readonly resultBaseUrl: string }
+  | { readonly kind: 'local'; readonly root: string; readonly resultBaseUrl: string };
 
 export interface GatewayConfig {
   readonly upstream: string;
@@ -166,12 +243,8 @@ export interface ReceiverConfig {
     readonly waiting: number;
     readonly finished: number;
   };
-  readonly agent: {
-    readonly kind: 'scripted';
-    readonly durationMs: number;
-    readonly asks: boolean;
-  };
-  readonly git: { readonly kind: 'scripted'; readonly resultBaseUrl: string };
+  readonly agent: AgentConfig;
+  readonly git: GitConfig;
   readonly modelAccess: ModelAccessPolicy;
   readonly gateway: GatewayConfig;
   readonly intake: IntakeLimits;
@@ -292,6 +365,18 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
       },
     });
   }
+  if (raw.agent.kind === 'claude' && raw.git.kind === 'scripted') {
+    errors.push('git: the claude agent works on real repositories; the scripted git host has none');
+  }
+  if (raw.git.kind === 'local') {
+    for (const entry of projects) {
+      if (entry.repository.host !== 'local' || entry.repository.name.split('/').includes('..')) {
+        errors.push(
+          `projects.${entry.id}.repository: git is local, so its host is local and its name a path under ${raw.git.root}`,
+        );
+      }
+    }
+  }
   if (raw.models.credentials !== 'required' && raw.models.operator === undefined) {
     errors.push(
       `models.operator: tasks run with the operator's credential (credentials: ${raw.models.credentials}); say where it is`,
@@ -315,15 +400,15 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
         waiting: raw.polling?.waitingSeconds ?? 60,
         finished: raw.polling?.finishedSeconds ?? 3600,
       },
-      agent: {
-        kind: raw.agent.kind,
-        durationMs: (raw.agent.durationSeconds ?? 5) * 1000,
-        asks: raw.agent.asks ?? true,
-      },
-      git: {
-        kind: raw.git.kind,
-        resultBaseUrl: raw.git.resultBaseUrl ?? 'https://git.example/redline/scripted/pull/',
-      },
+      agent: agentOf(raw.agent),
+      git:
+        raw.git.kind === 'scripted'
+          ? { kind: 'scripted', resultBaseUrl: raw.git.resultBaseUrl ?? SCRIPTED_RESULTS }
+          : {
+              kind: 'local',
+              root: raw.git.root,
+              resultBaseUrl: raw.git.resultBaseUrl ?? SCRIPTED_RESULTS,
+            },
       modelAccess: {
         credentials: raw.models.credentials,
         operator: raw.models.operator?.kind ?? null,

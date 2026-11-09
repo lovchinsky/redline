@@ -171,4 +171,41 @@ projects:
       cacheRead: 0.1,
     });
   });
+
+  it('reads a sandboxed agent on local repositories, isolated by gVisor unless waived', () => {
+    const source = (isolation: string, host = 'local', git = 'local, root: /srv/git') => `
+agent:
+  kind: claude
+  ${isolation}
+  networks: { setup: redline-setup, agent: redline-agent }
+  gateway: { model: 'http://10.89.1.2:8788', egress: 'http://10.89.2.2:3128' }
+  limits: { memoryMegabytes: 2048 }
+git: { kind: ${git} }
+models: { credentials: required }
+projects:
+  - id: web
+    name: Web
+    repository: { host: ${host}, name: acme/web.git }
+`;
+    const parsed = parseConfig(source(''));
+    if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+    expect(parsed.value.agent).toMatchObject({
+      kind: 'claude',
+      runtime: 'runsc',
+      dockerSocket: '/var/run/docker.sock',
+      user: { uid: 1000, gid: 1000 },
+      limits: { cpus: 2, memoryBytes: 2048 * 1024 * 1024, pids: 1024 },
+      setupTimeoutMs: 15 * 60_000,
+    });
+    expect(parsed.value.git).toMatchObject({ kind: 'local', root: '/srv/git' });
+    const waived = parseConfig(source('isolation: unsafe-runc'));
+    expect(waived.ok && waived.value.agent.kind === 'claude' && waived.value.agent.runtime).toBe(
+      'runc',
+    );
+    expect(parseConfig(source('', 'github'))).toMatchObject({ ok: false });
+    expect(parseConfig(source('', 'local', 'scripted'))).toMatchObject({
+      ok: false,
+      errors: ['git: the claude agent works on real repositories; the scripted git host has none'],
+    });
+  });
 });

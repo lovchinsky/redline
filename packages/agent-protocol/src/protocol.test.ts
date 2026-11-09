@@ -39,6 +39,7 @@ const brief = (): Brief => ({
     { question: { id: 'q1', text: 'Desktop only?', options: ['Yes', 'No'] }, answer: null },
   ],
   questionsLeft: 2,
+  checks: ['pnpm test'],
   policy: { protectedPaths: ['.github', 'CLAUDE.md'], maxFiles: 50, maxChangedLines: 2000 },
 });
 

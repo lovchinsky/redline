@@ -54,6 +54,8 @@ export const briefSchema = z.object({
   }),
   exchanges: z.array(briefExchangeSchema),
   questionsLeft: count,
+  /** The project's own commands that check a change (`.redline/receiver.yaml`), run as written. */
+  checks: z.array(nonEmpty),
   /** The rules the change is judged by, so the agent does not break them by accident. */
   policy: z.object({
     /** `@redline/path-patterns` globs the agent must not change. */

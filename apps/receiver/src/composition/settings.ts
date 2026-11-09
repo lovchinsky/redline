@@ -3,6 +3,8 @@ export interface Settings {
   readonly databaseUrl: string;
   readonly configPath: string;
   readonly blobsPath: string;
+  /** Where the worker keeps its mirrors of the projects' repositories. */
+  readonly mirrorsPath: string;
   readonly host: string;
   /** The API's port. */
   readonly port: number;
@@ -34,6 +36,7 @@ export const settingsFrom = (env: NodeJS.ProcessEnv): Settings => {
     databaseUrl: required(env, 'DATABASE_URL'),
     configPath: env.REDLINE_CONFIG ?? '/etc/redline/receiver.yaml',
     blobsPath: env.REDLINE_BLOBS ?? '/var/lib/redline/blobs',
+    mirrorsPath: env.REDLINE_MIRRORS ?? '/var/lib/redline/mirrors',
     host: env.REDLINE_HOST ?? '0.0.0.0',
     port,
     gatewayPort: portOf(env, 'REDLINE_GATEWAY_PORT', 8788),

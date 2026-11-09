@@ -345,6 +345,11 @@ export class FakeRunner implements AgentRunner {
     this.released.push(runId);
     return Promise.resolve();
   }
+  live() {
+    return Promise.resolve(
+      this.started.map((spec) => spec.runId).filter((runId) => !this.released.includes(runId)),
+    );
+  }
 }
 
 const done = <T>(value: T): Promise<Publishing<T>> => Promise.resolve({ ok: true, value });

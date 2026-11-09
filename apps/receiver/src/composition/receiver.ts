@@ -10,6 +10,9 @@ import { PostgresStore } from '../adapters/postgres/store';
 import { PostgresUsers } from '../adapters/postgres/users';
 import { ScriptedGit } from '../adapters/scripted/scripted-git';
 import { ScriptedRunner } from '../adapters/scripted/scripted-runner';
+import { GitMirrors } from '../adapters/git/git-mirrors';
+import { DockerSandboxes } from '../adapters/runner-claude/docker-sandboxes';
+import { SandboxedClaudeRunner } from '../adapters/runner-claude/sandboxed-runner';
 import { jsonLogger, randomIds, systemClock } from '../adapters/system/system';
 import { createEgressProxy } from '../adapters/gateway/egress-proxy';
 import { createModelProxy } from '../adapters/gateway/model-proxy';
@@ -23,9 +26,11 @@ import { TaskOperations } from '../application/operations';
 import { PublishChange } from '../application/publish-change';
 import { TaskRequests } from '../application/requests';
 import { SuperviseRun } from '../application/supervise-run';
-import { AbortRun, ExpireQuestion, WithdrawChange } from '../application/task-jobs';
+import { AbortRun, ExpireQuestion, ReleaseStrays, WithdrawChange } from '../application/task-jobs';
 import { TaskWriter } from '../application/task-writer';
 import { ModelCredential, type CredentialVault } from '../ports/access';
+import type { AgentRunner } from '../ports/agent';
+import type { BlobStore } from '../ports/bundles';
 import type { Logger } from '../ports/system';
 import type { Settings } from './settings';
 
@@ -37,6 +42,56 @@ export type Role = 'api' | 'worker' | 'gateway' | 'egress' | 'all';
 
 /** How long an idle requester's credential stays in memory: past every polling interval. */
 const CREDENTIAL_IDLE_MS = 24 * 3_600_000;
+/** How often a worker frees what finished runs still hold. */
+const HOUSEKEEPING_MS = 10 * 60_000;
+/** How long past its own limit a run's sandbox is left before the worker stops it. */
+const SANDBOX_GRACE_MS = 2 * 60_000;
+
+/** The git side: a simulated host, or real repositories with simulated change requests. */
+const gitOf = (settings: Settings, config: ReceiverConfig, blobs: BlobStore) => {
+  const simulated = new ScriptedGit(config.git.resultBaseUrl);
+  if (config.git.kind === 'scripted')
+    return { source: simulated, scanner: simulated, forge: simulated, mirrors: null };
+  const root = config.git.root;
+  const mirrors = new GitMirrors({
+    root: settings.mirrorsPath,
+    urlOf: (repository) =>
+      repository.host === 'local' ? `file://${root}/${repository.name}` : null,
+    identity: { name: 'Redline', email: 'redline@localhost' },
+    blobs,
+  });
+  // Change requests are simulated: nothing is published anywhere, so there is nothing to scan.
+  return { source: mirrors, scanner: simulated, forge: simulated, mirrors };
+};
+
+const runnerOf = (
+  config: ReceiverConfig,
+  blobs: BlobStore,
+  mirrors: GitMirrors | null,
+  logger: Logger,
+): AgentRunner => {
+  const agent = config.agent;
+  if (agent.kind === 'scripted') return new ScriptedRunner(agent, () => systemClock.now());
+  if (mirrors === null) throw new Error('The claude agent needs real repositories (git: local)');
+  return new SandboxedClaudeRunner({
+    sandboxes: new DockerSandboxes({
+      socketPath: agent.dockerSocket,
+      runtime: agent.runtime,
+      user: `${String(agent.user.uid)}:${String(agent.user.gid)}`,
+    }),
+    sources: mirrors,
+    blobs,
+    settings: {
+      user: agent.user,
+      networks: agent.networks,
+      gateway: agent.gateway,
+      limits: agent.limits,
+      setupTimeoutMs: agent.setupTimeoutMs,
+      graceMs: SANDBOX_GRACE_MS,
+    },
+    logger: logger.child({ component: 'sandboxes' }),
+  });
+};
 
 export const loadConfig = async (path: string): Promise<ReceiverConfig> => {
   const parsed = parseConfig(await readFile(path, 'utf8'));
@@ -160,8 +215,8 @@ export const assemble = async (
   const blobs = new FsBlobStore(settings.blobsPath);
   const bundles = new StoredBundles(blobs);
   const projects = new ConfiguredProjects(config.projects);
-  const runner = new ScriptedRunner(config.agent, () => clock.now());
-  const git = new ScriptedGit(config.git.resultBaseUrl);
+  const git = gitOf(settings, config, blobs);
+  const runner = runnerOf(config, blobs, git.mirrors, logger);
   const writer = new TaskWriter({ uow: store, clock });
   const relay = new CredentialRelay({ vault, writer, policy: config.modelAccess, logger });
 
@@ -182,7 +237,7 @@ export const assemble = async (
     writer,
     projects,
     bundles,
-    source: git,
+    source: git.source,
     runner,
     vault,
     access: config.modelAccess,
@@ -196,14 +251,19 @@ export const assemble = async (
     projects,
     bundles,
     identity: users,
-    source: git,
-    scanner: git,
-    forge: git,
+    source: git.source,
+    scanner: git.scanner,
+    forge: git.forge,
     logger: logger.child({ component: 'publishing' }),
   });
   const expire = new ExpireQuestion({ writer, projects });
   const abort = new AbortRun({ runner });
-  const withdraw = new WithdrawChange({ queries: store, projects, forge: git, logger });
+  const withdraw = new WithdrawChange({ queries: store, projects, forge: git.forge, logger });
+  const strays = new ReleaseStrays({
+    uow: store,
+    runner,
+    logger: logger.child({ component: 'runs' }),
+  });
 
   const api =
     role === 'worker'
@@ -217,7 +277,15 @@ export const assemble = async (
           clock,
           logger: logger.child({ component: 'api' }),
         });
+  let housekeeping: NodeJS.Timeout | null = null;
   if (role !== 'api') {
+    const tidy = () => {
+      strays.handle().catch((error: unknown) => {
+        logger.warn('Housekeeping failed', { error: String(error) });
+      });
+    };
+    tidy();
+    housekeeping = setInterval(tidy, HOUSEKEEPING_MS);
     await jobs.work({
       run: (job, signal) => supervise.handle(job.taskId, signal),
       publish: (job) => publish.handle(job.taskId),
@@ -226,13 +294,17 @@ export const assemble = async (
       'withdraw-change': (job) => withdraw.handle(job.taskId),
     });
   }
-  // A scripted agent calls no model: one process with it needs no gateway.
-  const listeners: Listeners = { gateway: null, egress: null };
+  // One process with sandboxed agents is their gateway too; a scripted agent calls no model.
+  const listeners: Listeners =
+    role === 'all' && config.agent.kind === 'claude'
+      ? await gatewayOf(config, db, memory, { model: true, egress: true }, logger)
+      : { gateway: null, egress: null };
 
   return {
     api,
     ...listeners,
     stop: async () => {
+      if (housekeeping !== null) clearInterval(housekeeping);
       await api?.close();
       await jobs.stop();
       await db.destroy();

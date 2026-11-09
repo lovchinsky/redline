@@ -5,10 +5,12 @@
 export const RUN_LAYOUT = {
   /** The project's working copy at the task's base commit: the agent's working directory. */
   workspace: '/workspace',
-  /** The run's brief (`briefSchema`), read-only. */
-  brief: '/redline/brief.json',
-  /** The bundle's files at their bundle paths, read-only. */
-  bundle: '/redline/bundle',
+  /** What the receiver gives the run, read-only: the brief and the bundle. */
+  input: '/redline/input',
+  /** The run's brief (`briefSchema`). */
+  brief: '/redline/input/brief.json',
+  /** The bundle's files at their bundle paths. */
+  bundle: '/redline/input/bundle',
   /** The agent's session (`CLAUDE_CONFIG_DIR`): its transcript, kept for a resume. */
   session: '/redline/session',
   /** What agent-host leaves behind: `outcome`, `change`, `events`. */

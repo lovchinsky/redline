@@ -34,7 +34,9 @@ export const workingRules = (brief: Brief): string =>
     '- Find the code behind each marked place. The material lists anchors: data-testid values',
     '  first, then classes, then visible text. Search the repository for them.',
     '- Make the smallest change that does what was asked, in the style of the code around it.',
-    '- Check the change: run the project’s own tests, type checks or linters where they exist.',
+    brief.checks.length === 0
+      ? '- Check the change: run the project’s own tests, type checks or linters where they exist.'
+      : `- Check the change with the project’s own checks: ${brief.checks.join('; ')}.`,
     '  No network is available besides the model: do not install packages. If the change needs',
     '  a new dependency, say so in the report instead.',
     '- Do not commit, push or create branches: the receiver takes the working tree as it is.',

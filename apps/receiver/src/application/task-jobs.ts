@@ -4,7 +4,7 @@ import type { ProjectCatalog } from '../ports/access';
 import type { AgentRunner } from '../ports/agent';
 import type { Forge } from '../ports/publishing';
 import type { Logger } from '../ports/system';
-import type { TaskQueries } from '../ports/tasks';
+import type { TaskQueries, UnitOfWork } from '../ports/tasks';
 import { branchOf } from './change-request';
 import { PROJECT_GONE } from './errors';
 import type { TaskWriter } from './task-writer';
@@ -34,6 +34,29 @@ export class AbortRun {
 
   async handle(runId: RunId): Promise<void> {
     await this.deps.runner.abort(runId);
+  }
+}
+
+/**
+ * Frees what runs that are over still hold where they ran: a sandbox whose outcome was applied
+ * but not released (the worker stopped in between), or one whose run never got a record.
+ */
+export class ReleaseStrays {
+  constructor(
+    private readonly deps: {
+      readonly uow: UnitOfWork;
+      readonly runner: AgentRunner;
+      readonly logger: Logger;
+    },
+  ) {}
+
+  async handle(): Promise<void> {
+    for (const runId of await this.deps.runner.live()) {
+      const run = await this.deps.uow.run((scope) => scope.runs.get(runId));
+      if (run?.state.kind === 'started') continue;
+      this.deps.logger.info('Releasing a stray run', { runId, state: run?.state.kind ?? 'none' });
+      await this.deps.runner.release(runId);
+    }
   }
 }
 

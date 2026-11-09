@@ -64,6 +64,10 @@ export class ScriptedRunner implements AgentRunner {
     return Promise.resolve();
   }
 
+  live(): Promise<readonly RunId[]> {
+    return Promise.resolve([...this.runs.keys()]);
+  }
+
   private outcomeOf(spec: RunSpec): RunOutcome {
     const { brief } = spec;
     if (this.options.asks && brief.exchanges.length === 0 && brief.questionsLeft > 0) {

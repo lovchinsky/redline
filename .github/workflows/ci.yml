@@ -90,6 +90,8 @@ jobs:
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       REDLINE_TEST_DATABASE_URL: postgres://redline@localhost:5432/postgres
+      # The runner tests run sandboxes on the runner's Docker Engine, under runc.
+      REDLINE_TEST_DOCKER: /var/run/docker.sock
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
