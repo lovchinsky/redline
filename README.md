@@ -30,7 +30,7 @@ extension’s options page.
 
 ## Getting started
 
-Requires Node.js 22+ and pnpm 10.
+Requires Node.js 22.22.3 or later and pnpm 10.
 
 ```bash
 pnpm install

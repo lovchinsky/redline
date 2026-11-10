@@ -8,5 +8,4 @@ playwright-report/
 *.log
 .DS_Store
 **/__boundary_probe__.ts
-**/__screenshots__/
-.vitest-attachments/
+.vitest/

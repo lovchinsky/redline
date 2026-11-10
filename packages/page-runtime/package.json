@@ -12,17 +12,17 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "zod": "4.6.7"
+    "zod": "^4"
   },
   "devDependencies": {
-    "@types/react": "19.1.17",
-    "@types/react-dom": "19.1.11",
-    "@vitest/browser-playwright": "4.1.12",
-    "playwright": "1.63.0",
-    "react": "19.1.10",
-    "react-dom": "19.1.10",
-    "typescript": "5.9.3",
-    "vitest": "4.1.12",
-    "vue": "3.5.44"
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitest/browser-playwright": "^5",
+    "playwright": "^1",
+    "react": "^19",
+    "react-dom": "^19",
+    "typescript": "~5.9",
+    "vitest": "^5",
+    "vue": "^3"
   }
 }

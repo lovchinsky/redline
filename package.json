@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.28.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.22.3"
   },
   "scripts": {
     "dev": "pnpm --filter @redline/extension dev",
@@ -26,18 +26,18 @@
     "package": "pnpm build && node scripts/pack-extension.mjs && node scripts/verify-store-package.mjs"
   },
   "devDependencies": {
-    "@eslint/js": "10.0.1",
-    "@types/node": "22.20.5",
-    "dependency-cruiser": "18.7.0",
-    "eslint": "10.13.0",
-    "eslint-import-resolver-typescript": "4.4.5",
-    "eslint-plugin-boundaries": "7.2.0",
-    "eslint-plugin-react-hooks": "5.2.0",
-    "fflate": "0.8.3",
-    "globals": "17.13.0",
-    "prettier": "3.9.10",
-    "typescript": "5.9.3",
-    "typescript-eslint": "8.72.0",
-    "vitest": "4.1.12"
+    "@eslint/js": "^10",
+    "@types/node": "^22",
+    "dependency-cruiser": "^18",
+    "eslint": "^10",
+    "eslint-import-resolver-typescript": "^4",
+    "eslint-plugin-boundaries": "^7",
+    "eslint-plugin-react-hooks": "^7",
+    "fflate": "^0.8",
+    "globals": "^17",
+    "prettier": "^3",
+    "typescript": "~5.9",
+    "typescript-eslint": "^8",
+    "vitest": "^5"
   }
 }

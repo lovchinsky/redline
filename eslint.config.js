@@ -235,6 +235,10 @@ export default defineConfig(
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
+        // Single-run mode builds a Program per tsconfig beside the project service's, and
+        // with this workspace's many tsconfigs the lint runs out of memory (typescript-eslint
+        // issue 13109). The project service alone serves every file.
+        disallowAutomaticSingleRunInference: true,
       },
     },
     rules: {
@@ -357,7 +361,8 @@ export default defineConfig(
   {
     // Preact hooks follow React's rules: stale effect dependencies are how UI races start.
     files: ['apps/extension/src/ui/**/*.tsx', 'apps/extension/src/ui/**/*.ts'],
-    plugins: { 'react-hooks': reactHooks },
+    // Its rules alone: the two below are the ones used, none of its preset configurations.
+    plugins: { 'react-hooks': { meta: reactHooks.meta, rules: reactHooks.rules } },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'error',
