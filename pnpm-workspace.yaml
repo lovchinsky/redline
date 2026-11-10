@@ -2,3 +2,10 @@ packages:
   - packages/*
   - apps/*
   - tools/*
+
+# Dependencies whose install scripts run: esbuild checks its platform binary. pnpm 11 reads
+# `allowBuilds`; pnpm 10 (`packageManager`) reads `onlyBuiltDependencies`.
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild
