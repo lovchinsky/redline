@@ -76,7 +76,35 @@ credential then travels in the `Model-Credential` and `Model-Credential-Kind` he
 `tools/contract-conformance` checks what the extension relies on; it runs against the mock
 receiver and against the receiver in this repository.
 
-## Running the receiver
+## Run it on your machine
+
+The receiver runs on your own machine with Docker and a GitHub token, nothing more:
+
+```bash
+cd apps/receiver/deploy
+export GITHUB_TOKEN=github_pat_…
+docker compose -f compose.local.yaml up
+```
+
+The token is a [fine-grained personal access token](https://github.com/settings/personal-access-tokens)
+for the repositories Redline may change, with `Contents` and `Pull requests` read and write (and
+nothing for `Workflows`): those repositories are the projects. The first start builds the
+receiver's and the sandbox's images, which takes a few minutes; then `setup` prints the
+receiver's address and a token. Set both on the extension's options page, with your own
+Anthropic key or Claude subscription token: the key travels with the extension's requests and
+stays in the gateway's memory, never on disk. `docker compose -f compose.local.yaml logs setup`
+shows the address and the token again.
+
+A task's change arrives as a draft pull request from a branch `redline/<task>` of the
+repository; that branch runs the repository's CI with the agent's code, so a repository whose CI
+has secrets is better published through a bot's fork (`git.fork.owner`, `target: fork`).
+Sandboxes run under gVisor where Docker has it, and under runc, isolated by containers alone,
+where it has not; the worker's log says which. The API listens on `127.0.0.1` only. For more
+than the defaults (budgets, a project's rules, hidden repositories), mount a `receiver.yaml` in
+place of the configuration inline in `compose.local.yaml`. `docker compose -f compose.local.yaml
+down` stops it; tasks and mirrors stay in its volumes until `down -v`.
+
+## Running the receiver on a server
 
 `apps/receiver` is a receiver for one team. Its services run with only what each needs:
 
@@ -120,8 +148,9 @@ and `tasks cancel`. Compose runs `receiver migrate` before the other services st
 the worker, bring the database schema and the queues up to date. `agent: { kind: scripted }` runs the whole flow (a question, an answer, a
 change request) without a model or sandboxes. With `git: github` the worker publishes pull requests through a
 GitHub App or a bot's token, to a branch of the repository (or the bot's fork), after gitleaks found no
-secret in the change; `receiver config check` then also checks every repository and publishing
-target, the sandboxes and their image.
+secret in the change; the projects are then the repositories the App's installations or the token
+reach, which the worker lists as it starts and every ten minutes, and `receiver config check` also checks each of
+them and its publishing target, the sandboxes and their image.
 
 A bundle is `manifest.json` plus `context.md` (the summary an agent reads first, within a token
 budget per step), `more-context.md` (what did not fit), screenshots under `assets/` and detail
