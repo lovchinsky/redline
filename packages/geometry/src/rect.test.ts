@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundsOf, inflateRect, intersectRects, rectContainsRect, rectDistance } from './rect';
+import { boundsOf, inflateRect, intersectRects, rectDistance } from './rect';
 
 describe('rect helpers', () => {
   it('computes bounds of points', () => {
@@ -29,9 +29,8 @@ describe('rect helpers', () => {
     expect(rectDistance(a, { x: 5, y: 5, width: 1, height: 1 })).toBe(0);
   });
 
-  it('inflates and checks containment', () => {
+  it('inflates on every side', () => {
     const a = { x: 10, y: 10, width: 10, height: 10 };
-    expect(rectContainsRect(inflateRect(a, 2), a)).toBe(true);
-    expect(rectContainsRect(a, inflateRect(a, 2))).toBe(false);
+    expect(inflateRect(a, 2)).toEqual({ x: 8, y: 8, width: 14, height: 14 });
   });
 });

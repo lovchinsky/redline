@@ -107,15 +107,6 @@ export const readToken = (token: string): TokenReading => {
     : { kind: 'plain', authored: token };
 };
 
-/** True when a known generator wrote the whole token. */
-export const isGeneratedToken = (token: string): boolean => readToken(token).kind === 'generated';
-
-/** The hand-written part of a token, or null when nothing in it was written by hand. */
-export const semanticPart = (token: string): string | null => {
-  const reading = readToken(token);
-  return reading.kind === 'generated' ? null : reading.authored;
-};
-
 /**
  * styled-components builds an element's class list as its component ids (one per level of
  * `styled(Styled…)`), then one style name per level with styles, then the classes it was given.

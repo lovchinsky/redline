@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { DEFAULT_CHANGE_POLICY } from '../../domain/change-policy';
 import { ProjectId } from '../../domain/ids';
 import type { HostedRepository } from '../../ports/source';
@@ -322,5 +325,20 @@ projects:
     await catalog.refresh();
     expect(catalog.get(ProjectId('acme/web'))).toBeNull();
     expect(catalog.get(ProjectId('acme/api'))?.repository.baseBranch).toBe('trunk');
+  });
+});
+
+describe('the deployment files', () => {
+  const deploy = path.resolve(import.meta.dirname, '../../../deploy');
+  const read = (file: string) => readFileSync(path.join(deploy, file), 'utf8');
+
+  it('hold configurations the receiver accepts: the example, and the local profile’s inline one', () => {
+    const compose = parse(read('compose.local.yaml')) as {
+      configs: { receiver: { content: string } };
+    };
+    for (const text of [read('receiver.example.yaml'), compose.configs.receiver.content]) {
+      const parsed = parseConfig(text);
+      expect(parsed.ok ? [] : parsed.errors).toEqual([]);
+    }
   });
 });

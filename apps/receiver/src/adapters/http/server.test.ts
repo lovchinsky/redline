@@ -29,7 +29,6 @@ import {
 import type { ModelAccessPolicy } from '../../ports/access';
 import { FsBlobStore } from '../blobs/fs-blob-store';
 import { StoredBundles } from '../blobs/stored-bundles';
-import { DEFAULT_POLLING } from './presenter';
 import { buildApi } from './server';
 
 let root: string;
@@ -141,7 +140,7 @@ const harness = async (
     identity: new FakeIdentity(),
     blobs,
     intake: { bundleBytes: 4096, files: 3, submissionsPerMinute: 2 },
-    polling: DEFAULT_POLLING,
+    polling: { queued: 30, working: 60, waiting: 60, finished: 3600 },
     clock,
     logger: silentLogger,
   });

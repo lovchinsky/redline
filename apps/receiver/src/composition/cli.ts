@@ -32,8 +32,9 @@ const USAGE = `Usage: receiver <command>
   tasks show <id>                 A task and its history
   tasks cancel <id> --reason <text>
 
-Environment: DATABASE_URL, REDLINE_CONFIG, REDLINE_BLOBS, REDLINE_HOST, REDLINE_PORT,
-REDLINE_GATEWAY_PORT, REDLINE_EGRESS_PORT, REDLINE_VAULT_SOCKET, REDLINE_LOCAL, REDLINE_LOG_LEVEL.`;
+Environment: DATABASE_URL, REDLINE_CONFIG, REDLINE_BLOBS, REDLINE_MIRRORS, REDLINE_HOST,
+REDLINE_PORT, REDLINE_GATEWAY_PORT, REDLINE_EGRESS_PORT, REDLINE_VAULT_SOCKET, REDLINE_LOCAL,
+REDLINE_LOG_LEVEL.`;
 
 const print = (text: string) => {
   process.stdout.write(`${text}\n`);

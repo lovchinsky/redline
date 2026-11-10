@@ -22,7 +22,7 @@ export interface GitHubAuth {
   accountToken(): string | null;
 }
 
-/** A bot's fine-grained personal access token: the same for every repository it was given. */
+/** A fine-grained personal access token, a bot's or a person's: the same for every repository it was given. */
 export class TokenAuth implements GitHubAuth {
   constructor(private readonly token: string) {}
 

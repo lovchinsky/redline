@@ -22,14 +22,3 @@ export const okVoid = (): Ok<void> => ({ ok: true, value: undefined });
 
 export const map = <T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<U, E> =>
   result.ok ? ok(fn(result.value)) : result;
-
-export const mapErr = <T, E, F>(result: Result<T, E>, fn: (error: E) => F): Result<T, F> =>
-  result.ok ? result : err(fn(result.error));
-
-export const andThen = <T, U, E, F>(
-  result: Result<T, E>,
-  fn: (value: T) => Result<U, F>,
-): Result<U, E | F> => (result.ok ? fn(result.value) : result);
-
-export const unwrapOr = <T, E>(result: Result<T, E>, fallback: T): T =>
-  result.ok ? result.value : fallback;

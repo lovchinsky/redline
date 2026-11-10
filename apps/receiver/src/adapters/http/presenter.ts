@@ -10,8 +10,6 @@ export interface Polling {
   readonly finished: number;
 }
 
-export const DEFAULT_POLLING: Polling = { queued: 30, working: 60, waiting: 60, finished: 3600 };
-
 const pollAfter = (task: Task, polling: Polling): number => {
   switch (task.state.kind) {
     case 'queued':

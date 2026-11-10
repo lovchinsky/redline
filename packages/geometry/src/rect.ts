@@ -44,27 +44,9 @@ export const inflateRect = (rect: Rect, by: number): Rect => ({
   height: rect.height + by * 2,
 });
 
-export const rectContainsPoint = (rect: Rect, point: Point): boolean =>
-  point.x >= rect.x &&
-  point.x <= rectRight(rect) &&
-  point.y >= rect.y &&
-  point.y <= rectBottom(rect);
-
-export const rectContainsRect = (outer: Rect, inner: Rect): boolean =>
-  inner.x >= outer.x &&
-  inner.y >= outer.y &&
-  rectRight(inner) <= rectRight(outer) &&
-  rectBottom(inner) <= rectBottom(outer);
-
 /** Shortest distance between two rectangles; 0 when they touch or overlap. */
 export const rectDistance = (a: Rect, b: Rect): number => {
   const dx = Math.max(0, b.x - rectRight(a), a.x - rectRight(b));
   const dy = Math.max(0, b.y - rectBottom(a), a.y - rectBottom(b));
   return Math.hypot(dx, dy);
 };
-
-export const translateRect = (rect: Rect, by: Point): Rect => ({
-  ...rect,
-  x: rect.x + by.x,
-  y: rect.y + by.y,
-});

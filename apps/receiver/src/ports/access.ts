@@ -6,7 +6,7 @@ import type { TaskPolicy } from '../domain/policy';
 export interface User {
   readonly id: UserId;
   readonly name: string;
-  /** Used only to credit the requester in a change request. */
+  /** What makes their tasks' commits theirs; without one, the receiver authors them. */
   readonly email: string | null;
 }
 

@@ -302,5 +302,3 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
     }),
   };
 };
-
-export type BackgroundServices = ReturnType<typeof createBackgroundServices>;
