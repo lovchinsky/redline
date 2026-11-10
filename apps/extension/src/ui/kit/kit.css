@@ -1,5 +1,14 @@
 /* Components of the UI kit, shared by extension pages and the overlay's shadow root. */
 
+/*
+ * A grid's columns are as wide as the grid, never as wide as content that cannot wrap (a URL, a
+ * project's name): such content is cut or scaled inside its column, and no surface scrolls
+ * sideways. A grid that sizes its columns otherwise says so with `grid-template-columns`.
+ */
+:where(*) {
+  grid-auto-columns: minmax(0, 1fr);
+}
+
 :focus-visible {
   outline: none;
   box-shadow: var(--rl-focus);
@@ -218,6 +227,7 @@
 
 .kbd {
   display: inline-grid;
+  flex: none;
   place-items: center;
   min-width: 20px;
   height: 20px;
@@ -279,6 +289,7 @@
 
 .count {
   display: inline-grid;
+  flex: none;
   place-items: center;
   min-width: 18px;
   height: 18px;

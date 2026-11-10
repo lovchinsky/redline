@@ -1,10 +1,14 @@
 @import '../shared/tokens.css';
 @import '../kit/kit.css';
 
-/* The composer frame: transparent around the panel, so only the panel and its shadow show. */
+/*
+ * The composer frame: transparent around the panel, so only the panel and its shadow show. The
+ * frame is sized to the panel (`ComposerApp`), so its document never scrolls.
+ */
 html,
 body {
   margin: 0;
+  overflow: hidden;
   background: transparent;
 }
 
@@ -31,8 +35,6 @@ button {
 /* The composer: what was circled and what to change. */
 .composer {
   display: grid;
-  /* One column no wider than the panel: long summaries truncate instead of stretching it. */
-  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   width: 384px;
   padding: 12px;

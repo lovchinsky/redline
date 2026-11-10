@@ -62,13 +62,15 @@ const Frame = ({ port }: { port: MessagePort }) => {
     };
   }, [port]);
 
-  // The session places the frame; it needs the panel's size, shadow margin included.
+  // The session places the frame; it needs the panel's size, shadow margin included, in whole
+  // pixels that hold all of it (a panel 209.5px high needs 210).
   const reported = useRef('');
   const reportSize = useCallback(() => {
     const element = panel.current;
     if (element === null) return;
-    const width = element.offsetWidth + 2 * COMPOSER_MARGIN;
-    const height = element.offsetHeight + 2 * COMPOSER_MARGIN;
+    const box = element.getBoundingClientRect();
+    const width = Math.ceil(box.width) + 2 * COMPOSER_MARGIN;
+    const height = Math.ceil(box.height) + 2 * COMPOSER_MARGIN;
     if (`${String(width)}x${String(height)}` === reported.current) return;
     reported.current = `${String(width)}x${String(height)}`;
     send({ type: 'size', width, height });

@@ -214,7 +214,7 @@ code {
 .step {
   position: relative;
   display: grid;
-  grid-template-columns: 24px 1fr;
+  grid-template-columns: 24px minmax(0, 1fr);
   gap: 12px;
   padding-bottom: 20px;
 }
@@ -580,7 +580,7 @@ code {
 
 @media (max-width: 720px) {
   .settings-section {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
   }
 }
@@ -685,6 +685,15 @@ code {
 .list-row > svg,
 .list-row > button {
   flex-shrink: 0;
+}
+
+/* Texts share the row by proportion, as an inline form's fields do: the main one (`.grow`) most. */
+.list-row > :not(.grow, svg, button) {
+  flex: 2 1 0;
+}
+
+.list-row > .grow {
+  flex: 3 1 0;
 }
 
 .list-empty {
