@@ -89,3 +89,23 @@ export interface GitRemotes {
     publishing: PublishingProfile,
   ): Promise<Publishing<GitRemote | null>>;
 }
+
+/** A repository the git host gives the receiver to work on, as the host names it. */
+export interface HostedRepository {
+  /** `owner/repo`. */
+  readonly name: string;
+  /** The branch changes are based on and requested into: the repository's default branch. */
+  readonly baseBranch: string;
+}
+
+/** The repositories the git host's credential reaches: each is a project of the receiver. */
+export interface RepositoryDirectory {
+  list(): Promise<Publishing<readonly HostedRepository[]>>;
+}
+
+/** The repositories the worker last found on the git host, for every role to read. */
+export interface RepositoryRegistry {
+  /** Puts `repositories` in place of those found before. */
+  replace(repositories: readonly HostedRepository[]): Promise<void>;
+  list(): Promise<readonly HostedRepository[]>;
+}

@@ -12,6 +12,7 @@ import type {
   Project,
   ProjectCatalog,
 } from '../../ports/access';
+import type { HostedRepository, RepositoryRegistry } from '../../ports/source';
 
 const text = z.string().check(z.minLength(1));
 const count = z.int().check(z.nonnegative());
@@ -56,19 +57,25 @@ const changePolicy = z.object({
   maxBinaryKilobytes: z.optional(positive),
 });
 
+/**
+ * A project: with `git: local` or `scripted`, one the receiver serves; with `git: github`, how
+ * the repository of that name differs from `defaults` (its id and name are the repository's).
+ */
+const publishing = z.object({
+  target: z.optional(z.enum(['fork', 'branch'])),
+  draft: z.optional(z.boolean()),
+});
+
 const project = z.object({
-  id: z
-    .string()
-    .check(z.regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'lowercase letters, digits and dashes')),
-  name: text,
-  access: z.optional(z.union([z.literal('everyone'), z.object({ users: z.array(text) })])),
-  repository: z.object({ host: text, name: text, baseBranch: z.optional(text) }),
-  publishing: z.optional(
-    z.object({
-      target: z.optional(z.enum(['fork', 'branch'])),
-      draft: z.optional(z.boolean()),
-    }),
+  id: z.optional(
+    z.string().check(z.regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'lowercase letters, digits and dashes')),
   ),
+  name: z.optional(text),
+  /** With `git: github`: the repository is not offered, though the host gives it. */
+  hidden: z.optional(z.boolean()),
+  access: z.optional(z.union([z.literal('everyone'), z.object({ users: z.array(text) })])),
+  repository: z.object({ host: z.optional(text), name: text, baseBranch: z.optional(text) }),
+  publishing: z.optional(publishing),
   policy: z.optional(policy),
   execution: z.optional(execution),
   changePolicy: z.optional(changePolicy),
@@ -91,9 +98,10 @@ const agent = z.discriminatedUnion('kind', [
     isolation: z.optional(z.enum(['gvisor', 'unsafe-runc'])),
     docker: z.optional(z.object({ socket: z.optional(text) })),
     user: z.optional(z.object({ uid: positive, gid: positive })),
-    networks: z.object({ setup: text, agent: text }),
+    /** The sandbox networks; the compose files' own by default. */
+    networks: z.optional(z.object({ setup: text, agent: text })),
     /** The gateway's addresses on the sandbox networks: sandboxes resolve no names. */
-    gateway: z.object({ model: sandboxAddress, egress: sandboxAddress }),
+    gateway: z.optional(z.object({ model: sandboxAddress, egress: sandboxAddress })),
     limits: z.optional(
       z.object({
         cpus: z.optional(z.number().check(z.positive())),
@@ -159,7 +167,8 @@ export const LIST_PRICES: Readonly<Record<string, ModelPrice>> = {
 };
 
 const configSchema = z.object({
-  agent,
+  /** Claude Code in sandboxes, as the compose files set them up, by default. */
+  agent: z.optional(agent),
   /** How soon the extension asks again about a task, by what the task is doing. */
   polling: z.optional(
     z.object({
@@ -200,9 +209,11 @@ const configSchema = z.object({
       policy: z.optional(policy),
       execution: z.optional(execution),
       changePolicy: z.optional(changePolicy),
+      publishing: z.optional(publishing),
     }),
   ),
-  projects: z.array(project).check(z.minLength(1)),
+  /** The projects (`git: local`, `scripted`), or how some repositories differ (`git: github`). */
+  projects: z.optional(z.array(project)),
 });
 
 type RawPolicy = z.infer<typeof policy>;
@@ -242,24 +253,31 @@ const gitOf = (raw: RawGit): GitConfig => {
   }
 };
 
-const agentOf = (raw: RawAgent): AgentConfig =>
-  raw.kind === 'scripted'
-    ? { kind: 'scripted', durationMs: (raw.durationSeconds ?? 5) * 1000, asks: raw.asks ?? true }
-    : {
-        kind: 'claude',
-        runtime: raw.isolation === 'unsafe-runc' ? 'runc' : 'runsc',
-        dockerSocket: raw.docker?.socket ?? '/var/run/docker.sock',
-        user: raw.user ?? { uid: 1000, gid: 1000 },
-        networks: raw.networks,
-        gateway: raw.gateway,
-        limits: {
-          cpus: raw.limits?.cpus ?? 2,
-          memoryBytes: (raw.limits?.memoryMegabytes ?? 4096) * 1024 * 1024,
-          pids: raw.limits?.pids ?? 1024,
-        },
-        setupTimeoutMs: (raw.setupTimeoutMinutes ?? 15) * MINUTE,
-      };
+/** The sandbox networks the compose files create, and the gateway's addresses on them. */
+const SANDBOX_NETWORKS = { setup: 'redline-sandbox-setup', agent: 'redline-sandbox-agent' };
+const SANDBOX_GATEWAY = { model: 'http://10.89.1.2:8788', egress: 'http://10.89.2.2:3128' };
+
+const agentOf = (raw: RawAgent | undefined): AgentConfig =>
+  raw === undefined
+    ? agentOf({ kind: 'claude' })
+    : raw.kind === 'scripted'
+      ? { kind: 'scripted', durationMs: (raw.durationSeconds ?? 5) * 1000, asks: raw.asks ?? true }
+      : {
+          kind: 'claude',
+          runtime: raw.isolation === 'unsafe-runc' ? 'runc' : 'runsc',
+          dockerSocket: raw.docker?.socket ?? '/var/run/docker.sock',
+          user: raw.user ?? { uid: 1000, gid: 1000 },
+          networks: raw.networks ?? SANDBOX_NETWORKS,
+          gateway: raw.gateway ?? SANDBOX_GATEWAY,
+          limits: {
+            cpus: raw.limits?.cpus ?? 2,
+            memoryBytes: (raw.limits?.memoryMegabytes ?? 4096) * 1024 * 1024,
+            pids: raw.limits?.pids ?? 1024,
+          },
+          setupTimeoutMs: (raw.setupTimeoutMinutes ?? 15) * MINUTE,
+        };
 type RawExecution = z.infer<typeof execution>;
+type RawProject = z.infer<typeof project>;
 type RawChangePolicy = z.infer<typeof changePolicy>;
 
 export interface IntakeLimits {
@@ -322,8 +340,23 @@ export interface ReceiverConfig {
   readonly gateway: GatewayConfig;
   readonly intake: IntakeLimits;
   readonly worker: { readonly runSlots: number; readonly runsPerProject: number };
-  readonly projects: readonly Project[];
+  readonly projects: ProjectSource;
+  /** The longest any project's run may take. */
+  readonly longestRunMs: number;
 }
+
+/**
+ * Where the receiver's projects come from: listed in the configuration, or the repositories the
+ * git host gives it, each shaped by `projectOf` (null: not offered).
+ */
+export type ProjectSource =
+  | { readonly kind: 'listed'; readonly projects: readonly Project[] }
+  | {
+      readonly kind: 'hosted';
+      readonly projectOf: (repository: HostedRepository) => Project | null;
+      /** The repositories the configuration says something about. */
+      readonly named: readonly string[];
+    };
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -408,74 +441,146 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
   const raw = parsed.data;
   const defaults = raw.defaults ?? {};
   const errors: string[] = [];
-  const projects: Project[] = [];
-  const seen = new Set<string>();
-  for (const entry of raw.projects) {
-    if (seen.has(entry.id)) errors.push(`projects: ${entry.id} is configured twice`);
-    seen.add(entry.id);
-    const rules = changePolicyOf(defaults.changePolicy ?? {}, entry.changePolicy ?? {});
-    if (!rules.ok) {
-      errors.push(...rules.errors.map((error) => `projects.${entry.id}.changePolicy: ${error}`));
-      continue;
-    }
-    projects.push({
-      id: ProjectId(entry.id),
-      name: entry.name,
-      access:
-        entry.access === undefined || entry.access === 'everyone'
-          ? { kind: 'everyone' }
-          : { kind: 'users', users: entry.access.users.map(UserId) },
-      repository: {
-        host: entry.repository.host,
-        name: entry.repository.name,
-        baseBranch: entry.repository.baseBranch ?? 'main',
-      },
-      policy: policyOf(defaults.policy ?? {}, entry.policy ?? {}),
-      changePolicy: rules.value,
-      execution: executionOf(defaults.execution ?? {}, entry.execution ?? {}),
-      publishing: {
-        target: entry.publishing?.target ?? 'branch',
-        draft: entry.publishing?.draft ?? true,
-      },
-    });
-  }
-  if (raw.agent.kind === 'claude' && raw.git.kind === 'scripted') {
-    errors.push('git: the claude agent works on real repositories; the scripted git host has none');
-  }
-  if (raw.git.kind === 'local') {
-    for (const entry of projects) {
-      if (entry.repository.host !== 'local' || entry.repository.name.split('/').includes('..')) {
-        errors.push(
-          `projects.${entry.id}.repository: git is local, so its host is local and its name a path under ${raw.git.root}`,
-        );
-      }
-    }
-  }
-  if (raw.git.kind === 'github') {
-    for (const entry of raw.projects) {
-      if (entry.repository.host !== 'github' || !/^[\w.-]+\/[\w.-]+$/.test(entry.repository.name)) {
-        errors.push(
-          `projects.${entry.id}.repository: git is github, so its host is github and its name owner/repo`,
-        );
-      }
-      const target = entry.publishing?.target ?? 'branch';
-      if (target === 'fork' && raw.git.fork === undefined) {
-        errors.push(`projects.${entry.id}.publishing: it publishes to a fork; set git.fork.owner`);
-      }
-    }
-  }
   if (raw.models.credentials !== 'required' && raw.models.operator === undefined) {
     errors.push(
       `models.operator: tasks run with the operator's credential (credentials: ${raw.models.credentials}); say where it is`,
     );
   }
   const prices = { ...LIST_PRICES, ...(raw.models.prices ?? {}) };
-  for (const entry of projects) {
-    if (prices[entry.execution.model] === undefined) {
-      errors.push(
-        `projects.${entry.id}.execution.model: no price for ${entry.execution.model}; set models.prices`,
-      );
+  const hosted = raw.git.kind === 'github';
+  const forkOwner = raw.git.kind === 'github' ? raw.git.fork : undefined;
+
+  /** A project from its entry (or none: the defaults alone), its problems reported as `where`. */
+  const projectFrom = (
+    entry: RawProject | null,
+    repository: { readonly host: string; readonly name: string; readonly baseBranch: string },
+    identity: { readonly id: string; readonly name: string },
+    where: string,
+  ): Project | null => {
+    const rules = changePolicyOf(defaults.changePolicy ?? {}, entry?.changePolicy ?? {});
+    if (!rules.ok) {
+      errors.push(...rules.errors.map((error) => `${where}.changePolicy: ${error}`));
+      return null;
     }
+    const execution = executionOf(defaults.execution ?? {}, entry?.execution ?? {});
+    if (prices[execution.model] === undefined) {
+      errors.push(`${where}.execution.model: no price for ${execution.model}; set models.prices`);
+    }
+    const target = entry?.publishing?.target ?? defaults.publishing?.target ?? 'branch';
+    if (hosted && target === 'fork' && forkOwner === undefined) {
+      errors.push(`${where}.publishing: it publishes to a fork; set git.fork.owner`);
+    }
+    return {
+      id: ProjectId(identity.id),
+      name: identity.name,
+      access:
+        entry?.access === undefined || entry.access === 'everyone'
+          ? { kind: 'everyone' }
+          : { kind: 'users', users: entry.access.users.map(UserId) },
+      repository,
+      policy: policyOf(defaults.policy ?? {}, entry?.policy ?? {}),
+      changePolicy: rules.value,
+      execution,
+      publishing: {
+        target,
+        draft: entry?.publishing?.draft ?? defaults.publishing?.draft ?? true,
+      },
+    };
+  };
+
+  let projects: ProjectSource;
+  const entries = raw.projects ?? [];
+  const timeouts = [executionOf(defaults.execution ?? {}, {}).timeoutMs];
+  if (hosted) {
+    const byName = new Map<string, RawProject>();
+    entries.forEach((entry, index) => {
+      const where = `projects[${String(index)}]`;
+      const name = entry.repository.name;
+      if (entry.id !== undefined) {
+        errors.push(`${where}.id: with git: github a project is its repository; drop the id`);
+      }
+      if (
+        (entry.repository.host !== undefined && entry.repository.host !== 'github') ||
+        !/^[\w.-]+\/[\w.-]+$/.test(name)
+      ) {
+        errors.push(
+          `${where}.repository: git is github, so its host is github and its name owner/repo`,
+        );
+      }
+      if (byName.has(name.toLowerCase())) errors.push(`${where}: ${name} is configured twice`);
+      byName.set(name.toLowerCase(), entry);
+      // Checked now, so that a repository the host gives later cannot fail on its rules.
+      const checked = projectFrom(
+        entry,
+        { host: 'github', name, baseBranch: entry.repository.baseBranch ?? 'main' },
+        { id: name, name },
+        where,
+      );
+      if (checked !== null) timeouts.push(checked.execution.timeoutMs);
+    });
+    // The defaults alone, checked now for the repositories no entry names.
+    projectFrom(
+      null,
+      { host: 'github', name: 'owner/repo', baseBranch: 'main' },
+      { id: 'x', name: 'x' },
+      'defaults',
+    );
+    projects = {
+      kind: 'hosted',
+      named: [...byName.values()].map((entry) => entry.repository.name),
+      projectOf: (repository) => {
+        const entry = byName.get(repository.name.toLowerCase()) ?? null;
+        if (entry?.hidden === true) return null;
+        return projectFrom(
+          entry,
+          {
+            host: 'github',
+            name: repository.name,
+            baseBranch: entry?.repository.baseBranch ?? repository.baseBranch,
+          },
+          { id: repository.name, name: entry?.name ?? repository.name },
+          repository.name,
+        );
+      },
+    };
+  } else {
+    if (entries.length === 0) {
+      errors.push(`projects: git is ${raw.git.kind}, so the projects are listed here; list one`);
+    }
+    const listed: Project[] = [];
+    const seen = new Set<string>();
+    entries.forEach((entry, index) => {
+      const id = entry.id ?? '';
+      const where = `projects.${id === '' ? `[${String(index)}]` : id}`;
+      if (entry.id === undefined || entry.name === undefined) {
+        errors.push(`${where}: a listed project has an id and a name`);
+        return;
+      }
+      if (seen.has(id)) errors.push(`projects: ${id} is configured twice`);
+      seen.add(id);
+      const repository = {
+        host: entry.repository.host ?? raw.git.kind,
+        name: entry.repository.name,
+        baseBranch: entry.repository.baseBranch ?? 'main',
+      };
+      if (
+        raw.git.kind === 'local' &&
+        (repository.host !== 'local' || repository.name.split('/').includes('..'))
+      ) {
+        errors.push(
+          `${where}.repository: git is local, so its host is local and its name a path under ${raw.git.root}`,
+        );
+      }
+      const made = projectFrom(entry, repository, { id, name: entry.name }, where);
+      if (made !== null) {
+        listed.push(made);
+        timeouts.push(made.execution.timeoutMs);
+      }
+    });
+    projects = { kind: 'listed', projects: listed };
+  }
+  if (raw.agent?.kind !== 'scripted' && raw.git.kind === 'scripted') {
+    errors.push('git: the claude agent works on real repositories; the scripted git host has none');
   }
   if (errors.length > 0) return { ok: false, errors };
   return {
@@ -510,16 +615,48 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
         runsPerProject: raw.worker?.runsPerProject ?? 1,
       },
       projects,
+      longestRunMs: Math.max(...timeouts),
     },
   };
 };
 
-/** The projects of a configuration, as the use cases see them. */
+/** The projects listed in the configuration, as the use cases see them. */
 export class ConfiguredProjects implements ProjectCatalog {
   private readonly byId: ReadonlyMap<ProjectId, Project>;
 
   constructor(private readonly projects: readonly Project[]) {
     this.byId = new Map(projects.map((entry) => [entry.id, entry]));
+  }
+
+  list(): readonly Project[] {
+    return this.projects;
+  }
+
+  get(id: ProjectId): Project | null {
+    return this.byId.get(id) ?? null;
+  }
+}
+
+/**
+ * The repositories the worker last found on the git host (`RepositoryRegistry`), each a project
+ * shaped by the configuration. They are read again with `refresh`; until then, and when it
+ * fails, the projects stay as they were read last.
+ */
+export class HostedProjects implements ProjectCatalog {
+  private projects: readonly Project[] = [];
+  private byId: ReadonlyMap<ProjectId, Project> = new Map();
+
+  constructor(
+    private readonly source: Extract<ProjectSource, { kind: 'hosted' }>,
+    private readonly registry: RepositoryRegistry,
+  ) {}
+
+  async refresh(): Promise<void> {
+    const repositories = await this.registry.list();
+    this.projects = repositories
+      .map((repository) => this.source.projectOf(repository))
+      .filter((project) => project !== null);
+    this.byId = new Map(this.projects.map((entry) => [entry.id, entry]));
   }
 
   list(): readonly Project[] {

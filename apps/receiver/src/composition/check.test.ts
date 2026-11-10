@@ -83,8 +83,6 @@ git:
 models:
   credentials: managed
   operator: { kind: api-key, secretFile: ${path.join(dir, 'operator-key')} }
-projects:
-  - { id: web, name: Web, repository: { host: github, name: acme/web } }
 `);
     if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
     const settings = {

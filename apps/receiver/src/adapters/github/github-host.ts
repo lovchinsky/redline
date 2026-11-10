@@ -1,10 +1,18 @@
 import type { ChangeRequestRef } from '../../domain/work';
 import type { PublishingProfile, RepositoryRef } from '../../ports/access';
 import type { ChangeRequestDraft, Forge, Publishing } from '../../ports/publishing';
-import type { GitRemote, GitRemotes } from '../../ports/source';
+import type {
+  GitRemote,
+  GitRemotes,
+  HostedRepository,
+  RepositoryDirectory,
+} from '../../ports/source';
 import type { Logger } from '../../ports/system';
 import { GitHubError, type GitHubApi } from './api';
 import type { GitHubAuth } from './auth';
+
+/** Repositories per page of a listing: the most the API gives. */
+const PAGE = 100;
 
 /** The label a pull request carries when the repository takes no drafts. */
 export const DRAFT_LABEL = 'redline:draft';
@@ -43,8 +51,39 @@ const caught = async <T>(work: () => Promise<T>): Promise<Publishing<T>> => {
  * closed. A project publishing to a fork pushes to the bot's fork and opens the pull request
  * from it; one publishing to a branch pushes to the repository itself.
  */
-export class GitHubHost implements Forge, GitRemotes {
+export class GitHubHost implements Forge, GitRemotes, RepositoryDirectory {
   constructor(private readonly options: GitHubHostOptions) {}
+
+  /**
+   * The repositories the receiver's credential reaches, page by page: each is a project. An
+   * archived one takes no changes and is left out.
+   */
+  list(): Promise<Publishing<readonly HostedRepository[]>> {
+    return caught(async () => {
+      const found = new Map<string, HostedRepository>();
+      for (const listing of await this.options.auth.listings()) {
+        for (let page = 1; ; page += 1) {
+          const separator = listing.path.includes('?') ? '&' : '?';
+          const answer = await this.options.api.call(
+            'GET',
+            `${listing.path}${separator}per_page=${String(PAGE)}&page=${String(page)}`,
+            listing.token,
+          );
+          const body = listing.within === null ? answer.body : field(answer.body, listing.within);
+          const entries = Array.isArray(body) ? body : [];
+          for (const entry of entries) {
+            const name = field(entry, 'full_name');
+            const baseBranch = field(entry, 'default_branch');
+            if (typeof name !== 'string' || typeof baseBranch !== 'string') continue;
+            if (field(entry, 'archived') === true) continue;
+            found.set(name.toLowerCase(), { name, baseBranch });
+          }
+          if (entries.length < PAGE) break;
+        }
+      }
+      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+    });
+  }
 
   /** Where the repository is fetched from, with a token for it. */
   source(repository: RepositoryRef): Promise<Publishing<GitRemote | null>> {

@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { FsBlobStore } from '../adapters/blobs/fs-blob-store';
 import type { ReceiverConfig } from '../adapters/config/config';
 import type { Fault, Result } from '../domain/result';
+import type { Project } from '../ports/access';
 import type { Logger } from '../ports/system';
 import { gitOf, sandboxesOf, secretOf } from './receiver';
 import type { Settings } from './settings';
@@ -60,7 +61,25 @@ export const checkDeployment = async (
     },
   );
   const mirrored = git?.kind === 'mirrored' ? git : null;
-  for (const project of config.projects) {
+  // The projects as the worker would find them: listed, or the repositories GitHub gives.
+  let projects: readonly Project[] = [];
+  if (config.projects.kind === 'listed') {
+    projects = config.projects.projects;
+  } else if (mirrored?.github != null) {
+    const { github } = mirrored;
+    const source = config.projects;
+    checks.push(
+      await attempt('repositories', async () => {
+        const found = unwrap(await github.list());
+        projects = found
+          .map((repository) => source.projectOf(repository))
+          .filter((project) => project !== null);
+        if (projects.length === 0) throw new Error('GitHub gives the receiver no repository');
+        return `${String(projects.length)} offered: ${projects.map((project) => project.id).join(', ')}`;
+      }),
+    );
+  }
+  for (const project of projects) {
     if (mirrored === null) break;
     const { mirrors, github } = mirrored;
     checks.push(
@@ -98,7 +117,7 @@ export const checkDeployment = async (
         return agent.runtime === 'runsc' ? 'isolated by gVisor' : 'isolation waived: runc';
       }),
     );
-    for (const image of new Set(config.projects.map((project) => project.execution.image))) {
+    for (const image of new Set(projects.map((project) => project.execution.image))) {
       checks.push(
         await attempt(`sandbox image ${image}`, async () => {
           if ((await sandboxes.imageId(image)) === null)

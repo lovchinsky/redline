@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { FixedClock, silentLogger } from '../../application/testing/fakes';
 import type { RepositoryRef } from '../../ports/access';
 import { GitHubApi } from './api';
-import { AppAuth, TokenAuth } from './auth';
+import { AppAuth, TokenAuth, type GitHubAuth } from './auth';
 import { DRAFT_LABEL, GitHubHost } from './github-host';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -71,7 +71,7 @@ const pull = (number: number) => ({
 
 const host = (
   api: GitHubApi,
-  auth = new TokenAuth('pat-token'),
+  auth: GitHubAuth = new TokenAuth('pat-token'),
   forkOwner: string | null = 'redline-bot',
 ) => new GitHubHost({ api, auth, gitUrl: 'https://github.test', forkOwner, logger: silentLogger });
 
@@ -282,6 +282,84 @@ describe('GitHubHost', () => {
     expect(await host(api).checkTarget(repository, { target: 'fork', draft: true })).toMatchObject({
       ok: false,
       error: { detail: 'redline-bot/web is not a fork of acme/web' },
+    });
+  });
+});
+
+describe('the repositories a credential reaches', () => {
+  const repo = (name: string, extra: Record<string, unknown> = {}) => ({
+    full_name: name,
+    default_branch: 'main',
+    archived: false,
+    ...extra,
+  });
+
+  it('lists a token’s repositories page by page, without the archived ones', async () => {
+    const first = Array.from({ length: 100 }, (_, index) => repo(`acme/repo-${String(index)}`));
+    const { calls, api } = fakeGitHub((call) =>
+      call.path.endsWith('page=1')
+        ? { status: 200, body: first }
+        : {
+            status: 200,
+            body: [
+              repo('acme/web', { default_branch: 'develop' }),
+              repo('acme/old', { archived: true }),
+            ],
+          },
+    );
+    const listed = await host(api).list();
+    if (!listed.ok) throw new Error(listed.error.detail);
+    expect(listed.value).toHaveLength(101);
+    expect(listed.value).toContainEqual({ name: 'acme/web', baseBranch: 'develop' });
+    expect(listed.value.some((found) => found.name === 'acme/old')).toBe(false);
+    expect(calls.map((call) => call.path)).toEqual([
+      '/user/repos?per_page=100&page=1',
+      '/user/repos?per_page=100&page=2',
+    ]);
+    expect(calls.every((call) => call.authorization === 'Bearer pat-token')).toBe(true);
+  });
+
+  it('lists the repositories of every installation of an App, each with its own token', async () => {
+    const clock = new FixedClock(Date.UTC(2026, 10, 9, 12));
+    const { calls, api } = fakeGitHub((call) => {
+      if (call.path.startsWith('/app/installations?')) {
+        return { status: 200, body: [{ id: 1 }, { id: 2 }] };
+      }
+      if (call.path.endsWith('/access_tokens')) {
+        return { status: 201, body: { token: `ghs-${call.path.split('/')[3] ?? ''}` } };
+      }
+      return {
+        status: 200,
+        body: {
+          repositories: [repo(call.authorization === 'Bearer ghs-1' ? 'acme/web' : 'acme/api')],
+        },
+      };
+    });
+    const auth = new AppAuth({
+      api,
+      appId: '1',
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      clock,
+    });
+    const listed = await host(api, auth).list();
+    expect(listed).toEqual({
+      ok: true,
+      value: [
+        { name: 'acme/api', baseBranch: 'main' },
+        { name: 'acme/web', baseBranch: 'main' },
+      ],
+    });
+    // A listing's token reads metadata only.
+    expect(
+      calls.filter((call) => call.path.endsWith('/access_tokens')).map((call) => call.body),
+    ).toEqual([{ permissions: { metadata: 'read' } }, { permissions: { metadata: 'read' } }]);
+  });
+
+  it('names a refused credential as GitHub answered it', async () => {
+    const { api } = fakeGitHub(() => ({ status: 401, body: { message: 'Bad credentials' } }));
+    expect(await host(api).list()).toMatchObject({
+      ok: false,
+      error: { transient: false, detail: expect.stringContaining('401') as string },
     });
   });
 });

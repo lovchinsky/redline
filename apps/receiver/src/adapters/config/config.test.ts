@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHANGE_POLICY } from '../../domain/change-policy';
 import { ProjectId } from '../../domain/ids';
-import { ConfiguredProjects, parseConfig } from './config';
+import type { HostedRepository } from '../../ports/source';
+import { ConfiguredProjects, HostedProjects, parseConfig } from './config';
 
 const minimal = `
 agent: { kind: scripted }
@@ -33,7 +34,7 @@ describe('parseConfig', () => {
       files: 500,
       submissionsPerMinute: 30,
     });
-    const [acme] = parsed.value.projects;
+    const [acme] = parsed.value.projects.kind === 'listed' ? parsed.value.projects.projects : [];
     expect(acme).toMatchObject({
       id: 'acme-web',
       access: { kind: 'everyone' },
@@ -82,7 +83,7 @@ projects:
     changePolicy: { deny: [migrations], exempt: [CLAUDE.md] }
 `);
     if (!fixed.ok) throw new Error(fixed.errors.join('\n'));
-    const [web] = fixed.value.projects;
+    const [web] = fixed.value.projects.kind === 'listed' ? fixed.value.projects.projects : [];
     expect(web?.policy).toMatchObject({ maxQuestions: 1, onReplyTimeout: 'fail' });
     expect(web?.access).toEqual({ kind: 'users', users: ['ann'] });
     expect(web?.changePolicy.deny).toContain('.github');
@@ -122,7 +123,8 @@ describe('ConfiguredProjects', () => {
   it('finds projects by id', () => {
     const parsed = parseConfig(minimal);
     if (!parsed.ok) throw new Error('invalid');
-    const catalog = new ConfiguredProjects(parsed.value.projects);
+    if (parsed.value.projects.kind !== 'listed') throw new Error('not listed');
+    const catalog = new ConfiguredProjects(parsed.value.projects.projects);
     expect(catalog.get(ProjectId('acme-web'))?.name).toBe('Acme Web');
     expect(catalog.get(ProjectId('nope'))).toBeNull();
     expect(catalog.list()).toHaveLength(1);
@@ -209,20 +211,10 @@ projects:
     });
   });
 
-  it('reads GitHub as the git host, and publishes to a branch unless a project names a fork', () => {
-    const source = (git: string, publishing: string) => `
-agent: { kind: scripted }
-git: ${git}
-models: { credentials: required }
-projects:
-  - id: web
-    name: Web
-    repository: { host: github, name: acme/web }
-    publishing: ${publishing}
-`;
+  it('reads GitHub as the git host, whose repositories are the projects', () => {
     const app =
       '{ kind: github, auth: { app: { id: 12345, privateKeyFile: /run/secrets/app.pem } }, fork: { owner: redline-bot } }';
-    const parsed = parseConfig(source(app, '{ target: fork }'));
+    const parsed = parseConfig(`git: ${app}\nmodels: { credentials: required }\n`);
     if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
     expect(parsed.value.git).toEqual({
       kind: 'github',
@@ -233,12 +225,95 @@ projects:
       commitAs: { name: 'Redline', email: 'redline@users.noreply.github.com' },
       gitleaks: 'gitleaks',
     });
-    const token = '{ kind: github, auth: { token: { file: /run/secrets/pat } } }';
-    expect(parseConfig(source(token, '{ target: fork }'))).toMatchObject({
-      ok: false,
-      errors: ['projects.web.publishing: it publishes to a fork; set git.fork.owner'],
+    // No agent named: Claude Code in the sandboxes the compose files set up.
+    expect(parsed.value.agent).toMatchObject({
+      kind: 'claude',
+      runtime: 'runsc',
+      networks: { setup: 'redline-sandbox-setup', agent: 'redline-sandbox-agent' },
+      gateway: { model: 'http://10.89.1.2:8788', egress: 'http://10.89.2.2:3128' },
     });
-    // A branch of the repository itself needs no fork.
-    expect(parseConfig(source(token, '{ target: branch }'))).toMatchObject({ ok: true });
+    const source = parsed.value.projects;
+    if (source.kind !== 'hosted') throw new Error('not hosted');
+    // A repository the configuration says nothing about: the defaults, published to a branch.
+    expect(source.projectOf({ name: 'acme/web', baseBranch: 'develop' })).toMatchObject({
+      id: 'acme/web',
+      name: 'acme/web',
+      repository: { host: 'github', name: 'acme/web', baseBranch: 'develop' },
+      publishing: { target: 'branch', draft: true },
+      access: { kind: 'everyone' },
+    });
+  });
+
+  it('shapes the repositories it names, and hides those it is told to', () => {
+    const parsed = parseConfig(`
+git: { kind: github, auth: { token: { file: /run/secrets/pat } }, fork: { owner: redline-bot } }
+models: { credentials: required }
+defaults:
+  execution: { budgetUsd: 3 }
+  publishing: { draft: false }
+projects:
+  - repository: { name: Acme/Web }
+    name: Acme Web
+    publishing: { target: fork }
+    execution: { timeoutMinutes: 90 }
+  - repository: { name: acme/secret }
+    hidden: true
+`);
+    if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+    const source = parsed.value.projects;
+    if (source.kind !== 'hosted') throw new Error('not hosted');
+    expect(source.named).toEqual(['Acme/Web', 'acme/secret']);
+    expect(source.projectOf({ name: 'acme/web', baseBranch: 'main' })).toMatchObject({
+      id: 'acme/web',
+      name: 'Acme Web',
+      publishing: { target: 'fork', draft: false },
+      execution: { budget: { usd: 3 }, timeoutMs: 90 * 60_000 },
+    });
+    expect(source.projectOf({ name: 'acme/secret', baseBranch: 'main' })).toBeNull();
+    expect(parsed.value.longestRunMs).toBe(90 * 60_000);
+  });
+
+  it('refuses ids, other hosts and forks without an owner, for GitHub’s repositories', () => {
+    const parsed = parseConfig(`
+git: { kind: github, auth: { token: { file: /run/secrets/pat } } }
+models: { credentials: required }
+projects:
+  - { id: web, repository: { name: acme/web } }
+  - { repository: { host: local, name: acme/api } }
+  - { repository: { name: acme/docs }, publishing: { target: fork } }
+`);
+    expect(parsed.ok ? [] : parsed.errors).toEqual([
+      'projects[0].id: with git: github a project is its repository; drop the id',
+      'projects[1].repository: git is github, so its host is github and its name owner/repo',
+      'projects[2].publishing: it publishes to a fork; set git.fork.owner',
+    ]);
+  });
+});
+
+describe('HostedProjects', () => {
+  it('offers the repositories found last, as the configuration shapes them', async () => {
+    const parsed = parseConfig(`
+git: { kind: github, auth: { token: { file: /run/secrets/pat } } }
+models: { credentials: required }
+projects:
+  - { repository: { name: acme/secret }, hidden: true }
+`);
+    if (!parsed.ok || parsed.value.projects.kind !== 'hosted') throw new Error('not hosted');
+    let found: readonly HostedRepository[] = [
+      { name: 'acme/web', baseBranch: 'main' },
+      { name: 'acme/secret', baseBranch: 'main' },
+    ];
+    const catalog = new HostedProjects(parsed.value.projects, {
+      replace: () => Promise.resolve(),
+      list: () => Promise.resolve(found),
+    });
+    expect(catalog.list()).toEqual([]);
+    await catalog.refresh();
+    expect(catalog.list().map((project) => project.id)).toEqual(['acme/web']);
+    expect(catalog.get(ProjectId('acme/web'))?.repository.baseBranch).toBe('main');
+    found = [{ name: 'acme/api', baseBranch: 'trunk' }];
+    await catalog.refresh();
+    expect(catalog.get(ProjectId('acme/web'))).toBeNull();
+    expect(catalog.get(ProjectId('acme/api'))?.repository.baseBranch).toBe('trunk');
   });
 });

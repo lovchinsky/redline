@@ -122,9 +122,16 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
       print(
         `Model credentials: ${config.modelAccess.credentials}; agent: ${config.agent.kind}; git: ${config.git.kind}`,
       );
-      for (const project of config.projects) {
+      if (config.projects.kind === 'listed') {
+        for (const project of config.projects.projects) {
+          print(
+            `  ${project.id} (${project.name}): ${project.repository.host}:${project.repository.name}@${project.repository.baseBranch}`,
+          );
+        }
+      } else {
+        const named = config.projects.named;
         print(
-          `  ${project.id} (${project.name}): ${project.repository.host}:${project.repository.name}@${project.repository.baseBranch}`,
+          `Projects: the repositories GitHub gives${named.length === 0 ? '' : `; configured: ${named.join(', ')}`}`,
         );
       }
       if (values.offline === true) return 0;

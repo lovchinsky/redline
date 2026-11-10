@@ -2,10 +2,16 @@ import { readFile } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import { FsBlobStore } from '../adapters/blobs/fs-blob-store';
 import { StoredBundles } from '../adapters/blobs/stored-bundles';
-import { ConfiguredProjects, parseConfig, type ReceiverConfig } from '../adapters/config/config';
+import {
+  ConfiguredProjects,
+  HostedProjects,
+  parseConfig,
+  type ReceiverConfig,
+} from '../adapters/config/config';
 import { buildApi } from '../adapters/http/server';
 import { migrate, openDatabase } from '../adapters/postgres/database';
 import { PgBossJobs, type WorkerLimits } from '../adapters/postgres/jobs';
+import { PostgresRepositories } from '../adapters/postgres/repositories';
 import { PostgresStore } from '../adapters/postgres/store';
 import { PostgresUsers } from '../adapters/postgres/users';
 import { ScriptedGit } from '../adapters/scripted/scripted-git';
@@ -31,10 +37,11 @@ import { TaskOperations } from '../application/operations';
 import { PublishChange } from '../application/publish-change';
 import { TaskRequests } from '../application/requests';
 import { SuperviseRun } from '../application/supervise-run';
+import { DiscoverRepositories } from '../application/projects';
 import { ReleaseStrays } from '../application/runs';
 import { TaskJobs } from '../application/task-jobs';
 import { TaskWriter } from '../application/task-writer';
-import { ModelCredential, type CredentialVault } from '../ports/access';
+import { ModelCredential, type CredentialVault, type ProjectCatalog } from '../ports/access';
 import type { AgentRunner } from '../ports/agent';
 import type { BlobStore } from '../ports/bundles';
 import type { Forge } from '../ports/publishing';
@@ -293,8 +300,7 @@ const gatewayOf = async (
 const workerLimitsOf = (config: ReceiverConfig): WorkerLimits => ({
   runSlots: config.worker.runSlots,
   runsPerProject: config.worker.runsPerProject,
-  runTimeoutSeconds:
-    Math.max(...config.projects.map((project) => project.execution.timeoutMs)) / 1000,
+  runTimeoutSeconds: config.longestRunMs / 1000,
 });
 
 /**
@@ -311,15 +317,59 @@ const prepareStorage = async (
   await jobs.prepare(workerLimitsOf(config));
 };
 
+/** The receiver's projects, as every role that serves tasks reads them. */
+interface Projects {
+  readonly catalog: ProjectCatalog;
+  /** Reads the projects again (those found on the git host); listed ones never change. */
+  readonly refresh: () => Promise<void>;
+  readonly stop: () => void;
+}
+
+/** How often a role reads again the repositories the worker found. */
+const PROJECTS_REFRESH_MS = 60_000;
+
+/**
+ * The projects: those the configuration lists, or the repositories the worker last found on the
+ * git host, read now and again every minute.
+ */
+const projectsOf = async (
+  config: ReceiverConfig,
+  db: ReturnType<typeof openDatabase>,
+  logger: Logger,
+): Promise<Projects> => {
+  if (config.projects.kind === 'listed') {
+    return {
+      catalog: new ConfiguredProjects(config.projects.projects),
+      refresh: () => Promise.resolve(),
+      stop: () => undefined,
+    };
+  }
+  const hosted = new HostedProjects(config.projects, new PostgresRepositories(db));
+  await hosted.refresh();
+  const timer = setInterval(() => {
+    hosted.refresh().catch((error: unknown) => {
+      logger.warn('Could not read the projects again', { error: String(error) });
+    });
+  }, PROJECTS_REFRESH_MS);
+  return {
+    catalog: hosted,
+    refresh: () => hosted.refresh(),
+    stop: () => {
+      clearInterval(timer);
+    },
+  };
+};
+
 /** The worker: runs tasks' agents and publishes their changes, as the queues hand them out. */
 const workerOf = async (
   settings: Settings,
   config: ReceiverConfig,
   deps: {
+    readonly db: ReturnType<typeof openDatabase>;
     readonly store: PostgresStore;
     readonly jobs: PgBossJobs;
     readonly writer: TaskWriter;
-    readonly projects: ConfiguredProjects;
+    readonly projects: Projects;
     readonly blobs: BlobStore;
     readonly bundles: StoredBundles;
     readonly users: PostgresUsers;
@@ -327,7 +377,8 @@ const workerOf = async (
   },
   logger: Logger,
 ): Promise<() => Promise<void>> => {
-  const { store, jobs, writer, projects, blobs, bundles, users, vault } = deps;
+  const { store, jobs, writer, blobs, bundles, users, vault } = deps;
+  const projects = deps.projects.catalog;
   // Only what runs tasks holds the git host's and Docker's credentials.
   const git = await gitOf(settings, config, blobs, logger);
   const runner = runnerOf(config, blobs, git, logger);
@@ -368,16 +419,33 @@ const workerOf = async (
     runner,
     logger: logger.child({ component: 'runs' }),
   });
+  // Only the worker reaches the git host: it finds the repositories every role offers.
+  const discovery =
+    config.projects.kind === 'hosted' && git.kind === 'mirrored' && git.github !== null
+      ? new DiscoverRepositories({
+          directory: git.github,
+          registry: new PostgresRepositories(deps.db),
+          logger: logger.child({ component: 'projects' }),
+        })
+      : null;
   // One round of housekeeping at a time; stopping waits for the one in flight.
   let tidying = Promise.resolve();
   const tidy = () => {
-    tidying = tidying.then(() =>
-      strays.handle().catch((error: unknown) => {
+    tidying = tidying.then(async () => {
+      try {
+        if (discovery !== null) {
+          await discovery.handle();
+          await deps.projects.refresh();
+        }
+        await strays.handle();
+      } catch (error) {
         logger.warn('Housekeeping failed', { error: String(error) });
-      }),
-    );
+      }
+    });
   };
   tidy();
+  // The projects are there before the first job asks for one.
+  await tidying;
   const housekeeping = setInterval(tidy, HOUSEKEEPING_MS);
   await jobs.work(handler, workerLimitsOf(config));
   return async () => {
@@ -416,6 +484,7 @@ export const assemble = async (
 
   let api: Awaited<ReturnType<typeof buildApi>> | null = null;
   let stopWorker = (): Promise<void> => Promise.resolve();
+  let stopProjects = (): void => undefined;
   if (jobs !== null) {
     const vault: CredentialVault =
       config.modelAccess.credentials === 'managed'
@@ -427,14 +496,15 @@ export const assemble = async (
     const users = new PostgresUsers(db);
     const blobs = new FsBlobStore(settings.blobsPath);
     const bundles = new StoredBundles(blobs);
-    const projects = new ConfiguredProjects(config.projects);
+    const projects = await projectsOf(config, db, logger);
+    stopProjects = projects.stop;
     const writer = new TaskWriter({ uow: store, clock: systemClock });
     if (parts.api) {
       const relay = new CredentialRelay({ vault, writer, policy: config.modelAccess, logger });
       const requests = new TaskRequests({
         queries: store,
         writer,
-        projects,
+        projects: projects.catalog,
         bundles,
         vault,
         relay,
@@ -456,7 +526,7 @@ export const assemble = async (
       stopWorker = await workerOf(
         settings,
         config,
-        { store, jobs, writer, projects, blobs, bundles, users, vault },
+        { db, store, jobs, writer, projects, blobs, bundles, users, vault },
         logger,
       );
     }
@@ -471,6 +541,7 @@ export const assemble = async (
     api,
     ...listeners,
     stop: async () => {
+      stopProjects();
       await stopWorker();
       await api?.close();
       await Promise.all([drain(listeners.gateway), drain(listeners.egress)]);
@@ -511,7 +582,6 @@ export const administration = async (
   return {
     users: new PostgresUsers(db),
     tasks: new TaskOperations({ queries: store, writer }),
-    projects: new ConfiguredProjects(config.projects),
     close: async () => {
       await jobs.stop();
       await db.destroy();

@@ -11,6 +11,7 @@ import { PgBossJobs } from './jobs';
 import { migrations, type Database } from './schema';
 import { PostgresStore } from './store';
 import { freshDatabase } from './testing/database';
+import { PostgresRepositories } from './repositories';
 import { PostgresUsers } from './users';
 
 let drop: () => Promise<void>;
@@ -259,6 +260,24 @@ describe('PostgresUsers', () => {
     expect(await users.revokeTokens(UserId('ann'), new Date())).toBe(1);
     expect(await users.authenticate(token ?? '')).toBeNull();
     expect(await users.issueToken(UserId('nobody'), 'x', new Date())).toBeNull();
+  });
+});
+
+describe('PostgresRepositories', () => {
+  it('keeps the repositories found last, in place of those found before', async () => {
+    const registry = new PostgresRepositories(db);
+    await registry.replace([
+      { name: 'acme/web', baseBranch: 'main' },
+      { name: 'acme/api', baseBranch: 'develop' },
+    ]);
+    expect(await registry.list()).toEqual([
+      { name: 'acme/api', baseBranch: 'develop' },
+      { name: 'acme/web', baseBranch: 'main' },
+    ]);
+    await registry.replace([{ name: 'acme/web', baseBranch: 'trunk' }]);
+    expect(await registry.list()).toEqual([{ name: 'acme/web', baseBranch: 'trunk' }]);
+    await registry.replace([]);
+    expect(await registry.list()).toEqual([]);
   });
 });
 

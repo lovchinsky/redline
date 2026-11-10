@@ -2,9 +2,22 @@ import { sign } from 'node:crypto';
 import type { Clock } from '../../ports/system';
 import { GitHubError, type GitHubApi } from './api';
 
-/** A token that may act on one repository (`owner/name`) for publishing. */
+/**
+ * Where the API lists the repositories a grant reaches: with `token`, at `path`, its answers
+ * the repositories themselves or (`within`) a field holding them.
+ */
+export interface Listing {
+  readonly token: string;
+  readonly path: string;
+  readonly within: string | null;
+}
+
+/** The receiver's credential on GitHub: what it reaches, and a token for each repository. */
 export interface GitHubAuth {
+  /** A token that may act on one repository (`owner/name`) for publishing. */
   tokenFor(repository: string): Promise<string>;
+  /** Where the repositories the credential reaches are listed, one listing per grant. */
+  listings(): Promise<readonly Listing[]>;
 }
 
 /** A bot's fine-grained personal access token: the same for every repository it was given. */
@@ -13,6 +26,11 @@ export class TokenAuth implements GitHubAuth {
 
   tokenFor(): Promise<string> {
     return Promise.resolve(this.token);
+  }
+
+  /** A fine-grained token lists the repositories it was given; a classic one, its user's. */
+  listings(): Promise<readonly Listing[]> {
+    return Promise.resolve([{ token: this.token, path: '/user/repos', within: null }]);
   }
 }
 
@@ -64,6 +82,37 @@ export class AppAuth implements GitHubAuth {
     }
     this.tokens.set(repository, { token, expiresAt });
     return token;
+  }
+
+  /** Each installation of the App lists its repositories, with a token of its own. */
+  async listings(): Promise<readonly Listing[]> {
+    const answer = await this.options.api.call(
+      'GET',
+      '/app/installations?per_page=100',
+      this.jwt(),
+    );
+    const installations = Array.isArray(answer.body) ? answer.body : [];
+    const listings: Listing[] = [];
+    for (const installation of installations) {
+      const id = field(installation, 'id');
+      if (typeof id !== 'number') continue;
+      const granted = await this.options.api.call(
+        'POST',
+        `/app/installations/${String(id)}/access_tokens`,
+        this.jwt(),
+        { permissions: { metadata: 'read' } },
+      );
+      const token = field(granted.body, 'token');
+      if (typeof token !== 'string') {
+        throw new GitHubError(
+          granted.status,
+          true,
+          'GitHub answered without an installation token',
+        );
+      }
+      listings.push({ token, path: '/installation/repositories', within: 'repositories' });
+    }
+    return listings;
   }
 
   private async installationOf(repository: string): Promise<number> {

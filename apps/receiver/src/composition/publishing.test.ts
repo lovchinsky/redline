@@ -189,8 +189,6 @@ git:
   commitAs: { name: 'redline[bot]', email: 'redline[bot]@users.noreply.github.com' }
   gitleaks: ${(standIn = await gitleaksStandIn(dir)).command}
 models: { credentials: required }
-projects:
-  - { id: acme, name: Acme Web, repository: { host: github, name: acme/web } }
 `);
   if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
   const git = parsed.value.git;

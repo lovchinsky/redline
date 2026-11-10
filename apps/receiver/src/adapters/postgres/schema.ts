@@ -91,6 +91,13 @@ export interface TokensTable {
   revoked_at: Timestamp | null;
 }
 
+/** The repositories the worker last found on the git host: each is a project. */
+export interface RepositoriesTable {
+  name: string;
+  base_branch: string;
+  found_at: Timestamp;
+}
+
 export interface Database {
   tasks: TasksTable;
   task_events: TaskEventsTable;
@@ -100,6 +107,7 @@ export interface Database {
   run_refusals: RunRefusalsTable;
   users: UsersTable;
   tokens: TokensTable;
+  repositories: RepositoriesTable;
 }
 
 /**
@@ -260,6 +268,17 @@ export const migrations: Record<string, Migration> = {
       // Whether a run is wanted is its task's to say; the run's row records when it ended.
       await db.schema.alterTable('runs').dropColumn('state').execute();
       await db.schema.alterTable('runs').addColumn('ended_at', 'timestamptz').execute();
+    },
+  },
+  '0006-repositories': {
+    async up(db: Kysely<unknown>) {
+      // Found by the worker, which holds the git host's credentials; read by every role.
+      await db.schema
+        .createTable('repositories')
+        .addColumn('name', 'text', (column) => column.primaryKey())
+        .addColumn('base_branch', 'text', (column) => column.notNull())
+        .addColumn('found_at', 'timestamptz', (column) => column.notNull())
+        .execute();
     },
   },
 };
