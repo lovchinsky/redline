@@ -87,8 +87,11 @@ code {
 
 .tabs [role='tab'] {
   display: inline-flex;
-  flex: 1;
+  /* Each tab as wide as its label, the rest shared: a label never breaks onto two lines. */
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
+  white-space: nowrap;
   justify-content: center;
   gap: 6px;
   height: 28px;
@@ -627,6 +630,17 @@ code {
   gap: 8px;
 }
 
+/* Fields share the row by proportion, never by their content: a long option keeps its select
+   from crowding out the field beside it. */
+.inline-form > .field {
+  flex: 2 1 0;
+  min-width: 0;
+}
+
+.inline-form > .field.grow {
+  flex-grow: 3;
+}
+
 .status-line {
   display: flex;
   align-items: center;
@@ -640,6 +654,9 @@ code {
 
 .list {
   display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   overflow: hidden;
   border: 1px solid var(--rl-border);
   border-radius: var(--rl-radius-lg);
@@ -656,6 +673,18 @@ code {
   gap: 10px;
   min-height: 44px;
   padding: 6px 8px 6px 14px;
+}
+
+.list-row > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-row > svg,
+.list-row > button {
+  flex-shrink: 0;
 }
 
 .list-empty {
