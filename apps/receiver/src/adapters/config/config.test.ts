@@ -38,7 +38,7 @@ describe('parseConfig', () => {
       id: 'acme-web',
       access: { kind: 'everyone' },
       repository: { host: 'github', name: 'acme/web', baseBranch: 'main' },
-      publishing: { target: 'fork', draft: true },
+      publishing: { target: 'branch', draft: true },
       policy: { maxQuestions: 3, onReplyTimeout: 'proceed', replyTimeoutMs: 168 * 3_600_000 },
       execution: { model: 'claude-opus-5-5', timeoutMs: 45 * 60_000 },
     });
@@ -209,7 +209,7 @@ projects:
     });
   });
 
-  it('reads GitHub as the git host, and holds publishing to a fork or to a confirmed branch', () => {
+  it('reads GitHub as the git host, and publishes to a branch unless a project names a fork', () => {
     const source = (git: string, publishing: string) => `
 agent: { kind: scripted }
 git: ${git}

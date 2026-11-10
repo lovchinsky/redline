@@ -434,7 +434,7 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
       changePolicy: rules.value,
       execution: executionOf(defaults.execution ?? {}, entry.execution ?? {}),
       publishing: {
-        target: entry.publishing?.target ?? 'fork',
+        target: entry.publishing?.target ?? 'branch',
         draft: entry.publishing?.draft ?? true,
       },
     });
@@ -458,7 +458,7 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
           `projects.${entry.id}.repository: git is github, so its host is github and its name owner/repo`,
         );
       }
-      const target = entry.publishing?.target ?? 'fork';
+      const target = entry.publishing?.target ?? 'branch';
       if (target === 'fork' && raw.git.fork === undefined) {
         errors.push(`projects.${entry.id}.publishing: it publishes to a fork; set git.fork.owner`);
       }

@@ -119,7 +119,7 @@ token is shown once; with `https://redline.example.com` it goes on the extension
 and `tasks cancel`. Compose runs `receiver migrate` before the other services start: it alone, and
 the worker, bring the database schema and the queues up to date. `agent: { kind: scripted }` runs the whole flow (a question, an answer, a
 change request) without a model or sandboxes. With `git: github` the worker publishes pull requests through a
-GitHub App or a bot's token, to the bot's fork or to a confirmed branch, after gitleaks found no
+GitHub App or a bot's token, to a branch of the repository (or the bot's fork), after gitleaks found no
 secret in the change; `receiver config check` then also checks every repository and publishing
 target, the sandboxes and their image.
 
