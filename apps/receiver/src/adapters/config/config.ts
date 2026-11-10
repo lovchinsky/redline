@@ -67,11 +67,6 @@ const project = z.object({
     z.object({
       target: z.optional(z.enum(['fork', 'branch'])),
       draft: z.optional(z.boolean()),
-      /**
-       * With `target: branch`, the operator's word that the repository's CI gives `redline/**`
-       * branches no secrets: the agent's code runs there.
-       */
-      ciWithoutSecrets: z.optional(z.boolean()),
     }),
   ),
   policy: z.optional(policy),
@@ -466,12 +461,6 @@ export const parseConfig = (source: string): Result<ReceiverConfig> => {
       const target = entry.publishing?.target ?? 'fork';
       if (target === 'fork' && raw.git.fork === undefined) {
         errors.push(`projects.${entry.id}.publishing: it publishes to a fork; set git.fork.owner`);
-      }
-      if (target === 'branch' && entry.publishing?.ciWithoutSecrets !== true) {
-        errors.push(
-          `projects.${entry.id}.publishing: a branch of the repository runs its CI with the agent's code; ` +
-            'confirm that CI gives redline/** no secrets with ciWithoutSecrets: true, or publish to a fork',
-        );
       }
     }
   }

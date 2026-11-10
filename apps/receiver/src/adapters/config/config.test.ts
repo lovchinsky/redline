@@ -238,12 +238,7 @@ projects:
       ok: false,
       errors: ['projects.web.publishing: it publishes to a fork; set git.fork.owner'],
     });
-    expect(parseConfig(source(token, '{ target: branch }'))).toMatchObject({
-      ok: false,
-      errors: [expect.stringContaining('ciWithoutSecrets: true') as string],
-    });
-    expect(parseConfig(source(token, '{ target: branch, ciWithoutSecrets: true }'))).toMatchObject({
-      ok: true,
-    });
+    // A branch of the repository itself needs no fork.
+    expect(parseConfig(source(token, '{ target: branch }'))).toMatchObject({ ok: true });
   });
 });

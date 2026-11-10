@@ -16,8 +16,8 @@ agent:
 git: { kind: local, root: /srv/git, resultBaseUrl: 'https://git.example/acme/web/pull/' }
 # GitHub instead: a GitHub App (contents and pull requests: write; no workflows), or a bot's
 # fine-grained token. Changes are scanned by gitleaks before anything is pushed; a project
-# publishes to the bot's fork (`git.fork`) or, confirmed with `ciWithoutSecrets: true`, to a
-# branch of the repository itself. Repositories are then `{ host: github, name: owner/repo }`.
+# publishes to the bot's fork (`git.fork`) or to a branch of the repository itself
+# (`publishing: { target: branch }`). Repositories are then `{ host: github, name: owner/repo }`.
 # git:
 #   kind: github
 #   auth: { app: { id: 123456, privateKeyFile: /run/secrets/github-app.pem } }
