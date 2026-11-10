@@ -2,6 +2,8 @@ import type { ChangeRequestRef } from '../../domain/work';
 import type { PublishingProfile, RepositoryRef } from '../../ports/access';
 import type { ChangeRequestDraft, Forge, Publishing } from '../../ports/publishing';
 import type {
+  GitAccount,
+  GitIdentity,
   GitRemote,
   GitRemotes,
   HostedRepository,
@@ -51,7 +53,7 @@ const caught = async <T>(work: () => Promise<T>): Promise<Publishing<T>> => {
  * closed. A project publishing to a fork pushes to the bot's fork and opens the pull request
  * from it; one publishing to a branch pushes to the repository itself.
  */
-export class GitHubHost implements Forge, GitRemotes, RepositoryDirectory {
+export class GitHubHost implements Forge, GitRemotes, RepositoryDirectory, GitAccount {
   constructor(private readonly options: GitHubHostOptions) {}
 
   /**
@@ -82,6 +84,30 @@ export class GitHubHost implements Forge, GitRemotes, RepositoryDirectory {
         }
       }
       return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+    });
+  }
+
+  /**
+   * The person whose token the receiver has, as GitHub links commits to them: their name (or
+   * login), and their no-reply address, which GitHub attributes to the account whatever its
+   * email settings. An App is no person.
+   */
+  owner(): Promise<Publishing<GitIdentity | null>> {
+    const token = this.options.auth.accountToken();
+    if (token === null) return Promise.resolve({ ok: true, value: null });
+    return caught(async () => {
+      const answer = await this.options.api.call('GET', '/user', token);
+      const id = field(answer.body, 'id');
+      const login = field(answer.body, 'login');
+      const name = field(answer.body, 'name');
+      if (typeof id !== 'number' || typeof login !== 'string') {
+        throw new GitHubError(answer.status, false, 'GitHub did not say whose the token is');
+      }
+      const noReply = `users.noreply.${new URL(this.options.gitUrl).hostname}`;
+      return {
+        name: typeof name === 'string' && name.trim() !== '' ? name.trim() : login,
+        email: `${String(id)}+${login}@${noReply}`,
+      };
     });
   }
 

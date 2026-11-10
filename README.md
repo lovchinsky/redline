@@ -96,7 +96,7 @@ stays in the gateway's memory, never on disk. `docker compose -f compose.local.y
 shows the address and the token again.
 
 A task's change arrives as a draft pull request from a branch `redline/<task>` of the
-repository; that branch runs the repository's CI with the agent's code, so a repository whose CI
+repository, in a commit that is yours: by the token's owner, with Redline as its co-author; that branch runs the repository's CI with the agent's code, so a repository whose CI
 has secrets is better published through a bot's fork (`git.fork.owner`, `target: fork`).
 Sandboxes run under gVisor where Docker has it, and under runc, isolated by containers alone,
 where it has not; the worker's log says which. The API listens on `127.0.0.1` only. For more
@@ -135,7 +135,7 @@ echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
 echo "DOCKER_GID=$(stat -c %g /var/run/docker.sock)" >> .env
 echo "REDLINE_GIT_ROOT=/srv/git" >> .env   # the repositories of `git: local`
 docker compose up -d
-docker compose exec api node dist/receiver.mjs users add ann --name "Ann Lee"
+docker compose exec api node dist/receiver.mjs users add ann --name "Ann Lee" --email ann@acme.io
 docker compose exec api node dist/receiver.mjs users token ann
 ```
 
@@ -143,6 +143,9 @@ The host needs gVisor (`runsc` registered with Docker): the worker refuses to st
 without it, unless the configuration waives isolation by name (`isolation: unsafe-runc`); it says
 so as it starts, and runs that cannot start are tried again as the infrastructure's failures. The
 token is shown once; with `https://redline.example.com` it goes on the extension's options page.
+A task's commit is its requester's: they are its author by the email they were added with (the one
+their GitHub account has, so that GitHub and deployment checks know them), and the receiver
+(`git.commitAs`) its co-author; a requester without an email is named in the commit instead.
 `receiver --help` lists the operator's commands: users and tokens, `config check`, `tasks show`
 and `tasks cancel`. Compose runs `receiver migrate` before the other services start: it alone, and
 the worker, bring the database schema and the queues up to date. `agent: { kind: scripted }` runs the whole flow (a question, an answer, a

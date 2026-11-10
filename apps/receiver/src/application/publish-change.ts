@@ -12,10 +12,10 @@ import type { ChangeRequestRef } from '../domain/work';
 import type { Identity, Project, ProjectCatalog } from '../ports/access';
 import type { BundleReader } from '../ports/bundles';
 import type { Forge, Publishing } from '../ports/publishing';
-import type { SourceRepository } from '../ports/source';
+import type { GitIdentity, SourceRepository } from '../ports/source';
 import type { Logger } from '../ports/system';
 import type { TaskQueries } from '../ports/tasks';
-import { branchOf, composeChangeRequest, composeCommitMessage } from './change-request';
+import { branchOf, composeChangeRequest, composeCommit } from './change-request';
 import { projectGone } from './projects';
 import type { TaskWriter } from './task-writer';
 
@@ -42,6 +42,8 @@ export class PublishChange {
       readonly identity: Identity;
       readonly source: SourceRepository;
       readonly forge: Forge;
+      /** The receiver as its commits name it: the co-author of every task's commit. */
+      readonly receiver: GitIdentity;
       readonly logger: Logger;
     },
   ) {}
@@ -118,7 +120,7 @@ export class PublishChange {
     const committed = await this.deps.source.commit(repository, {
       baseSha,
       change,
-      message: composeCommitMessage(task, requester),
+      ...composeCommit(task, requester, this.deps.receiver),
       at: task.createdAt,
     });
     if (!committed.ok) return committed;

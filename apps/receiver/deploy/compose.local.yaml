@@ -54,15 +54,17 @@ services:
     network_mode: none
     restart: 'no'
 
-  # Migrates, adds the user `me`, and prints the address and the token for the extension: the
-  # same token on every start (`docker compose -f compose.local.yaml logs setup` shows it again).
+  # Migrates, adds the user `me` (named as GitHub names the token's owner, so that the commits
+  # are theirs), and prints the address and the token for the extension: the same token on every
+  # start (`docker compose -f compose.local.yaml logs setup` shows it again).
   setup:
     <<: *receiver
     command: [init-local]
     depends_on:
       postgres: { condition: service_healthy }
+    secrets: [github-token]
+    networks: [service, outbound]
     volumes: [local:/var/lib/redline/local]
-    networks: [service]
     restart: 'no'
 
   api:

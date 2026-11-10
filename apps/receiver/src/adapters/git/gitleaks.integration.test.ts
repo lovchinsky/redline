@@ -73,7 +73,6 @@ beforeAll(async () => {
   mirrors = new GitMirrors({
     root: path.join(dir, 'mirrors'),
     remotes: new LocalRemotes(dir),
-    identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
     secrets: new GitleaksFinder(command),
   });

@@ -234,9 +234,14 @@ describe('publishing to GitHub', () => {
     const branch = `redline/${task.id}`;
     const sha = await git(path.join(served, 'redline-bot/web.git'), 'rev-parse', branch);
     expect(await git(path.join(served, 'redline-bot/web.git'), 'rev-parse', `${sha}^`)).toBe(base);
-    expect(
-      await git(path.join(served, 'redline-bot/web.git'), 'log', '-1', '--format=%an <%ae>', sha),
-    ).toBe('redline[bot] <redline[bot]@users.noreply.github.com>');
+    // The commit is the requester's, with the receiver as its co-author.
+    const fork = path.join(served, 'redline-bot/web.git');
+    expect(await git(fork, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', sha)).toBe(
+      'Ann Lee <ann@example.com>|Ann Lee <ann@example.com>',
+    );
+    expect(await git(fork, 'log', '-1', '--format=%(trailers:key=Co-authored-by)', sha)).toBe(
+      'Co-authored-by: redline[bot] <redline[bot]@users.noreply.github.com>',
+    );
     // Nothing went to the repository itself.
     await expect(git(path.join(served, 'acme/web.git'), 'rev-parse', branch)).rejects.toThrow();
     expect(api.pulls).toMatchObject([

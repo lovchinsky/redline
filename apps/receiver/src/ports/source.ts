@@ -16,11 +16,19 @@ export interface RepositorySettings {
 /** The settings of a repository that has none. */
 export const NO_SETTINGS: RepositorySettings = { setup: null, checks: [] };
 
+/** A person or bot as a commit names them. */
+export interface GitIdentity {
+  readonly name: string;
+  readonly email: string;
+}
+
 /** The one commit a task publishes. The same input always makes the same commit. */
 export interface DeterministicCommit {
   readonly baseSha: string;
   readonly change: ChangeRef;
   readonly message: string;
+  /** Its author and committer. */
+  readonly author: GitIdentity;
   /** Author and committer time: the task's, so a retry commits the same SHA. */
   readonly at: Instant;
 }
@@ -101,6 +109,12 @@ export interface HostedRepository {
 /** The repositories the git host's credential reaches: each is a project of the receiver. */
 export interface RepositoryDirectory {
   list(): Promise<Publishing<readonly HostedRepository[]>>;
+}
+
+/** The account a git host's credential belongs to. */
+export interface GitAccount {
+  /** Its owner as their commits name them; null when the credential is no person's (an App). */
+  owner(): Promise<Publishing<GitIdentity | null>>;
 }
 
 /** The repositories the worker last found on the git host, for every role to read. */

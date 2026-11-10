@@ -18,6 +18,8 @@ export interface GitHubAuth {
   tokenFor(repository: string): Promise<string>;
   /** Where the repositories the credential reaches are listed, one listing per grant. */
   listings(): Promise<readonly Listing[]>;
+  /** The token of the account the credential is, to ask who it is; null for an App. */
+  accountToken(): string | null;
 }
 
 /** A bot's fine-grained personal access token: the same for every repository it was given. */
@@ -31,6 +33,10 @@ export class TokenAuth implements GitHubAuth {
   /** A fine-grained token lists the repositories it was given; a classic one, its user's. */
   listings(): Promise<readonly Listing[]> {
     return Promise.resolve([{ token: this.token, path: '/user/repos', within: null }]);
+  }
+
+  accountToken(): string {
+    return this.token;
   }
 }
 
@@ -113,6 +119,11 @@ export class AppAuth implements GitHubAuth {
       listings.push({ token, path: '/installation/repositories', within: 'repositories' });
     }
     return listings;
+  }
+
+  /** An App is no account: its installations act for it. */
+  accountToken(): null {
+    return null;
   }
 
   private async installationOf(repository: string): Promise<number> {

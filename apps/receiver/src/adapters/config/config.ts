@@ -142,7 +142,7 @@ const git = z.discriminatedUnion('kind', [
     ]),
     /** The owner of the bot's forks, for projects that publish to a fork. */
     fork: z.optional(z.object({ owner: text })),
-    /** Who the receiver's commits are by: the App's bot, or the token's account. */
+    /** The receiver as commits name it: every task's co-author, beside its requester. */
     commitAs: z.optional(z.object({ name: text, email: text })),
     gitleaks: z.optional(text),
   }),

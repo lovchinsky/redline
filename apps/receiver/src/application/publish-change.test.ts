@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { BlobDigest } from '../domain/ids';
 import { dueOf } from '../domain/task';
 import { fenced, taskMarker } from './change-request';
+import type { User } from '../ports/access';
+import { bob } from './testing/fakes';
 import { never, system } from './testing/system';
 
 const outcome = {
@@ -15,9 +17,9 @@ const outcome = {
   },
 };
 
-const publishing = async () => {
+const publishing = async (user?: User) => {
   const app = system();
-  const task = await app.submit();
+  const task = await app.submit(user === undefined ? {} : { user });
   app.runner.outcomes.push(outcome);
   await app.supervise.handle(task.id, never);
   return { app, task };
@@ -32,7 +34,8 @@ describe('PublishChange', () => {
       {
         baseSha: 'base-sha',
         change: outcome.change,
-        message: `Redline: ${task.bundle.title}\n\nRedline-Task: ${task.id}\nRequested-by: Ann Lee <ann@example.com>\n`,
+        message: `Redline: ${task.bundle.title}\n\nRedline-Task: ${task.id}\nCo-authored-by: Redline <redline@example.com>\n`,
+        author: { name: 'Ann Lee', email: 'ann@example.com' },
         at: task.createdAt,
       },
     ]);
@@ -49,6 +52,16 @@ describe('PublishChange', () => {
     expect(app.store.task(task.id).state).toEqual({
       kind: 'published',
       changeRequest: { id: '1', url: 'https://git.example/acme/web/pull/1' },
+    });
+  });
+
+  it('commits as the receiver, naming the requester, when the requester has no email', async () => {
+    const { app, task } = await publishing(bob);
+    await app.publish.handle(task.id);
+
+    expect(app.git.commits[0]).toMatchObject({
+      message: `Redline: ${task.bundle.title}\n\nRedline-Task: ${task.id}\nRequested-by: Bob\n`,
+      author: { name: 'Redline', email: 'redline@example.com' },
     });
   });
 

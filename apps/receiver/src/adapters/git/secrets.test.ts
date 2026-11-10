@@ -33,7 +33,6 @@ const searchingWith = (command: string) =>
   new GitMirrors({
     root: path.join(dir, 'mirrors'),
     remotes: new LocalRemotes(dir),
-    identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
     secrets: new GitleaksFinder(command),
   });

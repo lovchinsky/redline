@@ -363,3 +363,38 @@ describe('the repositories a credential reaches', () => {
     });
   });
 });
+
+describe('GitHubHost.owner', () => {
+  it('names the token’s person by name and no-reply address, which GitHub links to the account', async () => {
+    const { calls, api } = fakeGitHub((call) =>
+      call.path === '/user'
+        ? { status: 200, body: { id: 7, login: 'ann-lee', name: 'Ann Lee', email: null } }
+        : { status: 404 },
+    );
+    expect(await host(api).owner()).toEqual({
+      ok: true,
+      value: { name: 'Ann Lee', email: '7+ann-lee@users.noreply.github.test' },
+    });
+    expect(calls).toMatchObject([{ path: '/user', authorization: 'Bearer pat-token' }]);
+  });
+
+  it('names a person without a name by their login', async () => {
+    const { api } = fakeGitHub(() => ({
+      status: 200,
+      body: { id: 7, login: 'ann-lee', name: null },
+    }));
+    expect(await host(api).owner()).toMatchObject({ value: { name: 'ann-lee' } });
+  });
+
+  it('has no person behind an App', async () => {
+    const { calls, api } = fakeGitHub(() => ({ status: 404 }));
+    const auth = new AppAuth({
+      api,
+      appId: '1',
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      clock: new FixedClock(0),
+    });
+    expect(await host(api, auth).owner()).toEqual({ ok: true, value: null });
+    expect(calls).toEqual([]);
+  });
+});

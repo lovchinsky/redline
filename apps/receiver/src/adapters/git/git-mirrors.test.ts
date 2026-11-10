@@ -28,6 +28,8 @@ let origin: string;
 let mirrors: GitMirrors;
 let blobs: FsBlobStore;
 const repository: RepositoryRef = { host: 'local', name: 'origin.git', baseBranch: 'main' };
+/** Who a task's commit is by: its requester. */
+const author = { name: 'Ann Lee', email: 'ann@example.com' };
 
 const reachable = (remote: GitRemote) => Promise.resolve({ ok: true as const, value: remote });
 
@@ -71,7 +73,6 @@ beforeEach(async () => {
   mirrors = new GitMirrors({
     root: path.join(dir, 'mirrors'),
     remotes: new LocalRemotes(dir),
-    identity: { name: 'Redline', email: 'bot@redline.invalid' },
     blobs,
     secrets: NO_SECRET_SCAN,
   });
@@ -125,6 +126,7 @@ describe('GitMirrors', () => {
       baseSha: base,
       change,
       message: 'm',
+      author,
       at: 0,
     });
     expect(committed).toMatchObject({ ok: true });
@@ -192,12 +194,23 @@ describe('GitMirrors', () => {
       baseSha: base,
       change,
       message: 'Make the cards equal height',
+      author,
       at: 1_762_000_000_000,
     };
     const first = await mirrors.commit(repository, commit);
     const again = await mirrors.commit(repository, commit);
     if (!first.ok || !again.ok) throw new Error('commit failed');
     expect(again.value.sha).toBe(first.value.sha);
+    // The commit is the requester's, as its author and its committer.
+    expect(
+      await git(
+        mirrors.mirrorOf(repository),
+        'log',
+        '-1',
+        '--format=%an <%ae>|%cn <%ce>',
+        first.value.sha,
+      ),
+    ).toBe('Ann Lee <ann@example.com>|Ann Lee <ann@example.com>');
 
     const profile = { target: 'branch' as const, draft: true };
     expect(await mirrors.push(repository, profile, first.value.sha, 'redline/task-1')).toEqual({
@@ -224,7 +237,6 @@ describe('GitMirrors', () => {
     const searching = new GitMirrors({
       root: path.join(dir, 'searching-mirrors'),
       remotes: new LocalRemotes(dir),
-      identity: { name: 'Redline', email: 'bot@redline.invalid' },
       blobs,
       secrets: {
         find: (mirror, baseSha, head) => {
@@ -331,7 +343,6 @@ describe('GitMirrors', () => {
       const viaHttp = new GitMirrors({
         root: path.join(dir, 'http-mirrors'),
         remotes: { source: () => reachable(remote), target: () => reachable(remote) },
-        identity: { name: 'Redline', email: 'bot@redline.invalid' },
         blobs,
         secrets: NO_SECRET_SCAN,
       });
@@ -340,7 +351,7 @@ describe('GitMirrors', () => {
       const change = await agentChange(prepared.value, (work) =>
         writeFile(path.join(work, 'b.txt'), 'b'),
       );
-      const commit = { baseSha: prepared.value, change, message: 'm', at: 0 };
+      const commit = { baseSha: prepared.value, change, message: 'm', author, at: 0 };
       const committed = await viaHttp.commit(repository, commit);
       if (!committed.ok) throw new Error(committed.error.detail);
       expect(
@@ -370,7 +381,6 @@ describe('GitMirrors', () => {
           source: () => reachable({ ...remote, authorization: null }),
           target: () => reachable(remote),
         },
-        identity: { name: 'Redline', email: 'bot@redline.invalid' },
         blobs,
         secrets: NO_SECRET_SCAN,
       });

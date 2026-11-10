@@ -4,6 +4,7 @@ import type { AgentReport } from '../domain/work';
 import type { PublishingProfile, User } from '../ports/access';
 import type { BundleContents } from '../ports/bundles';
 import type { ChangeRequestDraft } from '../ports/publishing';
+import type { GitIdentity } from '../ports/source';
 
 /** The branch a task publishes to: one per task, so publishing again finds its own work. */
 export const branchOf = (task: Task): string => `redline/${task.id}`;
@@ -123,13 +124,26 @@ export const composeChangeRequest = (input: ChangeRequestInput): ChangeRequestDr
   labels: input.flags.length > 0 ? ['redline', 'redline:needs-attention'] : ['redline'],
 });
 
-/** The message of the one commit a task publishes; trailers credit the requester. */
-export const composeCommitMessage = (task: Task, requester: User | null): string => {
+/**
+ * The one commit a task publishes, as its requester's: they are its author, and the receiver
+ * its co-author. A requester without an email cannot be an author; the receiver is then, and
+ * the requester is named in a trailer.
+ */
+export const composeCommit = (
+  task: Task,
+  requester: User | null,
+  receiver: GitIdentity,
+): { readonly author: GitIdentity; readonly message: string } => {
   const trailers = [`Redline-Task: ${task.id}`];
-  if (requester !== null) {
-    trailers.push(
-      `Requested-by: ${requester.name}${requester.email === null ? '' : ` <${requester.email}>`}`,
-    );
+  let author = receiver;
+  if (requester?.email != null) {
+    author = { name: requester.name, email: requester.email };
+    trailers.push(`Co-authored-by: ${receiver.name} <${receiver.email}>`);
+  } else if (requester !== null) {
+    trailers.push(`Requested-by: ${requester.name}`);
   }
-  return `${subjectOf(`Redline: ${task.bundle.title}`)}\n\n${trailers.join('\n')}\n`;
+  return {
+    author,
+    message: `${subjectOf(`Redline: ${task.bundle.title}`)}\n\n${trailers.join('\n')}\n`,
+  };
 };

@@ -93,8 +93,6 @@ export interface GitMirrorsOptions {
   readonly root: string;
   /** Where repositories are fetched from and branches pushed to. */
   readonly remotes: GitRemotes;
-  /** Who the receiver's commits are by. */
-  readonly identity: { readonly name: string; readonly email: string };
   readonly blobs: BlobStore;
   /** What finds secrets in a change before it is described as fit to publish. */
   readonly secrets: SecretFinder;
@@ -329,7 +327,7 @@ export class GitMirrors implements SourceRepository, SourceTrees {
       const mirror = this.mirrorOf(repository);
       const tree = await git(mirror, ['rev-parse', `${imported.value}^{tree}`]);
       const date = `@${String(Math.floor(commit.at / 1000))} +0000`;
-      const { name, email } = this.options.identity;
+      const { name, email } = commit.author;
       const sha = await git(
         mirror,
         ['commit-tree', tree, '-p', commit.baseSha, '-m', commit.message],

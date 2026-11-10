@@ -45,7 +45,7 @@ import { ModelCredential, type CredentialVault, type ProjectCatalog } from '../p
 import type { AgentRunner } from '../ports/agent';
 import type { BlobStore } from '../ports/bundles';
 import type { Forge } from '../ports/publishing';
-import type { SourceRepository, SourceTrees } from '../ports/source';
+import type { GitIdentity, SourceRepository, SourceTrees } from '../ports/source';
 import type { Logger } from '../ports/system';
 import type { Settings } from './settings';
 
@@ -122,16 +122,46 @@ export type GitSide =
       readonly kind: 'simulated';
       readonly source: SourceRepository;
       readonly forge: Forge;
+      /** The receiver as its commits name it. */
+      readonly identity: GitIdentity;
     }
   | {
       readonly kind: 'mirrored';
       readonly source: SourceRepository;
+      readonly identity: GitIdentity;
       readonly trees: SourceTrees;
       readonly forge: Forge;
       readonly mirrors: GitMirrors;
       /** The GitHub host, when the repositories are on GitHub. */
       readonly github: GitHubHost | null;
     };
+
+/** The GitHub host the configuration names, with its credential. */
+export const githubOf = async (
+  git: Extract<ReceiverConfig['git'], { kind: 'github' }>,
+  logger: Logger,
+): Promise<GitHubHost> => {
+  const api = new GitHubApi({ url: git.api });
+  const auth: GitHubAuth =
+    git.auth.kind === 'app'
+      ? new AppAuth({
+          api,
+          appId: git.auth.appId,
+          privateKey: await secretOf(git.auth.privateKeyFile, 'The GitHub App’s key'),
+          clock: systemClock,
+        })
+      : new TokenAuth(await secretOf(git.auth.file, 'The GitHub token'));
+  return new GitHubHost({
+    api,
+    auth,
+    gitUrl: git.web,
+    forkOwner: git.forkOwner,
+    logger: logger.child({ component: 'github' }),
+  });
+};
+
+/** The receiver in commits that stay on the operator's machine. */
+const LOCAL_IDENTITY: GitIdentity = { name: 'Redline', email: 'redline@localhost' };
 
 /**
  * The git side: a simulated host; real repositories by path, whose change requests are
@@ -146,7 +176,7 @@ export const gitOf = async (
   const git = config.git;
   if (git.kind === 'scripted') {
     const simulated = new ScriptedGit(git.resultBaseUrl);
-    return { kind: 'simulated', source: simulated, forge: simulated };
+    return { kind: 'simulated', source: simulated, forge: simulated, identity: LOCAL_IDENTITY };
   }
   if (git.kind === 'local') {
     const simulated = new ScriptedGit(git.resultBaseUrl);
@@ -155,46 +185,30 @@ export const gitOf = async (
     const mirrors = new GitMirrors({
       root: settings.mirrorsPath,
       remotes: new LocalRemotes(git.root),
-      identity: { name: 'Redline', email: 'redline@localhost' },
       blobs,
       secrets: NO_SECRET_SCAN,
     });
     return {
       kind: 'mirrored',
       source: mirrors,
+      identity: LOCAL_IDENTITY,
       trees: mirrors,
       forge: simulated,
       mirrors,
       github: null,
     };
   }
-  const api = new GitHubApi({ url: git.api });
-  const auth: GitHubAuth =
-    git.auth.kind === 'app'
-      ? new AppAuth({
-          api,
-          appId: git.auth.appId,
-          privateKey: await secretOf(git.auth.privateKeyFile, 'The GitHub App’s key'),
-          clock: systemClock,
-        })
-      : new TokenAuth(await secretOf(git.auth.file, 'The GitHub token'));
-  const github = new GitHubHost({
-    api,
-    auth,
-    gitUrl: git.web,
-    forkOwner: git.forkOwner,
-    logger: logger.child({ component: 'github' }),
-  });
+  const github = await githubOf(git, logger);
   const mirrors = new GitMirrors({
     root: settings.mirrorsPath,
     remotes: github,
-    identity: git.commitAs,
     blobs,
     secrets: new GitleaksFinder(git.gitleaks),
   });
   return {
     kind: 'mirrored',
     source: mirrors,
+    identity: git.commitAs,
     trees: mirrors,
     forge: github,
     mirrors,
@@ -421,6 +435,7 @@ const workerOf = async (
     identity: users,
     source: git.source,
     forge: git.forge,
+    receiver: git.identity,
     logger: logger.child({ component: 'publishing' }),
   });
   const handler = new TaskJobs({ supervise, publish, writer, projects, runner, vault });

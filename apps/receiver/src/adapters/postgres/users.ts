@@ -63,6 +63,17 @@ export class PostgresUsers implements Identity {
     return added === undefined ? 'exists' : 'added';
   }
 
+  /** Adds the user, or gives the one with its id this name and email. */
+  async save(user: User, now: Date): Promise<void> {
+    await this.db
+      .insertInto('users')
+      .values({ id: user.id, name: user.name, email: user.email, created_at: now })
+      .onConflict((conflict) =>
+        conflict.column('id').doUpdateSet({ name: user.name, email: user.email }),
+      )
+      .execute();
+  }
+
   /** Issues a new token for a user and returns it: the only time it can be read. */
   async issueToken(id: UserId, label: string, now: Date): Promise<string | null> {
     if ((await this.get(id)) === null) return null;

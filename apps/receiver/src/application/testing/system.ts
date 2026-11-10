@@ -1,6 +1,6 @@
 import type { ModelAccessPolicy, ModelCredential, User } from '../../ports/access';
 import type { Forge } from '../../ports/publishing';
-import type { SourceRepository } from '../../ports/source';
+import type { GitIdentity, SourceRepository } from '../../ports/source';
 import { CredentialRelay } from '../credentials';
 import { TaskOperations } from '../operations';
 import { PublishChange } from '../publish-change';
@@ -28,6 +28,8 @@ import {
 export interface SystemParts {
   readonly source?: SourceRepository;
   readonly forge?: Forge;
+  /** The receiver as its commits name it. */
+  readonly identity?: GitIdentity;
 }
 
 /** The application wired to fakes, as a composition root wires it to adapters. */
@@ -76,6 +78,7 @@ export const system = (access: ModelAccessPolicy = managed, parts: SystemParts =
     identity,
     source: parts.source ?? git,
     forge: parts.forge ?? git,
+    receiver: parts.identity ?? { name: 'Redline', email: 'redline@example.com' },
     logger: silentLogger,
   });
   const jobs = new TaskJobs({ supervise, publish, writer, projects: catalog, runner, vault });
