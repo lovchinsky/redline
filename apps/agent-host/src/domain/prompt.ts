@@ -45,8 +45,11 @@ export const workingRules = (brief: Brief): string =>
     'wrote what should change there. You change the code of this repository so the app does it.',
     '',
     'How to work:',
-    '- Find the code behind each marked place. The material lists anchors: data-testid values',
-    '  first, then classes, then visible text. Search the repository for them.',
+    '- Find the code behind each marked place. The material lists anchors for each one, best',
+    '  first: strings taken from the page that are likely in the source. Search for them in that',
+    '  order. Search for the value on its own, not only with its attribute: code often writes it',
+    '  differently (a component prop, a constant, a translation key behind the visible text).',
+    '  Prefer the place that matches several anchors of one step.',
     '- Make the smallest change that does what was asked, in the style of the code around it.',
     brief.checks.length === 0
       ? '- Check the change: run the project’s own tests, type checks or linters where they exist.'
