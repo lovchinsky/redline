@@ -13,7 +13,7 @@ import { systemClock } from '../system/system';
 import { GitMirrors } from '../git/git-mirrors';
 import { NO_SECRET_SCAN } from '../git/secrets';
 import { LocalRemotes } from '../git/remotes';
-import { DockerSandboxes } from './docker-sandboxes';
+import { DockerSandboxes, type DockerOptions } from './docker-sandboxes';
 import { SandboxedClaudeRunner } from './sandboxed-runner';
 import {
   SANDBOX_USER,
@@ -57,7 +57,7 @@ let blobs: FsBlobStore;
 let mirrors: GitMirrors;
 const repository = { host: 'local', name: 'origin.git', baseBranch: 'main' };
 
-const sandboxes = (runtime = 'runc') =>
+const sandboxes = (runtime: DockerOptions['runtime'] = 'runc') =>
   new DockerSandboxes({
     socketPath: socket,
     runtime,
@@ -259,6 +259,13 @@ describe('the sandboxed runner on Docker', () => {
     // The setup worked on the base again before the agent went on.
     expect(seen).toMatchObject({ setup: 'installed', card: '.card { }\n' });
     await runner().release(second);
+  });
+
+  it('settles auto on gVisor where Docker has it, and on runc where it has not', async () => {
+    const gvisor = (await sandboxes('runsc').unfit([])) === null;
+    const auto = sandboxes('auto');
+    expect(await auto.isolation()).toBe(gvisor ? 'runsc' : 'runc');
+    expect(await auto.unfit([])).toBeNull();
   });
 
   it('refuses to run without the configured isolation, or on a network that is not internal', async () => {

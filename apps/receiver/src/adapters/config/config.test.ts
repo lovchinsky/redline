@@ -200,6 +200,8 @@ projects:
       setupTimeoutMs: 15 * 60_000,
     });
     expect(parsed.value.git).toMatchObject({ kind: 'local', root: '/srv/git' });
+    const auto = parseConfig(source('isolation: auto'));
+    expect(auto.ok && auto.value.agent.kind === 'claude' && auto.value.agent.runtime).toBe('auto');
     const waived = parseConfig(source('isolation: unsafe-runc'));
     expect(waived.ok && waived.value.agent.kind === 'claude' && waived.value.agent.runtime).toBe(
       'runc',

@@ -48,8 +48,11 @@ const instantOf = (value: unknown): number => {
 
 export interface DockerOptions {
   readonly socketPath: string;
-  /** The OCI runtime sandboxes run under: `runsc` (gVisor), or `runc` when isolation is waived. */
-  readonly runtime: string;
+  /**
+   * The OCI runtime sandboxes run under: `runsc` (gVisor), `runc` when isolation is waived, or
+   * `auto`: gVisor where Docker has it, runc where it has not.
+   */
+  readonly runtime: 'runsc' | 'runc' | 'auto';
 }
 
 /**
@@ -58,15 +61,36 @@ export interface DockerOptions {
  * scratch `/tmp`, with limits on CPU, memory and processes, and without a resolver.
  */
 export class DockerSandboxes implements SandboxProvider {
-  constructor(private readonly options: DockerOptions) {}
+  /** The runtime `auto` settled on, once Docker said which it has. */
+  private settled: 'runsc' | 'runc' | null;
+
+  constructor(private readonly options: DockerOptions) {
+    this.settled = options.runtime === 'auto' ? null : options.runtime;
+  }
+
+  /** The runtimes Docker has, or null when it cannot be asked. */
+  private async runtimes(): Promise<readonly string[] | null> {
+    const info = await this.call('GET', '/info');
+    if (info.status !== 200) return null;
+    const parsed = json(info.body);
+    return isRecord(parsed) && isRecord(parsed['Runtimes']) ? Object.keys(parsed['Runtimes']) : [];
+  }
+
+  /** The runtime sandboxes run under: with `auto`, decided by asking Docker once. */
+  async isolation(): Promise<'runsc' | 'runc'> {
+    if (this.settled !== null) return this.settled;
+    const runtimes = await this.runtimes();
+    if (runtimes === null) throw new Error('Docker is not reachable');
+    this.settled = runtimes.includes('runsc') ? 'runsc' : 'runc';
+    return this.settled;
+  }
 
   async unfit(networks: readonly string[]): Promise<string | null> {
-    const info = await this.call('GET', '/info');
-    if (info.status !== 200) return `Docker is not reachable (${String(info.status)})`;
-    const parsed = json(info.body);
-    const runtimes = isRecord(parsed) && isRecord(parsed['Runtimes']) ? parsed['Runtimes'] : {};
-    if (!(this.options.runtime in runtimes)) {
-      return `Docker has no ${this.options.runtime} runtime: sandboxes cannot be isolated as configured`;
+    const runtimes = await this.runtimes();
+    if (runtimes === null) return 'Docker is not reachable';
+    const runtime = await this.isolation();
+    if (!runtimes.includes(runtime)) {
+      return `Docker has no ${runtime} runtime: sandboxes cannot be isolated as configured`;
     }
     for (const network of networks) {
       if (network === 'none') continue;
@@ -116,7 +140,7 @@ export class DockerSandboxes implements SandboxProvider {
         User: `${String(spec.user.uid)}:${String(spec.user.gid)}`,
         Labels: spec.labels,
         HostConfig: {
-          Runtime: this.options.runtime,
+          Runtime: await this.isolation(),
           Init: true,
           Mounts: spec.mounts.map((mount) => ({
             Type: 'volume',

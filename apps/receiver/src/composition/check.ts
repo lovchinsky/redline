@@ -114,7 +114,11 @@ export const checkDeployment = async (
       await attempt('sandboxes', async () => {
         const unfit = await sandboxes.unfit([agent.networks.setup, agent.networks.agent]);
         if (unfit !== null) throw new Error(unfit);
-        return agent.runtime === 'runsc' ? 'isolated by gVisor' : 'isolation waived: runc';
+        const runtime = await sandboxes.isolation();
+        if (runtime === 'runsc') return 'isolated by gVisor';
+        return agent.runtime === 'auto'
+          ? 'Docker has no gVisor: runc, isolated by containers alone'
+          : 'isolation waived: runc';
       }),
     );
     for (const image of new Set(projects.map((project) => project.execution.image))) {

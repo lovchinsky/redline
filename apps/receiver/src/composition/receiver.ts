@@ -213,14 +213,16 @@ const runnerOf = (
   config: ReceiverConfig,
   blobs: BlobStore,
   git: GitSide,
+  sandboxes: DockerSandboxes | null,
   logger: Logger,
 ): AgentRunner => {
   const agent = config.agent;
   if (agent.kind === 'scripted') return new ScriptedRunner(agent, () => systemClock.now());
   // The configuration has no sandboxed agent on a simulated host (`parseConfig`).
   if (git.kind === 'simulated') throw new Error('The claude agent works on real repositories');
+  if (sandboxes === null) throw new Error('A sandboxed agent runs in Docker');
   return new SandboxedClaudeRunner({
-    sandboxes: sandboxesOf(agent),
+    sandboxes,
     sources: git.trees,
     blobs,
     settings: {
@@ -381,13 +383,21 @@ const workerOf = async (
   const projects = deps.projects.catalog;
   // Only what runs tasks holds the git host's and Docker's credentials.
   const git = await gitOf(settings, config, blobs, logger);
-  const runner = runnerOf(config, blobs, git, logger);
-  if (config.agent.kind === 'claude') {
+  const sandboxes = config.agent.kind === 'claude' ? sandboxesOf(config.agent) : null;
+  const runner = runnerOf(config, blobs, git, sandboxes, logger);
+  if (config.agent.kind === 'claude' && sandboxes !== null) {
     // A worker whose sandboxes cannot be isolated still publishes and tidies up; its runs fail
     // to start, as the infrastructure's failures, until the operator fixes what this names.
     const { networks } = config.agent;
-    const unfit = await sandboxesOf(config.agent).unfit([networks.setup, networks.agent]);
+    const unfit = await sandboxes.unfit([networks.setup, networks.agent]);
     if (unfit !== null) logger.error('Sandboxes cannot run as configured', { unfit });
+    else if ((await sandboxes.isolation()) === 'runc') {
+      logger.warn(
+        config.agent.runtime === 'auto'
+          ? 'Docker has no gVisor (runsc): sandboxes run under runc, isolated by containers alone'
+          : 'Sandbox isolation is waived: sandboxes run under runc',
+      );
+    }
   }
   const supervise = new SuperviseRun({
     queries: store,

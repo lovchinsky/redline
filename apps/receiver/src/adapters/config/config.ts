@@ -95,7 +95,8 @@ const agent = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('claude'),
-    isolation: z.optional(z.enum(['gvisor', 'unsafe-runc'])),
+    /** `auto`: gVisor where Docker has it, runc (warned of) where it has not. */
+    isolation: z.optional(z.enum(['gvisor', 'unsafe-runc', 'auto'])),
     docker: z.optional(z.object({ socket: z.optional(text) })),
     user: z.optional(z.object({ uid: positive, gid: positive })),
     /** The sandbox networks; the compose files' own by default. */
@@ -264,7 +265,8 @@ const agentOf = (raw: RawAgent | undefined): AgentConfig =>
       ? { kind: 'scripted', durationMs: (raw.durationSeconds ?? 5) * 1000, asks: raw.asks ?? true }
       : {
           kind: 'claude',
-          runtime: raw.isolation === 'unsafe-runc' ? 'runc' : 'runsc',
+          runtime:
+            raw.isolation === 'unsafe-runc' ? 'runc' : raw.isolation === 'auto' ? 'auto' : 'runsc',
           dockerSocket: raw.docker?.socket ?? '/var/run/docker.sock',
           user: raw.user ?? { uid: 1000, gid: 1000 },
           networks: raw.networks ?? SANDBOX_NETWORKS,
@@ -290,8 +292,8 @@ export type AgentConfig =
   | { readonly kind: 'scripted'; readonly durationMs: number; readonly asks: boolean }
   | {
       readonly kind: 'claude';
-      /** The OCI runtime sandboxes run under. */
-      readonly runtime: 'runsc' | 'runc';
+      /** The OCI runtime sandboxes run under; `auto` decides on Docker's (`DockerSandboxes`). */
+      readonly runtime: 'runsc' | 'runc' | 'auto';
       readonly dockerSocket: string;
       readonly user: { readonly uid: number; readonly gid: number };
       readonly networks: { readonly setup: string; readonly agent: string };
