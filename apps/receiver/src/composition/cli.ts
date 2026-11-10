@@ -10,6 +10,7 @@ import {
   type Role,
 } from './receiver';
 import { checkDeployment } from './check';
+import { initLocal } from './local';
 import { settingsFrom } from './settings';
 
 const USAGE = `Usage: receiver <command>
@@ -17,6 +18,8 @@ const USAGE = `Usage: receiver <command>
   serve api|worker|gateway|egress|all
                                   Serve the API, work the queues, serve the gateway's model or
                                   egress side, or all of them in one process
+  init-local                      On one person's machine: migrate, add the user \`me\`, and show
+                                  the receiver's address and a token for the extension
   migrate                         Bring the database schema and the queues up to date: before
                                   the first start and after each upgrade (a worker does too)
   config check [--offline]        Validate the configuration, then check what it names:
@@ -30,7 +33,7 @@ const USAGE = `Usage: receiver <command>
   tasks cancel <id> --reason <text>
 
 Environment: DATABASE_URL, REDLINE_CONFIG, REDLINE_BLOBS, REDLINE_HOST, REDLINE_PORT,
-REDLINE_GATEWAY_PORT, REDLINE_EGRESS_PORT, REDLINE_VAULT_SOCKET, REDLINE_LOG_LEVEL.`;
+REDLINE_GATEWAY_PORT, REDLINE_EGRESS_PORT, REDLINE_VAULT_SOCKET, REDLINE_LOCAL, REDLINE_LOG_LEVEL.`;
 
 const print = (text: string) => {
   process.stdout.write(`${text}\n`);
@@ -139,6 +142,18 @@ export const run = async (argv: readonly string[], env: NodeJS.ProcessEnv): Prom
       for (const check of checks)
         print(`${check.ok ? 'ok  ' : 'FAIL'} ${check.name}: ${check.detail}`);
       return checks.every((check) => check.ok) ? 0 : 1;
+    }
+
+    if (command === 'init-local') {
+      const token = await initLocal(
+        settings,
+        await loadConfig(settings.configPath),
+        loggerFor(settings, 'cli'),
+      );
+      print(`Receiver: http://127.0.0.1:${String(settings.port)}`);
+      print(`Token:    ${token}`);
+      print('Set both on the extension’s options page, with your own Anthropic key.');
+      return 0;
     }
 
     if (command === 'migrate') {

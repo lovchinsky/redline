@@ -27,8 +27,9 @@ RUN set -eu; arch="$([ "${TARGETARCH:-amd64}" = arm64 ] && echo arm64 || echo x6
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out .
-RUN mkdir -p /var/lib/redline/blobs /var/lib/redline/mirrors /run/redline \
-  && chown node:node /var/lib/redline/blobs /var/lib/redline/mirrors /run/redline
+RUN mkdir -p /var/lib/redline/blobs /var/lib/redline/mirrors /var/lib/redline/local /run/redline \
+  && chown node:node /var/lib/redline/blobs /var/lib/redline/mirrors /var/lib/redline/local \
+    /run/redline
 USER node
 EXPOSE 8787
 ENTRYPOINT ["node", "dist/receiver.mjs"]

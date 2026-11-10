@@ -1,0 +1,160 @@
+# The receiver on one person's machine:
+#
+#   export GITHUB_TOKEN=github_pat_…
+#   docker compose -f compose.local.yaml up
+#
+# The repositories the token reaches are the projects. `setup` prints the receiver's address and
+# a token: set both on the extension's options page, with your own Anthropic key or Claude
+# subscription token. The first start builds both images, which takes a few minutes.
+#
+# The API listens on 127.0.0.1 only, so there is no domain, TLS or Caddy here (the server's
+# `compose.yaml` has them). Sandboxes run under gVisor where Docker has it, and under runc,
+# isolated by containers alone, where it has not; the worker's log says which.
+name: redline-local
+
+x-receiver: &receiver
+  build:
+    context: ../../..
+    dockerfile: apps/receiver/Dockerfile
+  image: redline-receiver:local
+  environment: &environment # The database is on an internal network nothing else reaches.
+    DATABASE_URL: postgres://redline:redline@postgres:5432/redline
+    REDLINE_CONFIG: /etc/redline/receiver.yaml
+    REDLINE_VAULT_SOCKET: /run/redline/vault.sock
+  configs:
+    - source: receiver
+      target: /etc/redline/receiver.yaml
+  depends_on:
+    postgres: { condition: service_healthy }
+    setup: { condition: service_completed_successfully }
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: redline
+      POSTGRES_PASSWORD: redline
+      POSTGRES_DB: redline
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, redline]
+      interval: 5s
+      retries: 12
+    networks: [service]
+    restart: unless-stopped
+
+  # The sandbox image, built for the worker to run: it exits at once.
+  agent-image:
+    build:
+      context: ../../..
+      dockerfile: apps/agent-host/Dockerfile
+    image: redline-agent:latest
+    entrypoint: ['true']
+    network_mode: none
+    restart: 'no'
+
+  # Migrates, adds the user `me`, and prints the address and the token for the extension: the
+  # same token on every start (`docker compose -f compose.local.yaml logs setup` shows it again).
+  setup:
+    <<: *receiver
+    command: [init-local]
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes: [local:/var/lib/redline/local]
+    networks: [service]
+    restart: 'no'
+
+  api:
+    <<: *receiver
+    command: [serve, api]
+    ports: ['127.0.0.1:8787:8787']
+    volumes:
+      - blobs:/var/lib/redline/blobs
+      - vault:/run/redline
+    networks: [public, service]
+
+  worker:
+    <<: *receiver
+    command: [serve, worker]
+    # It drives Docker through its socket, and whoever holds that socket is root on this machine
+    # already: running as root adds nothing, and needs no group id of the socket.
+    user: root
+    depends_on:
+      postgres: { condition: service_healthy }
+      setup: { condition: service_completed_successfully }
+      agent-image: { condition: service_completed_successfully }
+    secrets: [github-token]
+    volumes:
+      - blobs:/var/lib/redline/blobs
+      - mirrors:/var/lib/redline/mirrors
+      - vault:/run/redline
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [service, outbound]
+
+  # The agent sandboxes' only way out, to the model, with the requester's own key.
+  gateway:
+    <<: *receiver
+    command: [serve, gateway]
+    stop_grace_period: 75s
+    environment:
+      <<: *environment
+      REDLINE_GATEWAY_PORT: '8788'
+    volumes: [vault:/run/redline]
+    networks:
+      service:
+      outbound:
+      sandbox-agent:
+        ipv4_address: 10.89.1.2
+
+  # The setup sandboxes' tunnels to their projects' package registries.
+  egress:
+    <<: *receiver
+    command: [serve, egress]
+    environment:
+      <<: *environment
+      REDLINE_EGRESS_PORT: '3128'
+    networks:
+      service:
+      outbound:
+      sandbox-setup:
+        ipv4_address: 10.89.2.2
+
+configs:
+  # The whole configuration. For more (budgets, a project's rules, hidden repositories), mount a
+  # receiver.yaml instead: `file: ./receiver.yaml` in place of `content`.
+  receiver:
+    content: |
+      agent: { isolation: auto }
+      git: { kind: github, auth: { token: { file: /run/secrets/github-token } } }
+      models: { credentials: required, acceptRequesterSubscriptions: true }
+
+secrets:
+  github-token:
+    environment: GITHUB_TOKEN
+
+networks:
+  # The API's port reaches it; the services reach the database; nothing on them reaches out.
+  public:
+  service:
+    internal: true
+  # The internet, for the worker (GitHub), the gateway (the model) and egress (registries).
+  outbound:
+  # A run's sandboxes: internal networks whose only other member is one side of the gateway.
+  sandbox-agent:
+    name: redline-sandbox-agent
+    internal: true
+    ipam:
+      config: [{ subnet: 10.89.1.0/24 }]
+  sandbox-setup:
+    name: redline-sandbox-setup
+    internal: true
+    ipam:
+      config: [{ subnet: 10.89.2.0/24 }]
+
+volumes:
+  postgres:
+  blobs:
+  mirrors:
+  vault:
+  local:

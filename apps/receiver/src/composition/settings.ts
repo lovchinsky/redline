@@ -14,6 +14,8 @@ export interface Settings {
   readonly egressPort: number;
   /** The gateway's vault, shared by the receiver's services on a volume. */
   readonly vaultSocket: string;
+  /** Where a receiver on one person's machine keeps its token for the extension (`init-local`). */
+  readonly localPath: string;
   readonly logLevel: string;
 }
 
@@ -42,6 +44,7 @@ export const settingsFrom = (env: NodeJS.ProcessEnv): Settings => {
     gatewayPort: portOf(env, 'REDLINE_GATEWAY_PORT', 8788),
     egressPort: portOf(env, 'REDLINE_EGRESS_PORT', 3128),
     vaultSocket: env.REDLINE_VAULT_SOCKET ?? '/run/redline/vault.sock',
+    localPath: env.REDLINE_LOCAL ?? '/var/lib/redline/local',
     logLevel: env.REDLINE_LOG_LEVEL ?? 'info',
   };
 };

@@ -87,14 +87,15 @@ const sandboxAddress = z.url({ protocol: /^http$/ });
  * The agent: `scripted` follows a script (no model, no sandbox, for trying the receiver out);
  * `claude` is Claude Code in Docker sandboxes, isolated by gVisor unless that is waived by name.
  */
-const agent = z.discriminatedUnion('kind', [
+const agent = z.union([
   z.object({
     kind: z.literal('scripted'),
     durationSeconds: z.optional(z.number().check(z.nonnegative())),
     asks: z.optional(z.boolean()),
   }),
   z.object({
-    kind: z.literal('claude'),
+    /** The agent when none is named. */
+    kind: z.optional(z.literal('claude')),
     /** `auto`: gVisor where Docker has it, runc (warned of) where it has not. */
     isolation: z.optional(z.enum(['gvisor', 'unsafe-runc', 'auto'])),
     docker: z.optional(z.object({ socket: z.optional(text) })),

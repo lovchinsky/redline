@@ -200,6 +200,11 @@ projects:
       setupTimeoutMs: 15 * 60_000,
     });
     expect(parsed.value.git).toMatchObject({ kind: 'local', root: '/srv/git' });
+    // A sandboxed agent need not be named so: it is the agent when none is.
+    const unnamed = parseConfig(
+      'agent: { isolation: auto }\ngit: { kind: github, auth: { token: { file: /t } } }\nmodels: { credentials: required }\n',
+    );
+    expect(unnamed.ok && unnamed.value.agent).toMatchObject({ kind: 'claude', runtime: 'auto' });
     const auto = parseConfig(source('isolation: auto'));
     expect(auto.ok && auto.value.agent.kind === 'claude' && auto.value.agent.runtime).toBe('auto');
     const waived = parseConfig(source('isolation: unsafe-runc'));

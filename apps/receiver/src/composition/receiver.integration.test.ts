@@ -40,6 +40,7 @@ describeConformance(
       gatewayPort: 0,
       egressPort: 0,
       vaultSocket: '/nonexistent/vault.sock',
+      localPath: path.join(blobs, 'local'),
       logLevel: 'silent',
     };
     const receiver = await assemble(settings, config.value, 'all', silentLogger);
