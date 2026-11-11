@@ -370,6 +370,58 @@ code {
   min-width: 0;
 }
 
+/* Task sheet: a sent task in full */
+
+.task-sheet {
+  display: grid;
+  gap: 16px;
+}
+
+.task-sheet-status {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.task-bundle {
+  border: 1px solid var(--rl-border);
+  border-radius: var(--rl-radius);
+}
+
+.task-bundle summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border-radius: var(--rl-radius);
+  color: var(--rl-text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.task-bundle summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-bundle summary:hover {
+  background: var(--rl-bg-subtle);
+}
+
+.task-bundle[open] summary {
+  border-bottom: 1px solid var(--rl-border);
+  border-radius: var(--rl-radius) var(--rl-radius) 0 0;
+}
+
+.task-bundle[open] .disclosure {
+  transform: rotate(90deg);
+}
+
+.task-bundle .preview {
+  padding: 12px;
+}
+
 /* Preview */
 
 .preview {
@@ -498,15 +550,33 @@ code {
 }
 
 .task-title {
-  display: -webkit-box;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  padding-top: 4px;
   font-size: 13.5px;
   font-weight: 600;
+}
+
+/* The title opens the task: it reads as a heading and acts as a link to everything it asked. */
+.task-open {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 4px 0 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.task-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .task-meta {

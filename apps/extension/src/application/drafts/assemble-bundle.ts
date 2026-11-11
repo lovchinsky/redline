@@ -12,6 +12,7 @@ import type { BundlePreview } from '@redline/rpc';
 import type { BundleRepository, StoredBundle } from '../../ports/drafts';
 import type { DraftRepository } from '../../ports/workspace';
 import type { WorkspaceWriter } from '../workspace/workspace-writer';
+import { frozenBundleOf } from './frozen-bundle';
 import type { StoredCaptures } from './stored-captures';
 
 export interface BundleAssemblerDeps {
@@ -25,12 +26,9 @@ export interface BundleAssemblerDeps {
 }
 
 const previewOf = ({ taskId, revision, bundle, warnings }: StoredBundle): BundlePreview => ({
-  taskId,
+  ...frozenBundleOf(taskId, bundle),
   revision,
-  digest: bundle.digest,
   createdAt: bundle.manifest.createdAt,
-  entry: bundle.manifest.entry,
-  files: bundle.manifest.files.map(({ path, mediaType, bytes }) => ({ path, mediaType, bytes })),
   warnings,
 });
 

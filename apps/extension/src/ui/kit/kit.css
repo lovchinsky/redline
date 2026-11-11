@@ -460,9 +460,14 @@
 }
 
 .sheet-header h2 {
+  display: -webkit-box;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   font-size: 14px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .sheet-body {

@@ -1,3 +1,4 @@
+import type { TaskId } from '@redline/core';
 import type { TaskView } from '@redline/rpc';
 import { Inbox } from 'lucide-preact';
 import type { UiServices } from '../services';
@@ -9,11 +10,13 @@ export const TasksPanel = ({
   tasks,
   actions,
   empty,
+  onOpen,
 }: {
   services: UiServices;
   tasks: readonly TaskView[];
   actions: TaskActions;
   empty: string;
+  onOpen: (taskId: TaskId) => void;
 }) =>
   tasks.length === 0 ? (
     <div class="panel-content">
@@ -26,7 +29,15 @@ export const TasksPanel = ({
     <div class="panel-content">
       <ul class="tasks">
         {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} actions={actions} services={services} />
+          <TaskCard
+            key={task.id}
+            task={task}
+            actions={actions}
+            services={services}
+            onOpen={() => {
+              onOpen(task.id);
+            }}
+          />
         ))}
       </ul>
     </div>

@@ -99,6 +99,14 @@ test('UI gallery', async () => {
       )
       .toBe('needs-input');
     await shot(panel, '07-panel-task-question');
+
+    await task.getByTestId('task-open').click();
+    await expect(panel.locator('[data-testid="task-sheet"] img.step-shot')).toHaveCount(2);
+    await shot(panel, '08-panel-task-sheet', false);
+    await panel.getByTestId('task-bundle').locator('summary').click();
+    await expect(panel.getByTestId('bundle-context')).toBeVisible();
+    await panel.getByTestId('task-bundle').scrollIntoViewIfNeeded();
+    await shot(panel, '08-panel-task-sheet-bundle', false);
     await context.close();
   } finally {
     await receiver.close();

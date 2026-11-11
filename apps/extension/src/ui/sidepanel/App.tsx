@@ -1,11 +1,13 @@
+import type { TaskId } from '@redline/core';
 import { Settings } from 'lucide-preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { IconButton } from '../kit/Button';
 import type { UiServices } from '../services';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { TranslatorProvider, useTranslator } from '../shared/i18n';
 import { Tabs } from '../shared/Tabs';
 import { DraftsPanel } from './DraftsPanel';
+import { TaskSheet } from './TaskSheet';
 import { TasksPanel } from './TasksPanel';
 import { useTasks } from './use-tasks';
 
@@ -15,6 +17,17 @@ const Panel = ({ services }: { services: UiServices }) => {
   const t = useTranslator();
   const [tab, setTab] = useState<Tab>('draft');
   const [tasks, actions] = useTasks(services);
+  // Kept here, not in a tab: a task that finishes moves to History and its sheet stays open.
+  const [openId, setOpenId] = useState<TaskId | null>(null);
+  const opened =
+    openId === null
+      ? undefined
+      : [...tasks.active, ...tasks.history].find((task) => task.id === openId);
+  // A task deleted or reopened as a draft has nothing left to show: its sheet closes for good.
+  const gone = openId !== null && !tasks.loading && opened === undefined;
+  useEffect(() => {
+    if (gone) setOpenId(null);
+  }, [gone]);
 
   return (
     <main class="panel">
@@ -46,6 +59,7 @@ const Panel = ({ services }: { services: UiServices }) => {
             tasks={tasks.active}
             actions={actions}
             empty={t.text('noTasks')}
+            onOpen={setOpenId}
           />
         )}
         {tab === 'history' && (
@@ -54,9 +68,21 @@ const Panel = ({ services }: { services: UiServices }) => {
             tasks={tasks.history}
             actions={actions}
             empty={t.text('noHistory')}
+            onOpen={setOpenId}
           />
         )}
       </Tabs>
+      {opened !== undefined && (
+        <TaskSheet
+          key={opened.id}
+          services={services}
+          task={opened}
+          actions={actions}
+          onClose={() => {
+            setOpenId(null);
+          }}
+        />
+      )}
     </main>
   );
 };

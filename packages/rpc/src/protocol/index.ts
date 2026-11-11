@@ -11,7 +11,7 @@ import { taskMethods } from './tasks';
 export * from './capture';
 export * from './diagnostics';
 export * from './drafts';
-export { type ProjectRef } from './shared';
+export { type FrozenBundle, type ProjectRef } from './shared';
 export * from './settings';
 export * from './tasks';
 

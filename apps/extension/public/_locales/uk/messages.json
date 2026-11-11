@@ -263,6 +263,15 @@
   "fileCount_other": {
     "message": "$1 файлу"
   },
+  "openTask": {
+    "message": "Відкрити задачу"
+  },
+  "taskBundle": {
+    "message": "Що отримав агент · $1"
+  },
+  "taskBundleMissing": {
+    "message": "Пакет цієї задачі більше недоступний: кроки показано без знімків."
+  },
   "previewSummary": {
     "message": "$1 · $2 · sha256 $3"
   },

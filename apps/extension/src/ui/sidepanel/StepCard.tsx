@@ -6,7 +6,7 @@ import type { LocalFiles } from '../../ports/drafts';
 import { Button, IconButton } from '../kit/Button';
 import { InlineConfirm } from '../kit/InlineConfirm';
 import { useTranslator } from '../shared/i18n';
-import { LocalImage } from './LocalImage';
+import { StepItem } from './StepItem';
 import type { DraftActions } from './use-drafts';
 
 interface StepCardProps {
@@ -17,10 +17,6 @@ interface StepCardProps {
   readonly actions: DraftActions;
   readonly files: LocalFiles;
 }
-
-/** Where the step was taken: host and route, the way a developer reads it. */
-const placeOf = (url: string, routePattern: string): string =>
-  `${new URL(url).host}${routePattern}`;
 
 export const StepCard = ({ taskId, step, position, count, actions, files }: StepCardProps) => {
   const t = useTranslator();
@@ -41,61 +37,56 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
   };
 
   return (
-    <li class="step" data-testid="step" aria-label={title}>
-      <span class="step-marker" aria-hidden="true">
-        {position + 1}
-      </span>
-      <div class="step-main">
-        <div class="step-head">
-          <span class="step-place" title={step.page.title || step.page.url}>
-            {placeOf(step.page.url, step.page.routePattern)}
-          </span>
-          {draft === null && !confirming && (
-            <div class="step-tools" role="group" aria-label={title}>
-              <IconButton
-                label={t.text('edit')}
-                onClick={() => {
-                  setDraft(step.comment);
-                }}
-              >
-                <Pencil size={14} />
-              </IconButton>
-              <IconButton
-                label={t.text('moveUp')}
-                disabled={position === 0}
-                onClick={() => {
-                  actions.moveStep(taskId, step.id, position - 1);
-                }}
-              >
-                <ArrowUp size={14} />
-              </IconButton>
-              <IconButton
-                label={t.text('moveDown')}
-                disabled={position === count - 1}
-                onClick={() => {
-                  actions.moveStep(taskId, step.id, position + 1);
-                }}
-              >
-                <ArrowDown size={14} />
-              </IconButton>
-              <IconButton
-                label={t.text('removeStep')}
-                danger
-                onClick={() => {
-                  setConfirming(true);
-                }}
-              >
-                <Trash size={14} />
-              </IconButton>
-            </div>
-          )}
-        </div>
-
-        {draft === null ? (
-          <p class="step-comment" data-testid="step-comment">
-            {step.comment}
-          </p>
-        ) : (
+    <StepItem
+      position={position}
+      page={step.page}
+      comment={step.comment}
+      image={step.thumbnail === null ? null : { kind: 'asset', id: step.thumbnail.id }}
+      files={files}
+      tools={
+        draft === null &&
+        !confirming && (
+          <div class="step-tools" role="group" aria-label={title}>
+            <IconButton
+              label={t.text('edit')}
+              onClick={() => {
+                setDraft(step.comment);
+              }}
+            >
+              <Pencil size={14} />
+            </IconButton>
+            <IconButton
+              label={t.text('moveUp')}
+              disabled={position === 0}
+              onClick={() => {
+                actions.moveStep(taskId, step.id, position - 1);
+              }}
+            >
+              <ArrowUp size={14} />
+            </IconButton>
+            <IconButton
+              label={t.text('moveDown')}
+              disabled={position === count - 1}
+              onClick={() => {
+                actions.moveStep(taskId, step.id, position + 1);
+              }}
+            >
+              <ArrowDown size={14} />
+            </IconButton>
+            <IconButton
+              label={t.text('removeStep')}
+              danger
+              onClick={() => {
+                setConfirming(true);
+              }}
+            >
+              <Trash size={14} />
+            </IconButton>
+          </div>
+        )
+      }
+      editor={
+        draft === null ? undefined : (
           <div class="step-edit">
             <textarea
               class="textarea"
@@ -127,31 +118,22 @@ export const StepCard = ({ taskId, step, position, count, actions, files }: Step
               </Button>
             </div>
           </div>
-        )}
-
-        {confirming && (
-          <InlineConfirm
-            question={t.text('confirmRemoveStep')}
-            confirmLabel={t.text('removeStep')}
-            cancelLabel={t.text('cancel')}
-            onCancel={() => {
-              setConfirming(false);
-            }}
-            onConfirm={() => {
-              actions.removeStep(taskId, step.id);
-            }}
-          />
-        )}
-
-        {step.thumbnail !== null && (
-          <LocalImage
-            class="step-shot"
-            files={files}
-            source={{ kind: 'asset', id: step.thumbnail.id }}
-            alt={t.text('stepScreenshot', t.number(position + 1))}
-          />
-        )}
-      </div>
-    </li>
+        )
+      }
+    >
+      {confirming && (
+        <InlineConfirm
+          question={t.text('confirmRemoveStep')}
+          confirmLabel={t.text('removeStep')}
+          cancelLabel={t.text('cancel')}
+          onCancel={() => {
+            setConfirming(false);
+          }}
+          onConfirm={() => {
+            actions.removeStep(taskId, step.id);
+          }}
+        />
+      )}
+    </StepItem>
   );
 };

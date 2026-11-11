@@ -3,7 +3,7 @@ import type { DeleteTask } from './delete-task';
 import type { FollowRemote } from './follow-remote';
 import type { ManageSettings } from './settings';
 import type { ReopenDraft, ResolveDeliveryTarget, RetryDelivery, SubmitTask } from './submit-task';
-import type { ListTasks } from './task-queries';
+import type { GetTask, ListTasks } from './task-queries';
 
 export interface DeliveryUseCases {
   readonly resolveTarget: ResolveDeliveryTarget;
@@ -12,6 +12,7 @@ export interface DeliveryUseCases {
   readonly reopenDraft: ReopenDraft;
   readonly followRemote: FollowRemote;
   readonly listTasks: ListTasks;
+  readonly getTask: GetTask;
   readonly deleteTask: DeleteTask;
   readonly settings: ManageSettings;
 }
@@ -24,6 +25,7 @@ type DeliveryMethods =
   | 'task.refresh'
   | 'task.reply'
   | 'tasks.list'
+  | 'tasks.get'
   | 'tasks.delete'
   | 'receiver.get'
   | 'receiver.configure'
@@ -40,6 +42,7 @@ export const createDeliveryHandlers = ({
   reopenDraft,
   followRemote,
   listTasks,
+  getTask,
   deleteTask,
   settings,
 }: DeliveryUseCases): Pick<ProtocolHandlers<AppProtocol>, DeliveryMethods> => ({
@@ -50,6 +53,7 @@ export const createDeliveryHandlers = ({
   'task.refresh': ({ taskId }) => followRemote.refresh(taskId),
   'task.reply': ({ taskId, questionId, text }) => followRemote.reply(taskId, questionId, text),
   'tasks.list': () => listTasks.execute(),
+  'tasks.get': ({ taskId }) => getTask.execute(taskId),
   'tasks.delete': ({ taskId }) => deleteTask.execute(taskId),
   'receiver.get': () => settings.receiver(),
   'receiver.configure': (request) => settings.configureReceiver(request),

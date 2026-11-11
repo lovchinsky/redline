@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { startMockReceiver, type MockReceiver } from '@redline/mock-receiver';
 import type { BrowserContext, Page } from '@playwright/test';
 import { captureStep } from './capture-helpers';
@@ -92,6 +93,89 @@ test('from lasso to result: send, answer the agent, open the result', async ({ c
   await draftOneStep(context, panel, 'And the footer');
   await expect(panel.getByTestId('project-select')).toHaveCount(0);
   await expect(panel.getByTestId('send')).toHaveText('Надіслати в «Acme Web»');
+});
+
+test('a sent task opens with everything it asked for, in progress and in history', async ({
+  context,
+}) => {
+  await configureReceiver(context);
+  const panel = await openSidePanel(context);
+  const site = await context.newPage();
+  await site.goto(`${SITE_ORIGIN}/pricing.html`);
+  await captureStep(site, panel, {
+    around: '[data-testid="plan-card"]',
+    comment: 'Make the cards equal height',
+  });
+  await captureStep(site, panel, {
+    around: '[data-testid="enterprise-card"]',
+    comment: 'Rename Enterprise to Business',
+  });
+  await site.close();
+  await panel.bringToFront();
+  await expect(panel.getByTestId('step')).toHaveCount(2);
+  await panel.getByTestId('project-select').selectOption({ label: 'Acme Web' });
+  await panel.getByTestId('send').click();
+  await expect(panel.getByTestId('empty-draft')).toBeVisible();
+
+  // In progress: the card shows the first comment; its sheet shows every step with its picture.
+  await panel.getByTestId('tab-active').click();
+  const openTask = task(panel).getByRole('button', { name: 'Відкрити задачу' });
+  await openTask.click();
+  const sheet = panel.getByTestId('task-sheet');
+  await expect(sheet.getByTestId('task-state')).toBeVisible();
+  await expect(sheet.getByTestId('step-comment')).toHaveText([
+    'Make the cards equal height',
+    'Rename Enterprise to Business',
+  ]);
+  await expect(sheet.locator('img.step-shot')).toHaveCount(2);
+
+  // What the agent got is one click further, read from the same frozen bundle.
+  await sheet.getByTestId('task-bundle').locator('summary').click();
+  await expect(sheet.getByTestId('bundle-context')).toContainText('Rename Enterprise to Business');
+  const { violations } = await new AxeBuilder({ page: panel })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  expect(violations.map(({ id }) => id)).toEqual([]);
+
+  // A modal sheet: Escape closes it and focus goes back to the task it was opened from.
+  await panel.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect(openTask).toBeFocused();
+
+  // The title opens it too.
+  await task(panel).getByTestId('task-open').click();
+  await expect(sheet).toBeVisible();
+  await panel.keyboard.press('Escape');
+
+  // The agent's question is answered from the sheet, with the steps in view.
+  await expect
+    .poll(
+      async () => {
+        await task(panel).getByTestId('refresh').click();
+        return task(panel).getAttribute('data-phase');
+      },
+      { intervals: [1_100] },
+    )
+    .toBe('needs-input');
+  await task(panel).getByTestId('task-open').click();
+  await sheet.getByRole('button', { name: 'Desktop only' }).click();
+  await expect(sheet.getByTestId('question')).toHaveCount(0);
+  await panel.keyboard.press('Escape');
+
+  // Finished, the task opens from History just the same.
+  await expect
+    .poll(
+      async () => {
+        if ((await task(panel).count()) > 0) await task(panel).getByTestId('refresh').click();
+        return task(panel).count();
+      },
+      { intervals: [1_100] },
+    )
+    .toBe(0);
+  await panel.getByTestId('tab-history').click();
+  await task(panel).getByTestId('task-open').click();
+  await expect(sheet.getByTestId('step-comment')).toHaveCount(2);
+  await expect(sheet.getByRole('button', { name: 'Відкрити результат' })).toBeVisible();
 });
 
 test('offline while sending: nothing is lost, nothing is sent twice', async ({ context }) => {

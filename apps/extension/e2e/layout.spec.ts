@@ -107,6 +107,16 @@ test('long names, URLs and wide screenshots fit a narrow side panel, options pag
   await panel.getByTestId('tab-history').click();
   await expectNoSidewaysScroll(panel, 'history');
 
+  // The task's sheet: the long comment, the wide screenshot and the bundle, opened.
+  await panel.getByTestId('tab-active').click();
+  await panel.getByTestId('task-open').click();
+  await panel.getByTestId('task-bundle').locator('summary').click();
+  await expect(panel.getByTestId('bundle-context')).toBeVisible();
+  await expectNoSidewaysScroll(panel, 'task sheet');
+  const sheetShot = await panel.getByTestId('task-sheet').locator('.step-shot').boundingBox();
+  expect(sheetShot?.width ?? 0).toBeLessThanOrEqual(NARROW.width);
+  await panel.keyboard.press('Escape');
+
   // The site is now bound to the long-named project.
   await options.reload();
   await expect(options.getByTestId('binding')).toContainText(PROJECT);

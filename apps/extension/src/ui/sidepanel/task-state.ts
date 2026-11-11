@@ -65,3 +65,10 @@ export const titleOf = (
   t: Translator,
   task: { readonly title: string | null; readonly firstComment: string | null },
 ): string => task.title ?? task.firstComment ?? t.text('emptyDraft');
+
+/** Which project, how many steps, and when it last changed. */
+export const metaOf = (
+  t: Translator,
+  task: { readonly projectName: string; readonly stepCount: number; readonly updatedAt: number },
+): string =>
+  `${task.projectName} · ${t.count('stepCount', task.stepCount)} · ${t.time(task.updatedAt)}`;

@@ -1,8 +1,15 @@
 /** Sent tasks: sending a draft, and following it on the receiver. */
-import { TaskId, bindingSchema, deliveryErrorSchema, remoteStatusSchema } from '@redline/core';
+import {
+  StepId,
+  TaskId,
+  bindingSchema,
+  deliveryErrorSchema,
+  pageRefSchema,
+  remoteStatusSchema,
+} from '@redline/core';
 import * as z from 'zod/mini';
 import { defineProtocol } from '../runtime/define';
-import { empty, taskRef, projectSchema } from './shared';
+import { empty, frozenBundleSchema, taskRef, projectSchema } from './shared';
 
 /** Something went wrong, with what the user can do about it when that is known. */
 const problemSchema = deliveryErrorSchema;
@@ -59,6 +66,30 @@ export const taskViewSchema = z.object({
 });
 
 export type TaskView = z.infer<typeof taskViewSchema>;
+
+/** One step of a sent task, as the requester wrote it, with its picture in the frozen bundle. */
+export const sentStepSchema = z.object({
+  id: StepId,
+  comment: z.string(),
+  page: pageRefSchema,
+  /** Path in the bundle of the first circled area's image; `null` if it has none. */
+  image: z.nullable(z.string()),
+});
+
+export type SentStep = z.infer<typeof sentStepSchema>;
+
+/**
+ * What a sent task asked for: its steps and the bundle that was delivered. Frozen at sending,
+ * so it is read once; where the task is now comes with `tasks.list`.
+ */
+export const sentTaskSchema = z.object({
+  id: TaskId,
+  steps: z.readonly(z.array(sentStepSchema)),
+  /** `null` if the bundle can no longer be read; the steps still show without pictures. */
+  bundle: z.nullable(frozenBundleSchema),
+});
+
+export type SentTask = z.infer<typeof sentTaskSchema>;
 
 /** Where a draft would go: each site of its steps with its binding, and the project if clear. */
 export const deliveryTargetSchema = z.object({
@@ -118,6 +149,8 @@ export const taskMethods = defineProtocol({
     response: z.object({ tasks: z.readonly(z.array(taskViewSchema)) }),
     callers: ['extension'],
   },
+  /** The steps and the bundle of a sent task. */
+  'tasks.get': { request: taskRef, response: sentTaskSchema, callers: ['extension'] },
   /** Deletes a sent task in any state; one the receiver accepted keeps going there. */
   'tasks.delete': { request: taskRef, response: empty, callers: ['extension'] },
 });

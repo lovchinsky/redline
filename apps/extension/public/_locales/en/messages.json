@@ -263,6 +263,15 @@
   "fileCount_other": {
     "message": "$1 files"
   },
+  "openTask": {
+    "message": "Open task"
+  },
+  "taskBundle": {
+    "message": "What the agent got · $1"
+  },
+  "taskBundleMissing": {
+    "message": "This task’s bundle is no longer available: its steps show without pictures."
+  },
   "previewSummary": {
     "message": "$1 · $2 · sha256 $3"
   },

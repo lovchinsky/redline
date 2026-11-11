@@ -2,7 +2,7 @@
 import { StepId, TaskId, assetRefSchema, pageRefSchema } from '@redline/core';
 import * as z from 'zod/mini';
 import { defineProtocol } from '../runtime/define';
-import { empty, taskRef, stepRef } from './shared';
+import { empty, frozenBundleSchema, taskRef, stepRef } from './shared';
 
 export const draftSummarySchema = z.object({
   id: TaskId,
@@ -38,22 +38,10 @@ export const draftViewSchema = z.object({
 
 export type DraftView = z.infer<typeof draftViewSchema>;
 
-export const bundlePreviewSchema = z.object({
-  taskId: TaskId,
+/** The bundle a draft would be sent as, and the content it was assembled from. */
+export const bundlePreviewSchema = z.extend(frozenBundleSchema, {
   revision: z.int().check(z.nonnegative()),
-  /** Content hash of the frozen bundle; exactly this content is what gets delivered. */
-  digest: z.string().check(z.regex(/^[a-f0-9]{64}$/)),
   createdAt: z.string(),
-  entry: z.string(),
-  files: z.readonly(
-    z.array(
-      z.object({
-        path: z.string(),
-        mediaType: z.string(),
-        bytes: z.int().check(z.nonnegative()),
-      }),
-    ),
-  ),
   warnings: z.readonly(z.array(z.string())),
 });
 

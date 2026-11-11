@@ -49,7 +49,7 @@ import {
   RetryDelivery,
   SubmitTask,
 } from '../application/delivery/submit-task';
-import { ListTasks } from '../application/delivery/task-queries';
+import { GetTask, ListTasks } from '../application/delivery/task-queries';
 import { AssembleBundle, BundleAssembler } from '../application/drafts/assemble-bundle';
 import { CollectGarbage } from '../application/drafts/collect-garbage';
 import { CommitStep } from '../application/drafts/commit-step';
@@ -253,6 +253,7 @@ export const createBackgroundServices = (platform: BackgroundPlatform, logger: L
       reopenDraft: new ReopenDraft(deliveryActions),
       followRemote,
       listTasks: new ListTasks(tasks),
+      getTask: new GetTask(tasks, bundles),
       deleteTask: new DeleteTask({
         tasks,
         bundles,
