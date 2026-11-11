@@ -42,7 +42,7 @@ export const Button = ({
     {...rest}
   >
     {icon}
-    {children !== undefined && <span>{children}</span>}
+    {children !== undefined && <span class="btn-label">{children}</span>}
   </button>
 );
 

@@ -66,6 +66,12 @@
   flex: none;
 }
 
+/* Trimmed to the letters: centred in the button by their caps and baseline, not by the font's
+   ascent and descent, so the label sits level with the icon whatever the font. */
+.btn-label {
+  text-box: trim-both cap alphabetic;
+}
+
 .btn:disabled {
   cursor: default;
   opacity: 0.45;

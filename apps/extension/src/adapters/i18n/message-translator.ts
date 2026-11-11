@@ -25,6 +25,7 @@ export class MessageTranslator implements Translator {
   private readonly numbers: Intl.NumberFormat;
   private readonly times: Intl.DateTimeFormat;
   private readonly dateTimes: Intl.DateTimeFormat;
+  private readonly moments: Intl.DateTimeFormat;
 
   constructor(private readonly source: MessageSource) {
     this.locale = source.message('locale', []);
@@ -35,6 +36,7 @@ export class MessageTranslator implements Translator {
       dateStyle: 'short',
       timeStyle: 'medium',
     });
+    this.moments = new Intl.DateTimeFormat(this.locale, { dateStyle: 'short', timeStyle: 'short' });
   }
 
   text(key: MessageKey, ...substitutions: readonly string[]): string {
@@ -58,5 +60,10 @@ export class MessageTranslator implements Translator {
 
   dateTime(epochMs: number): string {
     return this.dateTimes.format(epochMs);
+  }
+
+  moment(epochMs: number, now: number): string {
+    const sameDay = new Date(epochMs).toDateString() === new Date(now).toDateString();
+    return sameDay ? this.time(epochMs) : this.moments.format(epochMs);
   }
 }

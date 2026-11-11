@@ -30,4 +30,6 @@ export interface Translator {
   time(epochMs: number): string;
   /** Date and time. */
   dateTime(epochMs: number): string;
+  /** When something happened: hours and minutes on the day of `now`, the date too before it. */
+  moment(epochMs: number, now: number): string;
 }

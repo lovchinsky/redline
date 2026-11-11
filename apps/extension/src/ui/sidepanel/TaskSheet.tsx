@@ -2,7 +2,7 @@ import type { AppError } from '@redline/core';
 import type { SentTask, TaskView } from '@redline/rpc';
 import { ChevronRight, Download, LoaderCircle } from 'lucide-preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Button } from '../kit/Button';
+import { IconButton } from '../kit/Button';
 import { Sheet } from '../kit/Sheet';
 import type { UiServices } from '../services';
 import { ErrorAlert } from '../shared/ErrorAlert';
@@ -63,18 +63,17 @@ export const TaskSheet = ({ services, task, actions, onClose }: TaskSheetProps) 
       onClose={onClose}
       actions={
         bundle !== null && (
-          <Button
-            size="sm"
+          <IconButton
+            label={t.text('downloadZip')}
             data-testid="download-zip"
-            icon={<Download size={14} aria-hidden="true" />}
             onClick={() =>
               void downloadBundle(services, bundle).then((downloaded) => {
                 setDownloadError(downloaded.ok ? null : downloaded.error);
               })
             }
           >
-            {t.text('downloadZip')}
-          </Button>
+            <Download size={16} />
+          </IconButton>
         )
       }
     >

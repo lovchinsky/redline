@@ -286,7 +286,7 @@ code {
 
 .step-edit {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .step-shot {
@@ -614,7 +614,7 @@ code {
 .question-answer {
   display: grid;
   justify-items: end;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* ── Options ──────────────────────────────────────────────────────────── */

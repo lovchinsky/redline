@@ -3,9 +3,9 @@ import type { CaptureRecord } from '@redline/rpc';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { MessageKey, Translator } from '../../ports/i18n';
 import type { UiServices } from '../services';
-import { ChevronRight, Download } from 'lucide-preact';
+import { ChevronRight, Download, Trash } from 'lucide-preact';
 import { Badge } from '../kit/Badge';
-import { Button } from '../kit/Button';
+import { IconButton } from '../kit/Button';
 import { downloadBlob } from '../shared/download';
 import { ErrorAlert } from '../shared/ErrorAlert';
 import { useTranslator } from '../shared/i18n';
@@ -118,17 +118,16 @@ export const DiagnosticsSection = ({ services }: { services: UiServices }) => {
       actions={
         records.length > 0 && (
           <>
-            <Button
-              size="sm"
+            <IconButton
+              label={t.text('diagnosticsExport')}
               data-testid="export-diagnostics"
-              icon={<Download size={14} aria-hidden="true" />}
               onClick={exportJson}
             >
-              {t.text('diagnosticsExport')}
-            </Button>
-            <Button size="sm" variant="danger" onClick={() => void clear()}>
-              {t.text('diagnosticsClear')}
-            </Button>
+              <Download size={16} />
+            </IconButton>
+            <IconButton label={t.text('diagnosticsClear')} danger onClick={() => void clear()}>
+              <Trash size={16} />
+            </IconButton>
           </>
         )
       }

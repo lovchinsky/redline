@@ -2,7 +2,7 @@ import type { AppError } from '@redline/core';
 import type { DraftView, BundlePreview as Preview } from '@redline/rpc';
 import { Download, LoaderCircle, RefreshCw } from 'lucide-preact';
 import { useCallback, useEffect, useState } from 'preact/hooks';
-import { Button } from '../kit/Button';
+import { Button, IconButton } from '../kit/Button';
 import { Sheet } from '../kit/Sheet';
 import type { UiServices } from '../services';
 import { ErrorAlert } from '../shared/ErrorAlert';
@@ -59,14 +59,13 @@ export const PreviewSheet = ({ services, draft, onClose }: PreviewSheetProps) =>
       onClose={onClose}
       actions={
         state.kind === 'ready' && (
-          <Button
-            size="sm"
+          <IconButton
+            label={t.text('downloadZip')}
             data-testid="download-zip"
-            icon={<Download size={14} aria-hidden="true" />}
             onClick={() => void download(state.preview)}
           >
-            {t.text('downloadZip')}
-          </Button>
+            <Download size={16} />
+          </IconButton>
         )
       }
     >
