@@ -10,6 +10,8 @@ const LONG_WORD = `https://lms.example/${'x'.repeat(120)}`;
 
 /** A side panel as narrow as Chrome lets it be. */
 const NARROW = { width: 360, height: 760 };
+/** A narrow browser window: the options page opens in a tab of its own, never in the panel. */
+const NARROW_TAB = { width: 500, height: 760 };
 
 let receiver: MockReceiver;
 test.beforeEach(async () => {
@@ -43,7 +45,7 @@ test('long names, URLs and wide screenshots fit a narrow side panel, options pag
   context,
 }) => {
   const options = await openOptions(context);
-  await options.setViewportSize(NARROW);
+  await options.setViewportSize(NARROW_TAB);
   await options.getByTestId('receiver-url').fill(receiver.url);
   await options.getByTestId('receiver-token').fill('secret');
   await options.getByTestId('receiver-save').click();
